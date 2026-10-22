@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
+import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React from "react";
@@ -36,8 +36,8 @@ function NativeTabLayout() {
     <NativeTabs>
       {TABS.map((t) => (
         <NativeTabs.Trigger key={t.name} name={t.name}>
-          <Icon sf={{ default: t.sf as never, selected: `${t.sf}.fill` as never }} />
-          <Label>{t.title}</Label>
+          <NativeTabs.Trigger.Icon sf={{ default: t.sf as never, selected: `${t.sf}.fill` as never }} />
+          <NativeTabs.Trigger.Label>{t.title}</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
       ))}
     </NativeTabs>
