@@ -1,0 +1,2 @@
+- [SportDrip league architecture](sportdrip-league-invites.md) — leagues are shared, server-owned Firestore docs; all writes via callables; invites are code lookups.
+- [SportDrip league loans](sportdrip-bank-loans.md) — simple interest on outstanding principal, computed by shared pure `loanMath`; no timer writes.

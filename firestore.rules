@@ -1,0 +1,211 @@
+rules_version = '2';
+
+// SportDrip Firestore rules.
+//
+// Principle: anything that affects the economy (balance, inventory, bets,
+// prize boxes, ledger) is written ONLY by Cloud Functions using the Admin SDK,
+// which bypasses these rules. The client is read-only on all of it.
+//
+// Deploy:  firebase deploy --only firestore:rules,firestore:indexes
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // True if a friendship doc exists between the caller and uid.
+    function isFriend(uid) {
+      return signedIn() && exists(
+        /databases/$(database)/documents/friendships/$(pairId(request.auth.uid, uid))
+      );
+    }
+
+    // Canonical, order-independent friendship id.
+    function pairId(a, b) {
+      return a < b ? a + '_' + b : b + '_' + a;
+    }
+
+    // Fields the client is allowed to change on its own user doc.
+    // Everything else (balance, stats, onboarded, username, createdAt) is
+    // server-owned. Avatar appearance and equipped items are validated by the
+    // updateAvatar / equipItem callables, so they are denied here too.
+    function onlyChanging(allowed) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(allowed);
+    }
+
+    // ---------------------------------------------------------------------
+    // users/{uid}
+    // ---------------------------------------------------------------------
+    match /users/{uid} {
+      // Own doc: full read. Other users: read is allowed so friend lists,
+      // leaderboards and league standings can render avatars and names.
+      // Never put anything private in this document — email lives here, so
+      // if that becomes a concern move it to users/{uid}/private/contact.
+      // `list` let any signed-in client page the entire user base, email and
+      // balance included. Discovery goes through the searchUsers callable,
+      // which returns public fields only.
+      allow get: if signedIn();
+      allow list: if false;
+
+      // No client writes at all. Profile creation, avatar edits, equipping and
+      // every balance change go through callables.
+      allow create, update, delete: if false;
+
+      // Inventory: owner reads, server writes.
+      match /inventory/{itemId} {
+        allow read: if isSelf(uid) || isFriend(uid);
+        allow write: if false;
+      }
+
+      // Credit ledger: owner reads only. This is the audit trail.
+      match /ledger/{entryId} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      // Prize box state: owner reads, server writes. readyAt is a server
+      // timestamp, so the device clock is irrelevant.
+      match /prizeBoxes/{tier} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      // Notifications: written by the server in the same transaction that
+      // moved the money. The owner may only flip `read`.
+      match /notifications/{notificationId} {
+        allow read: if isSelf(uid);
+        allow update: if isSelf(uid) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
+                      request.resource.data.read is bool;
+        allow create, delete: if false;
+      }
+
+      // Private subdoc for anything that must not be visible to other users.
+      match /private/{docId} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // usernames/{usernameLower} -> { uid }
+    // Uniqueness claims. Read is public so the signup form can check
+    // availability; writes are transactional in createProfile.
+    // ---------------------------------------------------------------------
+    match /usernames/{username} {
+      allow get: if signedIn();
+      allow list: if false;          // prevents enumerating the user base
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // friendRequests/{fromUid_toUid}
+    // ---------------------------------------------------------------------
+    match /friendRequests/{reqId} {
+      allow read: if signedIn() &&
+                  (resource.data.from == request.auth.uid ||
+                   resource.data.to == request.auth.uid);
+      allow write: if false;         // sendFriendRequest / respondFriendRequest
+    }
+
+    // ---------------------------------------------------------------------
+    // friendships/{pairId}  (pairId = sorted uids joined by '_')
+    // The canonical id is what makes duplicate friendships impossible.
+    // ---------------------------------------------------------------------
+    match /friendships/{pairId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.users;
+      allow write: if false;         // respondFriendRequest / removeFriend
+    }
+
+    // ---------------------------------------------------------------------
+    // bets/{betId}
+    // ---------------------------------------------------------------------
+    match /bets/{betId} {
+      allow get: if signedIn() &&
+                 (resource.data.uid == request.auth.uid ||
+                  isFriend(resource.data.uid));
+      // A comment asking for a where clause is not enforcement. Evaluating
+      // ownership per document forces the query to carry the filter: an
+      // unscoped list now fails instead of returning every bet in the app.
+      allow list: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;         // placeBet / settleBets
+    }
+
+    // ---------------------------------------------------------------------
+    // games/{gameId} — server-cached sports data. Read-only for everyone.
+    // ---------------------------------------------------------------------
+    match /games/{gameId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // catalog/{itemId} — clothing/accessories. Read-only for everyone.
+    // Add items from the Firebase console or an admin script; no app release.
+    // ---------------------------------------------------------------------
+    match /catalog/{itemId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // leagues/{leagueId}
+    //
+    // Behind the trusted boundary as of Pass 4. Members read; nobody writes.
+    // Create, join, leave, bets, loans, settings and payouts all go through
+    // callables (functions/src/callable/leagues.ts). Before this a member
+    // could write their own `leagueTokens` to any value and "approve" a loan
+    // that minted tokens out of nothing.
+    // ---------------------------------------------------------------------
+    function isLeagueMember(leagueId) {
+      return signedIn() && request.auth.uid in
+        get(/databases/$(database)/documents/leagues/$(leagueId)).data.memberIds;
+    }
+
+    match /leagues/{leagueId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow write: if false;
+
+      match /leagueBets/{betId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+      match /loans/{loanId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+      match /activity/{entryId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+      // Pre-Pass-4 client-written bets. Never settled, never shown.
+      match /bets/{betId} {
+        allow read, write: if false;
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // leagueInvites/{code} -> { leagueId, leagueName, buyIn }
+    // Get-by-code so a code can be previewed; written only by createLeague.
+    // ---------------------------------------------------------------------
+    match /leagueInvites/{code} {
+      allow get: if signedIn();
+      allow list: if false;          // prevents enumerating every invite code
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // Default deny.
+    // ---------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

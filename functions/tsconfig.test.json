@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "build-test",
+    "sourceMap": false,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src",
+    "test",
+    "../artifacts/mobile/lib/notificationQueue.ts",
+    "../artifacts/mobile/lib/avatar3d/avatarRules.ts",
+    "../artifacts/mobile/lib/avatar3d/outfit.ts",
+    "../artifacts/mobile/lib/avatar3d/outfitPresets.ts",
+    "../artifacts/mobile/lib/avatar3d/attach.ts",
+    "../artifacts/mobile/lib/avatar3d/rigNames.ts"
+  ]
+}
