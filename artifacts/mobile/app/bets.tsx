@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
+import GameQuickView from "@/components/GameQuickView";
 import { Amount, EmptyState, ScreenHeader, SegmentedControl, StatTile, useBottomPad } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useLeague } from "@/context/LeagueContext";
@@ -31,6 +32,7 @@ export default function MyBetsScreen() {
   const [tab, setTab] = useState<Tab>("open");
   const [wallet, setWallet] = useState<string>(params.wallet ?? "all");
   const [busy, setBusy] = useState<string | null>(null);
+  const [quickGame, setQuickGame] = useState<string | null>(null);
 
   const rows: Row[] = useMemo(() => {
     const out: Row[] = [];
@@ -64,7 +66,7 @@ export default function MyBetsScreen() {
         back
         title="My bets"
         subtitle={`${won}W · ${lost}L${pushes ? ` · ${pushes}P` : ""}${winRate !== null ? ` · ${winRate}% hit rate` : ""}`}
-        right={<Amount value={balance} />}
+        right={<Amount value={balance} animate />}
       >
         <View style={styles.stats}>
           <StatTile label="Staked" hint="credits, all time">
@@ -117,6 +119,7 @@ export default function MyBetsScreen() {
             walletLabel={item.wallet ?? undefined}
             game={gameById.get(item.bet.gameId) ?? null}
             busy={busy === item.key}
+            onOpen={() => setQuickGame(item.bet.gameId)}
             onCancel={
               item.cancellable
                 ? async () => {
@@ -142,6 +145,7 @@ export default function MyBetsScreen() {
           />
         }
       />
+      <GameQuickView gameId={quickGame} onClose={() => setQuickGame(null)} />
     </View>
   );
 }

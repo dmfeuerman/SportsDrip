@@ -5,6 +5,8 @@ setGlobalOptions({ region: "us-central1", maxInstances: 20 });
 // Profile / identity
 export { createProfile, checkUsername, updateAvatar, searchUsers } from "./callable/profile";
 export { saveAppearance } from "./callable/avatar";
+export { getPlayerProfile, updateFavoriteTeams } from "./callable/players";
+export { getGameInsights } from "./callable/insights";
 
 // Social graph
 export {
@@ -18,6 +20,7 @@ export {
 export { placeBet, cancelBet } from "./callable/bets";
 export { purchaseItem, equipItem } from "./callable/shop";
 export { openPrizeBox, claimPrizeBox, resetPrizeBox } from "./callable/prizes";
+export { admobReward, claimAdReward } from "./http/adReward";
 
 // Leagues — every league mutation goes through one of these.
 export {

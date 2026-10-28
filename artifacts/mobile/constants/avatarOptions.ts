@@ -78,6 +78,13 @@ export function normalizeAvatar(a: Partial<AvatarConfig> | null | undefined): Av
   return sanitizeAppearance(a);
 }
 
+/**
+ * The look every new account starts from: no premade characters to pick from,
+ * just a plain base — bald, clean-shaven, brown eyes, default face — that the
+ * player builds up in the creator.
+ */
+export const SIGNUP_AVATAR: AvatarConfig = normalizeAvatar({ ...DEFAULT_AVATAR, hairStyle: "bald", facialHair: "none", eyeColor: EYE_COLORS[0] });
+
 /** Randomiser for the "surprise me" button — keeps onboarding fast (§8). */
 export function randomAvatar(): AvatarConfig {
   const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)]!;

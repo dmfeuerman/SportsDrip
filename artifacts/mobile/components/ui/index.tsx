@@ -15,6 +15,9 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import PressableScale from "@/components/fx/PressableScale";
+import RollingNumber from "@/components/fx/RollingNumber";
+import Shimmer from "@/components/fx/Shimmer";
 import { useColors, type Colors } from "@/hooks/useColors";
 
 /**
@@ -80,6 +83,7 @@ export function Button({
   style,
   haptic = true,
   accessibilityHint,
+  shimmer,
 }: {
   label: string;
   onPress?: () => void;
@@ -91,49 +95,55 @@ export function Button({
   style?: StyleProp<ViewStyle>;
   haptic?: boolean;
   accessibilityHint?: string;
+  /** A periodic glint across the button: for the one primary call to action on a screen. */
+  shimmer?: boolean;
 }) {
   const c = useColors();
   const palette: Record<ButtonVariant, { bg: string; fg: string; border: string }> = {
     primary: { bg: c.primary, fg: c.primaryForeground, border: c.primary },
-    secondary: { bg: c.secondary, fg: c.foreground, border: c.border },
-    ghost: { bg: "transparent", fg: c.foreground, border: "transparent" },
-    destructive: { bg: "transparent", fg: c.destructive, border: c.destructive },
+    // Every variant has a visible fill or outline so it always reads as a button.
+    secondary: { bg: c.secondary, fg: c.foreground, border: c.alpha(c.foreground, 0.22) },
+    ghost: { bg: c.alpha(c.foreground, 0.05), fg: c.foreground, border: c.alpha(c.foreground, 0.2) },
+    destructive: { bg: c.alpha(c.destructive, 0.12), fg: c.destructive, border: c.destructive },
     league: { bg: c.league, fg: c.accentForeground, border: c.league },
   };
   const p = palette[variant];
   const off = disabled || loading;
-  const pad = size === "sm" ? { paddingVertical: 8, paddingHorizontal: 12 } : size === "lg" ? { paddingVertical: 16, paddingHorizontal: 20 } : { paddingVertical: 12, paddingHorizontal: 16 };
-  const font = size === "sm" ? 13 : size === "lg" ? 16 : 15;
+  const filled = variant === "primary" || variant === "league";
+  const pad = size === "sm" ? { paddingVertical: 9, paddingHorizontal: 14 } : size === "lg" ? { paddingVertical: 16, paddingHorizontal: 20 } : { paddingVertical: 13, paddingHorizontal: 18 };
+  const font = size === "sm" ? 14 : size === "lg" ? 17 : 15;
 
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!off, busy: !!loading }}
       disabled={off}
-      onPress={() => {
-        if (haptic) Haptics.selectionAsync().catch(() => {});
-        onPress?.();
-      }}
-      style={({ pressed }) => [
+      scaleTo={0.96}
+      dimTo={0.88}
+      haptic={haptic ? "tick" : false}
+      onPress={onPress}
+      style={[
         styles.btn,
         pad,
-        { backgroundColor: p.bg, borderColor: p.border, opacity: off ? 0.45 : pressed ? 0.82 : 1, transform: [{ scale: pressed && !off ? 0.985 : 1 }] },
+        { backgroundColor: p.bg, borderColor: p.border, opacity: off ? 0.45 : 1 },
+        filled && !off && { shadowColor: p.bg, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
         style,
       ]}
     >
+      {shimmer && filled && !off ? <Shimmer style={{ borderRadius: 12 }} /> : null}
       {loading ? (
         <ActivityIndicator size="small" color={p.fg} />
       ) : (
         <>
           {icon && <MaterialCommunityIcons name={icon} size={font + 2} color={p.fg} />}
-          <Text style={[styles.btnText, { color: p.fg, fontSize: font }]} numberOfLines={1}>
+          <Text style={[styles.btnText, { color: p.fg, fontSize: font, letterSpacing: variant === "primary" ? -0.1 : 0 }]} numberOfLines={1}>
             {label}
           </Text>
         </>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -173,6 +183,38 @@ export function IconButton({
   );
 }
 
+/** The one close affordance every sheet and overlay uses: 36pt visual, ~60pt touch target. */
+export function CloseButton({
+  onPress,
+  label = "Close",
+  disabled,
+  style,
+}: {
+  onPress: () => void;
+  label?: string;
+  disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const c = useColors();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={12}
+      style={({ pressed }) => [
+        styles.closeBtn,
+        { backgroundColor: c.secondary, borderColor: c.border, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 },
+        style,
+      ]}
+    >
+      <MaterialCommunityIcons name="close" size={20} color={c.foreground} />
+    </Pressable>
+  );
+}
+
 // ── Surfaces ───────────────────────────────────────────────────────────────
 
 export function Card({
@@ -193,14 +235,9 @@ export function Card({
   const base = [styles.card, { backgroundColor: c.card, borderColor: border }, style];
   if (!onPress) return <View style={base}>{children}</View>;
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      onPress={onPress}
-      style={({ pressed }) => [...base, { opacity: pressed ? 0.88 : 1 }]}
-    >
+    <PressableScale accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} scaleTo={0.98} dimTo={0.94} style={base}>
       {children}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -211,7 +248,7 @@ export function Pill({ label, tone = "neutral", icon, style }: { label: string; 
     <View style={[styles.pill, { backgroundColor: t.bg }, style]}>
       {icon && <MaterialCommunityIcons name={icon} size={12} color={t.fg} />}
       <Text style={[styles.pillText, { color: t.fg }]} numberOfLines={1}>
-        {label}
+        {label.toUpperCase()}
       </Text>
     </View>
   );
@@ -233,6 +270,7 @@ export function Amount({
   signed,
   tone,
   style,
+  animate,
 }: {
   value: number;
   currency?: Currency;
@@ -240,6 +278,8 @@ export function Amount({
   signed?: boolean;
   tone?: Tone;
   style?: StyleProp<TextStyle>;
+  /** Roll the digits like a slot machine when the value changes (balances). */
+  animate?: boolean;
 }) {
   const c = useColors();
   const fs = size === "sm" ? 13 : size === "lg" ? 24 : size === "xl" ? 34 : 16;
@@ -248,10 +288,19 @@ export function Amount({
   return (
     <View style={styles.amountRow} accessible accessibilityLabel={`${sign === "−" ? "minus " : sign === "+" ? "plus " : ""}${Math.abs(value).toLocaleString()} ${currency === "league" ? "league tokens" : "credits"}`}>
       <MaterialCommunityIcons name={currency === "league" ? "shield-star" : "lightning-bolt"} size={Math.round(fs * 0.85)} color={color} />
-      <Text style={[{ color, fontSize: fs, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"], letterSpacing: size === "xl" ? -0.8 : 0 }, style]}>
-        {sign}
-        {Math.abs(value).toLocaleString()}
-      </Text>
+      {animate ? (
+        <RollingNumber
+          value={Math.abs(value)}
+          prefix={sign}
+          style={[{ color, fontSize: fs, fontFamily: size === "xl" || size === "lg" ? "Inter_900Black" : "Inter_800ExtraBold", letterSpacing: size === "xl" ? -1.2 : size === "lg" ? -0.6 : -0.2 }, style]}
+          accessibilityLabel={`${Math.abs(value).toLocaleString()} ${currency === "league" ? "league tokens" : "credits"}`}
+        />
+      ) : (
+        <Text style={[{ color, fontSize: fs, fontFamily: size === "xl" || size === "lg" ? "Inter_900Black" : "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: size === "xl" ? -1.2 : size === "lg" ? -0.6 : -0.2 }, style]}>
+          {sign}
+          {Math.abs(value).toLocaleString()}
+        </Text>
+      )}
     </View>
   );
 }
@@ -351,7 +400,71 @@ export function BackButton() {
   );
 }
 
-export function SectionHeader({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+/**
+ * Small inline action (section headers, "Show all", "Max"). A tinted, outlined
+ * pill so it never reads as plain text.
+ */
+export function ActionChip({
+  label,
+  onPress,
+  icon,
+  chevron = true,
+  tone = "accent",
+  disabled,
+  accessibilityLabel,
+  style,
+}: {
+  label: string;
+  onPress: () => void;
+  icon?: IconName;
+  chevron?: boolean;
+  tone?: Tone;
+  disabled?: boolean;
+  accessibilityLabel?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const c = useColors();
+  const t = toneColor(c, tone);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={() => {
+        Haptics.selectionAsync().catch(() => {});
+        onPress();
+      }}
+      hitSlop={8}
+      style={({ pressed }) => [
+        styles.chip,
+        { paddingRight: chevron ? 8 : 12, backgroundColor: t.bg, borderColor: c.alpha(t.fg, 0.55), opacity: disabled ? 0.45 : pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.96 : 1 }] },
+        style,
+      ]}
+    >
+      {icon && <MaterialCommunityIcons name={icon} size={16} color={t.fg} />}
+      <Text style={[styles.chipText, { color: t.fg }]} numberOfLines={1}>
+        {label}
+      </Text>
+      {chevron && <MaterialCommunityIcons name="chevron-right" size={16} color={t.fg} />}
+    </Pressable>
+  );
+}
+
+export function SectionHeader({
+  title,
+  action,
+  onAction,
+  prominent,
+  actionIcon,
+}: {
+  title: string;
+  action?: string;
+  onAction?: () => void;
+  /** Renders the action as a filled pill button instead of a tinted chip. */
+  prominent?: boolean;
+  actionIcon?: IconName;
+}) {
   const c = useColors();
   return (
     <View style={styles.sectionRow}>
@@ -359,9 +472,26 @@ export function SectionHeader({ title, action, onAction }: { title: string; acti
         {title}
       </Text>
       {action && onAction ? (
-        <Pressable accessibilityRole="button" onPress={onAction} hitSlop={8}>
-          <Text style={[styles.sectionAction, { color: c.accent }]}>{action}</Text>
-        </Pressable>
+        prominent ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={action}
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              onAction();
+            }}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.sectionPill,
+              { backgroundColor: c.primary, borderColor: c.primary, opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+            ]}
+          >
+            <Text style={[styles.sectionPillText, { color: c.primaryForeground }]}>{action}</Text>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={c.primaryForeground} />
+          </Pressable>
+        ) : (
+          <ActionChip label={action} onPress={onAction} icon={actionIcon} />
+        )
       ) : null}
     </View>
   );
@@ -484,8 +614,9 @@ export function ConfirmDialog({
 }) {
   const c = useColors();
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? () => {} : onCancel}>
       <View style={[styles.dialogScrim, { backgroundColor: c.overlay }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={busy ? undefined : onCancel} accessibilityLabel="Close dialog" />
         <View accessibilityViewIsModal style={[styles.dialog, { backgroundColor: c.elevated, borderColor: c.border }]}>
           <Text accessibilityRole="header" style={[styles.dialogTitle, { color: c.foreground }]}>
             {title}
@@ -499,6 +630,48 @@ export function ConfirmDialog({
           <View style={styles.dialogActions}>
             <Button label="Cancel" variant="secondary" style={{ flex: 1 }} onPress={onCancel} disabled={busy} />
             <Button label={confirmLabel} variant={destructive ? "destructive" : "primary"} style={{ flex: 1 }} onPress={onConfirm} loading={busy} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * A dialog with a stack of choices (e.g. Checkout / Discard / Cancel). The
+ * first action is the recommended one; `cancel` is always last and also what
+ * the hardware back button / scrim does.
+ */
+export function ChoiceDialog({
+  visible,
+  title,
+  body,
+  actions,
+  cancelLabel = "Cancel",
+  onCancel,
+}: {
+  visible: boolean;
+  title: string;
+  body: string;
+  actions: Array<{ label: string; onPress: () => void; variant?: ButtonVariant; icon?: IconName }>;
+  cancelLabel?: string;
+  onCancel: () => void;
+}) {
+  const c = useColors();
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={[styles.dialogScrim, { backgroundColor: c.overlay }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Close dialog" />
+        <View accessibilityViewIsModal style={[styles.dialog, { backgroundColor: c.elevated, borderColor: c.border }]}>
+          <Text accessibilityRole="header" style={[styles.dialogTitle, { color: c.foreground }]}>
+            {title}
+          </Text>
+          <Text style={[styles.dialogBody, { color: c.mutedForeground }]}>{body}</Text>
+          <View style={styles.dialogStack}>
+            {actions.map((a) => (
+              <Button key={a.label} label={a.label} icon={a.icon} variant={a.variant ?? "primary"} onPress={a.onPress} />
+            ))}
+            <Button label={cancelLabel} variant="ghost" onPress={onCancel} />
           </View>
         </View>
       </View>
@@ -528,31 +701,35 @@ export function Initial({ name, color, size = 36 }: { name: string; color: strin
 }
 
 const styles = StyleSheet.create({
-  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, borderWidth: 1, minHeight: 44 },
-  btnText: { fontFamily: "Inter_700Bold" },
+  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, minHeight: 44 },
+  btnText: { fontFamily: "Inter_800ExtraBold" },
   iconBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  closeBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
-  badgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
+  badgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_800ExtraBold" },
   card: { borderRadius: 16, borderWidth: 1, padding: 14 },
-  pill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, alignSelf: "flex-start" },
-  pillText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.3 },
+  pill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" },
+  pillText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   amountRow: { flexDirection: "row", alignItems: "center", gap: 3 },
   stat: { flex: 1, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 3, minWidth: 0 },
-  statLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
-  statValue: { fontSize: 17, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
+  statLabel: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  statValue: { fontSize: 18, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
   statHint: { fontSize: 11, fontFamily: "Inter_400Regular" },
   header: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingBottom: 12, gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 40 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   backBtn: { marginLeft: -8, marginRight: -4 },
-  title: { fontSize: 24, lineHeight: 29, fontFamily: "Inter_700Bold", letterSpacing: -0.4 },
+  title: { fontSize: 26, lineHeight: 30, fontFamily: "Inter_900Black", letterSpacing: -0.8 },
   subtitle: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 1 },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 8 },
-  section: { fontSize: 17, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
-  sectionAction: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  section: { fontSize: 18, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.4 },
+  chip: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 34, paddingLeft: 12, paddingRight: 8, borderRadius: 999, borderWidth: 1.5 },
+  chipText: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.1 },
+  sectionPill: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 36, paddingLeft: 14, paddingRight: 8, borderRadius: 999, borderWidth: 1 },
+  sectionPillText: { fontSize: 14, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.1 },
   segment: { flexDirection: "row", borderRadius: 12, borderWidth: 1, padding: 3 },
   segmentItem: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: "center" },
-  segmentText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  segmentText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   empty: { alignItems: "center", gap: 8, padding: 28, borderRadius: 16, borderWidth: 1 },
   emptyIcon: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },
@@ -560,9 +737,10 @@ const styles = StyleSheet.create({
   emptyActions: { flexDirection: "row", gap: 10, marginTop: 8 },
   dialogScrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   dialog: { width: "100%", maxWidth: 400, borderRadius: 22, borderWidth: 1, padding: 20, gap: 10 },
-  dialogTitle: { fontSize: 19, fontFamily: "Inter_700Bold" },
+  dialogTitle: { fontSize: 20, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.4 },
   dialogBody: { fontSize: 14, lineHeight: 20, fontFamily: "Inter_400Regular" },
   dialogActions: { flexDirection: "row", gap: 10, marginTop: 8 },
+  dialogStack: { gap: 8, marginTop: 8 },
   banner: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 10, padding: 10, borderRadius: 12, borderWidth: 1 },
   bannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
 });

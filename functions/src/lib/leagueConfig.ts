@@ -3,7 +3,7 @@
  * the copy that is enforced — the client's copy only drives the pickers.
  */
 
-export const SPORTS = ["NFL", "NBA", "MLB", "NHL", "Soccer"] as const;
+export const SPORTS = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"] as const;
 export const DURATIONS = { "1 Week": 7, "2 Weeks": 14, "1 Month": 30, "3 Months": 90 } as const;
 export type Duration = keyof typeof DURATIONS;
 
@@ -35,6 +35,14 @@ export const BANK_PRINCIPAL_CAP_MULTIPLIER = 1;
 export const PEER_LOAN_MAX_PCT = 0.5;
 export const PEER_RATE_MAX = 50;
 export const MAX_OPEN_REQUESTS = 3;
+/**
+ * Peer ("friend") loan requests are on by default. Read per call so they can be
+ * switched off by env (PEER_LOAN_REQUESTS_ENABLED=false) without a code change.
+ * Existing open requests can still be funded, countered or withdrawn either way.
+ */
+export function peerLoanRequestsEnabled(): boolean {
+  return process.env.PEER_LOAN_REQUESTS_ENABLED !== "false";
+}
 
 export const MEMBER_COLORS = [
   "#E2564A", "#43C67F", "#5AA9E6", "#A57BE0", "#FFB03A",

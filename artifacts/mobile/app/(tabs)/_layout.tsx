@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
-import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { NativeTabs } from "expo-router/native-tabs";
 import { SymbolView } from "expo-symbols";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React from "react";
@@ -86,7 +86,7 @@ function ClassicTabLayout() {
               isIOS ? (
                 <SymbolView name={t.sf as never} tintColor={color} size={22} />
               ) : (
-                <MaterialCommunityIcons name={t.md} size={22} color={color} />
+                <MaterialCommunityIcons name={t.md} size={22} color={color as string} />
               ),
           }}
         />

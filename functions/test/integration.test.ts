@@ -26,6 +26,7 @@ const START = Date.UTC(2026, 9, 1, 12);
 beforeEach(() => {
   db.reset();
   clock.set(START);
+  delete process.env.PEER_LOAN_REQUESTS_ENABLED;
 });
 
 // ---------------------------------------------------------------------------
@@ -226,18 +227,18 @@ test("non-members can't bet, peek, or end; only the creator ends early", async (
   );
 });
 
-test("bank loans: simple interest, capped principal, interest-first repayment, idempotent repay", async () => {
+test("bank loans: flat interest, capped principal, interest-first repayment, idempotent repay", async () => {
   seedUser("ann", 1000);
   const { leagueId } = await makeLeague("ann");
   await call(takeBankLoan, "ann", { leagueId, amount: 600, idempotencyKey: key() });
   assert.equal(tokens(leagueId, "ann"), 1600);
   await rejects(call(takeBankLoan, "ann", { leagueId, amount: 500, idempotencyKey: key() }), /lends up to 1,000/);
 
-  clock.advanceHours(48); // two periods at 10% of 600
+  clock.advanceHours(48); // time doesn't matter: 10% of 600, once
   const [loan] = loansOf(leagueId);
   const snap = loanSnapshot(loan as never, clock.get());
-  assert.equal(snap.interestCharged, 120);
-  assert.equal(snap.totalOwed, 720);
+  assert.equal(snap.interestCharged, 60);
+  assert.equal(snap.totalOwed, 660);
 
   // Revisiting / re-reading never changes the stored loan.
   assert.deepEqual(loansOf(leagueId)[0], loan);
@@ -249,17 +250,17 @@ test("bank loans: simple interest, capped principal, interest-first repayment, i
   ]);
   assert.equal(r1.applied, 300);
   assert.equal(r2.applied, 300, "the duplicate reports the original receipt");
-  assert.equal(r1.toInterest, 120);
-  assert.equal(r1.toPrincipal, 180);
+  assert.equal(r1.toInterest, 60);
+  assert.equal(r1.toPrincipal, 240);
   assert.equal(tokens(leagueId, "ann"), 1300);
 
-  clock.advanceHours(24); // 10% of the remaining 420 principal
+  clock.advanceHours(24 * 3); // still nothing new accrues
   const after = loanSnapshot(loansOf(leagueId)[0] as never, clock.get());
-  assert.equal(after.principalOutstanding, 420);
-  assert.equal(after.interestOutstanding, 42);
+  assert.equal(after.principalOutstanding, 360);
+  assert.equal(after.interestOutstanding, 0);
 
   const done = await call<{ settled: boolean; applied: number }>(repayLoan, "ann", { leagueId, loanId: loan!.id, amount: 10_000, idempotencyKey: key() });
-  assert.equal(done.applied, 462);
+  assert.equal(done.applied, 360);
   assert.equal(done.settled, true);
   assert.equal(loansOf(leagueId)[0]!.status, "repaid");
   // A rate change applies to new loans only.
@@ -270,7 +271,41 @@ test("bank loans: simple interest, capped principal, interest-first repayment, i
   assert.equal(newest.intervalHours, 12);
 });
 
+test("new peer loan requests are rejected while requests are locked", async () => {
+  process.env.PEER_LOAN_REQUESTS_ENABLED = "false";
+  seedUser("ann", 1000);
+  seedUser("ben", 1000);
+  const { leagueId, code } = await makeLeague("ann");
+  await call(joinLeague, "ben", { code });
+  await rejects(call(requestPeerLoan, "ben", { leagueId, amount: 100, rate: 5, idempotencyKey: key() }), /Loan requests are closed/);
+  assert.equal(loansOf(leagueId).length, 0);
+});
+
+test("peer loan requests are open by default", async () => {
+  seedUser("ann", 1000);
+  seedUser("ben", 1000);
+  const { leagueId, code } = await makeLeague("ann");
+  await call(joinLeague, "ben", { code });
+  await call(requestPeerLoan, "ben", { leagueId, amount: 100, rate: 5, idempotencyKey: key() });
+  assert.equal(loansOf(leagueId).length, 1);
+});
+
+test("a closed league rejects every mutation", async () => {
+  seedUser("ann", 1000);
+  seedUser("ben", 1000);
+  const { leagueId, code } = await makeLeague("ann");
+  await call(joinLeague, "ben", { code });
+  await call(endLeague, "ann", { leagueId });
+  const closed = /ended|season is over/;
+  await rejects(call(leaveLeague, "ben", { leagueId }), closed);
+  await rejects(call(inviteToLeague, "ann", { leagueId, friendUid: "ben" }), closed);
+  await rejects(call(updateLeagueSettings, "ann", { leagueId, bankLoanEnabled: true, bankInterestRate: 5, bankInterestIntervalHours: 24 }), closed);
+  await rejects(call(takeBankLoan, "ben", { leagueId, amount: 100, idempotencyKey: key() }), closed);
+  assert.deepEqual([...(league(leagueId).memberIds as string[])].sort(), ["ann", "ben"]);
+});
+
 test("peer loans move tokens between members and repayments reach the lender", async () => {
+  process.env.PEER_LOAN_REQUESTS_ENABLED = "true";
   seedUser("ann", 1000);
   seedUser("ben", 1000);
   seedUser("cat", 1000);
@@ -294,8 +329,8 @@ test("peer loans move tokens between members and repayments reach the lender", a
   // Funding twice is impossible.
   await rejects(call(peerLoanAction, "ann", { leagueId, loanId, action: "fund" }), /isn't open/);
 
-  clock.advanceHours(24);
-  await call(repayLoan, "ben", { leagueId, loanId, amount: 432, idempotencyKey: key() });
+  clock.advanceHours(24 * 3);
+  await call(repayLoan, "ben", { leagueId, loanId, amount: 432, idempotencyKey: key() }); // 400 + 8% flat
   assert.equal(tokens(leagueId, "cat"), 1032);
   assert.equal(tokens(leagueId, "ben"), 968);
   assert.equal(loansOf(leagueId)[0]!.status, "repaid");
@@ -310,6 +345,8 @@ test("leaving is blocked while loans or open bets tie you to the league", async 
   const { loanId } = await call<{ loanId: string }>(takeBankLoan, "ben", { leagueId, amount: 100, idempotencyKey: key() });
   await rejects(call(leaveLeague, "ben", { leagueId }), /Settle your loans/);
   await call(repayLoan, "ben", { leagueId, loanId, amount: 100, idempotencyKey: key() });
+  await rejects(call(leaveLeague, "ben", { leagueId }), /Settle your loans/); // the 10% fee is still owed
+  await call(repayLoan, "ben", { leagueId, loanId, amount: 10, idempotencyKey: key() });
   await call(leaveLeague, "ben", { leagueId });
   assert.deepEqual(league(leagueId).memberIds, ["ann"]);
   await rejects(call(joinLeague, "ben", { code }), /can't rejoin/);
@@ -344,7 +381,7 @@ test("ending a league ranks on net worth, voids open bets, and pays the pot exac
   assert.equal(l.status, "ended");
   const results = l.results as Array<{ memberId: string; prizeTokens: number; paid: boolean; netWorth: number }>;
   assert.deepEqual(results.map((r) => r.memberId), ["ann", "cat", "ben"]);
-  assert.equal(results[2]!.netWorth, 1000 - 100, "ben pays one period of interest");
+  assert.equal(results[2]!.netWorth, 1000 - 100, "ben owes the 10% flat fee");
   assert.deepEqual(results.map((r) => r.prizeTokens), [210, 90, 0]);
   assert.ok(results.filter((r) => r.prizeTokens > 0).every((r) => r.paid));
   assert.equal(l.payoutStatus, "paid");

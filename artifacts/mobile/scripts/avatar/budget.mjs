@@ -49,7 +49,8 @@ export function drawnTriangles(templates, avatar = {}, dir = assetDir()) {
   for (const r of BODY_REGIONS) if (!hidden.has(r)) body += base[`Body_${r}`] ?? 0;
   parts.body = body;
   const face = avatar.faceShape ?? "oval", eyes = avatar.eyeShape ?? "round", brows = avatar.eyebrows ?? "soft";
-  parts.head = base[`Head_${face}`] + base.Eyes + base.Iris + base.Pupils + base.Teeth + base[`Lids_${eyes}`] + base[`Lashes_${eyes}`] + (brows === "none" ? 0 : base[`Brows_${brows}`]);
+  const nose = avatar.noseShape ?? "button";
+  parts.head = (base[nose === "button" ? `Head_${face}` : `Head_${face}_${nose}`] ?? base[`Head_${face}`]) + base.Eyes + base.Iris + base.Pupils + base.Teeth + base[`Lids_${eyes}`] + base[`Lashes_${eyes}`] + (brows === "none" ? 0 : base[`Brows_${brows}`]);
 
   const style = avatar.hairStyle ?? "short_crop";
   if (style !== "bald") {

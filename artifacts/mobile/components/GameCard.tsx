@@ -2,9 +2,13 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import React, { memo, useEffect, useRef } from "react";
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import Reanimated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
+import PressableScale from "@/components/fx/PressableScale";
 import { useColors, type Colors } from "@/hooks/useColors";
-import { fairProbabilities, formatPercent, untilKickoff } from "@/lib/odds";
+import { useValueFlash } from "@/hooks/useMotion";
+import { SPRING } from "@/lib/motion";
+import { fairProbabilities, formatPercent, kickoffLabel, untilKickoff } from "@/lib/odds";
 import type { Game, Side, TeamSide } from "@/types/game";
 
 export interface MyPosition {
@@ -72,12 +76,19 @@ function GameCard({ game, onBet, onOpenDetail, position, locked }: Props) {
         },
       ]}
       onPress={onOpenDetail ? () => onOpenDetail(game) : undefined}
-      accessibilityRole={onOpenDetail ? "button" : undefined}
+      // react-native-web renders role="button" as a <button>; the odds buttons inside
+      // would then be <button> in <button>, which React rejects. The card stays
+      // tappable on web, it just isn't announced as a button there.
+      accessibilityRole={onOpenDetail && Platform.OS !== "web" ? "button" : undefined}
       accessibilityLabel={`${game.awayTeam.name} at ${game.homeTeam.name}`}
     >
       <Header game={game} c={c} />
 
       <View style={styles.teams}>
+        <View style={styles.colHead} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <Text style={[styles.colLabel, { color: c.subtleForeground }]}>TEAM</Text>
+          <Text style={[styles.colLabel, styles.colOdds, { color: c.subtleForeground }]}>MONEYLINE</Text>
+        </View>
         <TeamRow
           team={game.awayTeam}
           score={game.awayScore}
@@ -136,7 +147,7 @@ function Header({ game, c }: { game: Game; c: Colors }) {
           <Text style={[styles.statusText, { color: c.mutedForeground }]}>Final</Text>
         ) : (
           <Text style={[styles.statusText, { color: c.foreground }]}>
-            {game.startTimeLabel}
+            {kickoffLabel(game.startsAt)}
             <Text style={{ color: c.subtleForeground }}>{`  ${untilKickoff(game.startsAt)}`}</Text>
           </Text>
         )}
@@ -160,12 +171,15 @@ function LiveClock({ game, c }: { game: Game; c: Colors }) {
     return () => loop.stop();
   }, [pulse]);
 
-  const detail = game.clock ?? game.situation ?? game.startTimeLabel;
+  const detail = game.clock ?? game.situation ?? kickoffLabel(game.startsAt);
 
   return (
     <View style={styles.headerRight}>
-      <Animated.View style={[styles.liveDot, { backgroundColor: c.live, opacity: pulse }]} />
-      <Text style={[styles.statusText, { color: c.live }]} numberOfLines={1}>
+      <View style={[styles.liveBadge, { backgroundColor: c.live }]}>
+        <Animated.View style={[styles.liveDot, { backgroundColor: "#fff", opacity: pulse }]} />
+        <Text style={styles.liveText}>LIVE</Text>
+      </View>
+      <Text style={[styles.statusText, { color: c.foreground }]} numberOfLines={1}>
         {detail}
       </Text>
     </View>
@@ -228,32 +242,52 @@ function TeamRow({
         </Text>
       )}
 
-      <Pressable
-        style={({ pressed }) => [
+      <OddsButton team={team} probability={probability} locked={locked} backed={backed} onPress={onPress} c={c} />
+    </View>
+  );
+}
+
+/**
+ * Sportsbook odds tile: neutral until it's yours; your side lights up in the
+ * action colour with a pop. When the line moves it flashes green ▲ or red ▼
+ * for a couple of seconds, the way the books show line movement.
+ */
+function OddsButton({ team, probability, locked, backed, onPress, c }: { team: TeamSide; probability: number; locked: boolean; backed: boolean; onPress: () => void; c: Colors }) {
+  const flash = useValueFlash(team.odds, { up: c.positive, down: c.negative, rest: c.alpha(c.border, 0) });
+  const pop = useSharedValue(1);
+  const wasBacked = useRef(backed);
+  useEffect(() => {
+    if (backed && !wasBacked.current) pop.value = withSequence(withTiming(1.12, { duration: 110 }), withSpring(1, SPRING.bouncy));
+    wasBacked.current = backed;
+  }, [backed, pop]);
+  const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
+  return (
+    <Reanimated.View style={popStyle}>
+      <PressableScale
+        style={[
           styles.oddsBtn,
           {
-            backgroundColor: backed
-              ? c.alpha(c.primary, 0.18)
-              : locked
-                ? c.secondary
-                : c.alpha(team.color, 0.14),
-            borderColor: backed ? c.primary : locked ? c.border : c.alpha(team.color, 0.5),
-            opacity: pressed ? 0.7 : 1,
+            backgroundColor: backed ? c.primary : c.secondary,
+            borderColor: backed ? c.primary : c.border,
+            opacity: locked && !backed ? 0.55 : 1,
           },
         ]}
+        scaleTo={0.93}
         onPress={onPress}
         disabled={locked}
         accessibilityRole="button"
-        accessibilityLabel={`Back ${team.name} at ${team.odds.toFixed(2)} times, ${formatPercent(probability)} chance`}
+        accessibilityLabel={`Back ${team.name} at ${team.odds.toFixed(2)} times, ${formatPercent(probability)} chance${flash.dir ? `, odds ${flash.dir > 0 ? "up" : "down"}` : ""}`}
       >
-        <Text
-          style={[styles.oddsValue, { color: backed ? c.primary : locked ? c.mutedForeground : c.foreground }]}
-        >
-          {team.odds.toFixed(2)}x
-        </Text>
-        <Text style={[styles.oddsProb, { color: c.mutedForeground }]}>{formatPercent(probability)}</Text>
-      </Pressable>
-    </View>
+        <Reanimated.View pointerEvents="none" style={[styles.oddsFlash, flash.style]} />
+        <View style={styles.oddsLine}>
+          {flash.dir !== 0 ? (
+            <MaterialCommunityIcons name={flash.dir > 0 ? "menu-up" : "menu-down"} size={16} color={flash.dir > 0 ? c.positive : c.negative} style={{ marginHorizontal: -4 }} />
+          ) : null}
+          <Text style={[styles.oddsValue, { color: backed ? c.primaryForeground : c.foreground }]}>{team.odds.toFixed(2)}x</Text>
+        </View>
+        <Text style={[styles.oddsProb, { color: backed ? c.alpha(c.primaryForeground, 0.75) : c.mutedForeground }]}>{formatPercent(probability)}</Text>
+      </PressableScale>
+    </Reanimated.View>
   );
 }
 
@@ -367,15 +401,20 @@ function PositionStrip({ game, position, c }: { game: Game; position: MyPosition
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10, gap: 11 },
+  card: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10, gap: 10 },
 
   header: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: "auto" },
   sportChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999 },
-  sportText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  sportText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   meta: { fontSize: 11, fontFamily: "Inter_400Regular" },
   statusText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  liveDot: { width: 6, height: 6, borderRadius: 3 },
+  liveBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
+  liveText: { color: "#fff", fontSize: 10, fontFamily: "Inter_900Black", letterSpacing: 0.8 },
+  colHead: { flexDirection: "row", alignItems: "center", marginBottom: -4 },
+  colLabel: { flex: 1, fontSize: 9, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  colOdds: { flex: 0, width: 80, textAlign: "center" },
 
   teams: { gap: 10 },
   teamRow: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -385,14 +424,16 @@ const styles = StyleSheet.create({
   teamText: { flex: 1, gap: 2 },
   nameLine: { flexDirection: "row", alignItems: "center", gap: 6 },
   rank: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  teamName: { fontSize: 15, fontFamily: "Inter_600SemiBold", flexShrink: 1 },
+  teamName: { fontSize: 15, fontFamily: "Inter_700Bold", flexShrink: 1, letterSpacing: -0.2 },
   record: { fontSize: 11, fontFamily: "Inter_500Medium" },
   form: { flexDirection: "row", gap: 3 },
   formPip: { width: 12, height: 3, borderRadius: 2 },
-  score: { fontSize: 20, fontFamily: "Inter_700Bold", minWidth: 32, textAlign: "right" },
+  score: { fontSize: 22, fontFamily: "Inter_900Black", minWidth: 32, textAlign: "right", letterSpacing: -0.5 },
 
-  oddsBtn: { minWidth: 74, borderWidth: 1, borderRadius: 10, paddingVertical: 7, alignItems: "center", gap: 1 },
-  oddsValue: { fontSize: 14, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
+  oddsBtn: { width: 80, borderWidth: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center", gap: 1 },
+  oddsFlash: { position: "absolute", top: -1, left: -1, right: -1, bottom: -1, borderRadius: 10, borderWidth: 2 },
+  oddsLine: { flexDirection: "row", alignItems: "center" },
+  oddsValue: { fontSize: 15, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
   oddsProb: { fontSize: 10, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
 
   bar: { flexDirection: "row", height: 4, borderRadius: 2, overflow: "hidden" },

@@ -59,7 +59,7 @@ function AvatarPortrait({
           accessible={false}
         />
       ) : (
-        <AvatarSilhouette skin={avatar.skinTone} top={top} bottom={outfit.pieces.find((p) => p.slot === "bottom")?.primary} framing={framing} />
+        <AvatarSilhouette skin={avatar.skinTone} top={top} bottom={outfit.pieces.find((p) => p.slot === "bottom")?.primary} framing={framing === "bust" ? "bust" : "full"} />
       )}
     </View>
   );

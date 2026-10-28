@@ -2,7 +2,25 @@ import { collection, onSnapshot, orderBy, query, where } from "firebase/firestor
 import { useEffect, useMemo, useState } from "react";
 import type { Game, GameStatus } from "@/types/game";
 import { getDb } from "@/lib/firebase";
+import { firstAnswer } from "@/lib/devtrace";
 import { DEMO, demoGames } from "@/lib/demo";
+import { useNow } from "@/hooks/useNow";
+
+const HOUR = 3_600_000;
+
+/**
+ * Whether a game still belongs on the board. The server cache only changes
+ * when the provider reports a game, so one it stops reporting (postponed, or
+ * a sync that wasn't running) can sit at "upcoming" or "live" for weeks.
+ * An upcoming game more than 3 hours past its start, or a live one more than
+ * 8 hours in, is stale.
+ */
+export function isCurrent(g: Pick<Game, "status" | "startsAt" | "expired">, now = Date.now()) {
+  if (g.expired) return false;
+  if (g.status === "upcoming") return g.startsAt > now - 3 * HOUR;
+  if (g.status === "live") return g.startsAt > now - 8 * HOUR;
+  return true;
+}
 
 /**
  * Reads the server-maintained games cache.
@@ -27,6 +45,9 @@ export function useGames(statuses: GameStatus[] = ["upcoming", "live"]) {
   // Stable dependency — a fresh array literal on every render would resubscribe
   // on every render.
   const statusKey = statuses.join(",");
+  const now = useNow(60_000);
+  // Re-subscribe once an hour so the window below moves with the clock.
+  const windowHour = Math.floor(now / HOUR);
 
   useEffect(() => {
     if (DEMO) return;
@@ -37,32 +58,44 @@ export function useGames(statuses: GameStatus[] = ["upcoming", "live"]) {
       return;
     }
 
+    const answer = firstAnswer("games", () => {
+      setError("Can't reach the server. Check your connection.");
+      setLoading(false);
+    });
     const unsub = onSnapshot(
       query(
         collection(db, "games"),
         where("status", "in", statusKey.split(",")),
+        // Nothing that started more than a day ago is still upcoming or live: a
+        // game the provider stopped reporting would otherwise stay on the board.
+        where("startsAt", ">=", (windowHour - 24) * HOUR),
         orderBy("startsAt", "asc")
       ),
       (snap) => {
+        answer.hit();
         setGames(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Game));
         setError(null);
         setLoading(false);
       },
       (err) => {
+        answer.hit();
         setError(err.message);
         setLoading(false);
       }
     );
 
-    return unsub;
-  }, [statusKey]);
+    return () => {
+      answer.cancel();
+      unsub();
+    };
+  }, [statusKey, windowHour]);
 
   const { live, upcoming } = useMemo(
     () => ({
-      live: games.filter((g) => g.status === "live"),
-      upcoming: games.filter((g) => g.status === "upcoming"),
+      live: games.filter((g) => g.status === "live" && isCurrent(g, now)),
+      upcoming: games.filter((g) => g.status === "upcoming" && isCurrent(g, now)),
     }),
-    [games]
+    [games, now]
   );
 
   return { games, live, upcoming, loading, error };

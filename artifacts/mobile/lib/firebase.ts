@@ -8,7 +8,7 @@ import {
   initializeAuth,
   type Auth,
 } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, type Firestore } from "firebase/firestore";
 import { getFunctions, httpsCallable, type Functions } from "firebase/functions";
 import { Platform } from "react-native";
 
@@ -78,7 +78,20 @@ export function getFirebaseAuth(): Auth | null {
 export function getDb(): Firestore | null {
   const app = getFirebaseApp();
   if (!app) return null;
-  if (!dbRef) dbRef = getFirestore(app);
+  if (!dbRef) {
+    if (Platform.OS === "web") {
+      dbRef = getFirestore(app);
+    } else {
+      // React Native's XHR can't stream, so WebChannel's streaming listen
+      // channel can stall with no snapshot and no error. Long polling always
+      // completes each response.
+      try {
+        dbRef = initializeFirestore(app, { experimentalForceLongPolling: true });
+      } catch {
+        dbRef = getFirestore(app); // already initialised (Fast Refresh)
+      }
+    }
+  }
   return dbRef;
 }
 

@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { ActionChip } from "@/components/ui";
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -179,14 +180,12 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             {/* Toggle */}
-            <TouchableOpacity style={s.toggle} onPress={toggleMode} activeOpacity={0.7}>
+            <View style={s.toggle}>
               <Text style={[s.toggleText, { color: colors.mutedForeground }]}>
-                {mode === "signin" ? "Don't have an account? " : "Already have an account? "}
-                <Text style={[s.toggleLink, { color: colors.primary }]}>
-                  {mode === "signin" ? "Sign Up" : "Sign In"}
-                </Text>
+                {mode === "signin" ? "Don't have an account?" : "Already have an account?"}
               </Text>
-            </TouchableOpacity>
+              <ActionChip label={mode === "signin" ? "Sign up" : "Sign in"} tone="money" onPress={toggleMode} />
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -243,7 +242,7 @@ const s = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.6 },
   btnText: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  toggle: { alignItems: "center", paddingVertical: 4 },
+  toggle: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 4, flexWrap: "wrap" },
   toggleText: { fontSize: 14, fontFamily: "Inter_400Regular" },
   toggleLink: { fontFamily: "Inter_600SemiBold" },
 });

@@ -1,9 +1,13 @@
-import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "@/lib/api";
 import type { PublicUser } from "@/lib/api";
 import { getDb } from "@/lib/firebase";
 import { DEMO, demoFriends } from "@/lib/demo";
+import { usePolling } from "@/hooks/usePolling";
+
+/** Foreground re-read of requests + friends, under the live listeners. */
+export const FRIENDS_POLL_MS = 45_000;
 
 export interface FriendRequest {
   id: string;
@@ -58,7 +62,8 @@ export function useFriends(uid: string | null) {
     try {
       const res = await api.listFriends({});
       if (!alive.current) return;
-      setFriends(res.friends);
+      // Polled: keep identity when nothing changed so consumers don't re-render.
+      setFriends((prev) => (JSON.stringify(prev) === JSON.stringify(res.friends) ? prev : res.friends));
       setError(null);
     } catch (err) {
       if (alive.current) setError(api.friendlyError(err));
@@ -96,7 +101,7 @@ export function useFriends(uid: string | null) {
         // Reuse the shared empty array when there is nothing, so an empty
         // snapshot is not a new object identity for every consumer.
         (snap) => setIncoming(snap.empty ? NO_REQUESTS : mapRequests(snap.docs)),
-        () => {}
+        (err) => __DEV__ && console.warn(`[friends] incoming listener: ${err.code}`)
       ),
       onSnapshot(
         query(
@@ -105,12 +110,37 @@ export function useFriends(uid: string | null) {
           where("status", "==", "pending")
         ),
         (snap) => setOutgoing(snap.empty ? NO_REQUESTS : mapRequests(snap.docs)),
-        () => {}
+        (err) => __DEV__ && console.warn(`[friends] outgoing listener: ${err.code}`)
       ),
     ];
 
     return () => unsubs.forEach((u) => u());
   }, [uid, refresh]);
+
+  // Same three reads as one-shots. A stalled listener otherwise leaves a new
+  // request invisible until the tab remounts.
+  const sync = useCallback(async () => {
+    if (!uid || DEMO) return;
+    const db = getDb();
+    if (!db) return;
+    const pending = (field: "from" | "to") =>
+      getDocs(query(collection(db, "friendRequests"), where(field, "==", uid), where("status", "==", "pending")));
+    // Never rejects: it runs from a timer and after every mutation.
+    const res = await Promise.all([pending("to"), pending("from"), refresh()]).catch((err: { code?: string }) => {
+      if (__DEV__) console.warn(`[friends] poll friendRequests: ${err?.code ?? err}`);
+      return null;
+    });
+    if (!res) return;
+    const [inc, out] = res;
+    if (!alive.current) return;
+    const sameIds = (prev: FriendRequest[], next: { id: string }[]) =>
+      prev.length === next.length && prev.every((r, i) => r.id === next[i]?.id);
+    const map = (docs: typeof inc.docs) => docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as FriendRequest);
+    setIncoming((prev) => (inc.empty ? NO_REQUESTS : sameIds(prev, inc.docs) ? prev : map(inc.docs)));
+    setOutgoing((prev) => (out.empty ? NO_REQUESTS : sameIds(prev, out.docs) ? prev : map(out.docs)));
+  }, [uid, refresh]);
+
+  usePolling(sync, FRIENDS_POLL_MS, !!uid && !DEMO);
 
   /**
    * Who sent each pending request.
@@ -159,12 +189,14 @@ export function useFriends(uid: string | null) {
     try {
       setError(null);
       await fn();
+      // Don't wait on the listener to reflect what we just did.
+      void sync().catch(() => {});
       return true;
     } catch (err) {
       if (alive.current) setError(api.friendlyError(err));
       return false;
     }
-  }, []);
+  }, [sync]);
 
   const clearError = useCallback(() => setError(null), []);
   const search = useCallback(

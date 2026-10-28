@@ -6,92 +6,89 @@ import {
   HOUR_MS,
   applyRepayment,
   balanceSheet,
+  flatInterest,
   loanSnapshot,
   materialize,
   newLoanTerms,
-  pendingInterest,
   prizeSplit,
   rankMembers,
-  simpleInterest,
+  totalRepayable,
   type LeagueLoanLike,
 } from "../src/lib/loanMath";
 
 const T0 = Date.UTC(2026, 0, 1);
 const day = 24 * HOUR_MS;
 
-test("the spec example: 1,000 at 10% per period for 2 periods accrues 200, owes 1,200", () => {
-  const loan = newLoanTerms(1000, 10, 24, T0);
-  const snap = loanSnapshot(loan, T0 + 2 * day);
-  assert.equal(snap.interestCharged, 200);
-  assert.equal(snap.totalOwed, 1200);
-  assert.equal(snap.principalOutstanding, 1000);
+test("the spec example: borrow 100 at 10% and repay exactly 110", () => {
+  const loan = newLoanTerms(100, 10, 24, T0);
+  const snap = loanSnapshot(loan, T0);
+  assert.equal(snap.interestCharged, 10);
+  assert.equal(snap.totalOwed, 110);
+  assert.equal(snap.totalRepayable, 110);
+  assert.equal(totalRepayable(100, 10), 110);
 });
 
-test("interest never compounds: 10 periods at 10% is exactly 100% of principal", () => {
+test("interest never grows with time", () => {
   const loan = newLoanTerms(1000, 10, 24, T0);
-  assert.equal(loanSnapshot(loan, T0 + 10 * day).interestCharged, 1000);
-  // The old code multiplied the running balance: 1000 * 1.1^10 - 1000 = 1594.
-  assert.notEqual(loanSnapshot(loan, T0 + 10 * day).interestCharged, 1594);
-});
-
-test("partial periods don't accrue; the next charge time is reported", () => {
-  const loan = newLoanTerms(500, 5, 24, T0);
-  const s = loanSnapshot(loan, T0 + 23 * HOUR_MS);
-  assert.equal(s.interestCharged, 0);
-  assert.equal(s.nextAccrualAt, T0 + day);
-  assert.equal(s.nextPeriodInterest, 25);
+  for (const t of [T0, T0 + HOUR_MS, T0 + day, T0 + 30 * day, T0 + 3650 * day]) {
+    assert.equal(loanSnapshot(loan, t).interestCharged, 100);
+    assert.equal(loanSnapshot(loan, t).totalOwed, 1100);
+  }
 });
 
 test("reading or materialising repeatedly never charges twice", () => {
   const loan = newLoanTerms(1000, 10, 24, T0);
-  const now = T0 + 3 * day + 5 * HOUR_MS;
-  const once = materialize(loan, now);
-  const twice = materialize(once, now);
-  assert.deepEqual(once, twice);
-  assert.equal(once.interestAccrued, 300);
-  assert.equal(once.accruedThrough, T0 + 3 * day);
-  assert.equal(pendingInterest(once, now), 0);
-  for (let i = 0; i < 50; i++) assert.equal(loanSnapshot(loan, now).totalOwed, 1300);
+  const once = materialize(loan, T0 + 5 * day);
+  assert.deepEqual(materialize(once, T0 + 50 * day), once);
+  assert.equal(once.interestAccrued, 100);
 });
 
-test("repayments settle interest first, then principal; interest then runs on the lower principal", () => {
+test("legacy loans with period-accrued interest are normalised to the flat fee", () => {
+  const legacy = { ...newLoanTerms(1000, 10, 24, T0), interestAccrued: 700 };
+  assert.equal(loanSnapshot(legacy, T0).interestCharged, 100);
+  assert.equal(loanSnapshot(legacy, T0).totalOwed, 1100);
+  const overpaid = { ...legacy, interestPaid: 300 };
+  assert.equal(loanSnapshot(overpaid, T0).interestOutstanding, 0);
+  assert.equal(loanSnapshot(overpaid, T0).totalOwed, 1000);
+});
+
+test("repayments settle the fee first, then principal; the total never changes", () => {
   let loan = newLoanTerms(1000, 10, 24, T0);
-  // After 2 days: 200 interest due. Pay 500 → 200 interest, 300 principal.
   const r1 = applyRepayment(loan, 500, T0 + 2 * day);
-  assert.equal(r1.toInterest, 200);
-  assert.equal(r1.toPrincipal, 300);
+  assert.equal(r1.toInterest, 100);
+  assert.equal(r1.toPrincipal, 400);
   assert.equal(r1.settled, false);
   loan = r1.loan;
-  assert.equal(loan.principalOutstanding, 700);
-  // One more day accrues 10% of 700, not of 1000 and not of the old balance.
-  const s = loanSnapshot(loan, T0 + 3 * day);
-  assert.equal(s.interestOutstanding, 70);
-  assert.equal(s.totalOwed, 770);
-  assert.equal(s.interestCharged, 270);
-  assert.equal(s.principalRepaid, 300);
+  const s = loanSnapshot(loan, T0 + 300 * day);
+  assert.equal(s.principalOutstanding, 600);
+  assert.equal(s.interestOutstanding, 0);
+  assert.equal(s.totalOwed, 600);
+  assert.equal(s.totalRepaid, 500);
+  const r2 = applyRepayment(loan, 600, T0 + 400 * day);
+  assert.equal(r2.settled, true);
+  assert.equal(r1.applied + r2.applied, 1100);
 });
 
-test("overpaying is clamped to what's owed and closes the loan", () => {
-  const loan = newLoanTerms(1000, 10, 24, T0);
-  const r = applyRepayment(loan, 99_999, T0 + day);
+test("paying back only the principal still leaves the fee owed", () => {
+  const r = applyRepayment(newLoanTerms(100, 10, 24, T0), 100, T0);
+  assert.equal(r.settled, false);
+  assert.equal(loanSnapshot(r.loan, T0).totalOwed, 10);
+});
+
+test("overpaying is clamped to principal + fee and closes the loan", () => {
+  const r = applyRepayment(newLoanTerms(1000, 10, 24, T0), 99_999, T0 + day);
   assert.equal(r.applied, 1100);
   assert.equal(r.settled, true);
   assert.equal(loanSnapshot(r.loan, T0 + 30 * day).totalOwed, 0);
 });
 
-test("a repaid loan stops accruing", () => {
-  const r = applyRepayment(newLoanTerms(200, 10, 1, T0), 200, T0 + 30 * 60_000);
-  assert.equal(r.settled, true);
-  assert.equal(loanSnapshot(r.loan, T0 + 1000 * HOUR_MS).totalOwed, 0);
-});
-
-test("rounding is half-up per segment and fractional rates work", () => {
-  assert.equal(simpleInterest(333, 2.5, 1), 8); // 8.325
-  assert.equal(simpleInterest(330, 2.5, 1), 8); // 8.25
-  assert.equal(simpleInterest(340, 2.5, 1), 9); // 8.5 → 9
-  assert.equal(simpleInterest(1000, 0.5, 3), 15);
-  assert.equal(simpleInterest(0, 10, 3), 0);
-  assert.equal(simpleInterest(100, 10, 0), 0);
+test("rounding is half-up and fractional rates work", () => {
+  assert.equal(flatInterest(333, 2.5), 8); // 8.325
+  assert.equal(flatInterest(330, 2.5), 8); // 8.25
+  assert.equal(flatInterest(340, 2.5), 9); // 8.5 → 9
+  assert.equal(flatInterest(1000, 0.5), 5);
+  assert.equal(flatInterest(0, 10), 0);
+  assert.equal(flatInterest(100, 0), 0);
 });
 
 const loanLike = (over: Partial<LeagueLoanLike>): LeagueLoanLike => ({
@@ -103,10 +100,10 @@ const loanLike = (over: Partial<LeagueLoanLike>): LeagueLoanLike => ({
   ...over,
 });
 
-test("balance sheet: borrowing doesn't change net worth on the day it's taken", () => {
+test("balance sheet: a loan is a liability of principal + flat fee from day one", () => {
   const sheet = balanceSheet("a", 2000, [loanLike({})], T0);
-  assert.equal(sheet.debt, 1000);
-  assert.equal(sheet.netWorth, 1000);
+  assert.equal(sheet.debt, 1100);
+  assert.equal(sheet.netWorth, 900);
 });
 
 test("balance sheet: peer loans are a liability to the borrower and an asset to the lender", () => {
@@ -124,7 +121,7 @@ test("standings rank on net worth with deterministic tie-breaks", () => {
   const loans = [loanLike({ borrowerId: "rich-on-paper" })];
   const ranked = rankMembers(
     [
-      { uid: "rich-on-paper", leagueTokens: 1800, joinedAt: 1 },
+      { uid: "rich-on-paper", leagueTokens: 1950, joinedAt: 1 }, // 1950 - (1000 + 100 fee) = 850
       { uid: "steady", leagueTokens: 1200, joinedAt: 2 },
       { uid: "tie-late", leagueTokens: 800, joinedAt: 9 },
       { uid: "tie-early", leagueTokens: 800, joinedAt: 3 },

@@ -35,13 +35,13 @@ export default function LeaguesScreen() {
     if (params.join || params.code) setShowJoin(true);
   }, [params.create, params.join, params.code]);
 
-  const active = summaries.filter((s) => s.league.status === "active");
-  const ended = summaries.filter((s) => s.league.status === "ended");
+  const active = summaries.filter((s) => !s.closed);
+  const closed = summaries.filter((s) => s.closed);
 
   const rows: Array<{ kind: "header"; title: string } | { kind: "league"; s: LeagueSummary }> = [
     ...active.map((s) => ({ kind: "league" as const, s })),
-    ...(ended.length ? [{ kind: "header" as const, title: "Finished" }] : []),
-    ...ended.map((s) => ({ kind: "league" as const, s })),
+    ...(closed.length ? [{ kind: "header" as const, title: "Closed" }] : []),
+    ...closed.map((s) => ({ kind: "league" as const, s })),
   ];
 
   return (
@@ -87,7 +87,7 @@ export default function LeaguesScreen() {
                 {[
                   ["shield-star", "League tokens are separate from your credits."],
                   ["scale-balance", "Ranked on net worth: tokens, plus what you're owed, minus what you owe."],
-                  ["bank-outline", "Loans charge simple interest — never interest on interest."],
+                  ["bank-outline", "Loans charge one flat fee — borrow 100 at 10%, repay 110. Never more."],
                   ["trophy-outline", "Buy-ins form a pot, paid out in credits when the season ends."],
                 ].map(([icon, text]) => (
                   <View key={text} style={styles.howRow}>
@@ -97,7 +97,7 @@ export default function LeaguesScreen() {
                 ))}
               </Card>
             </View>
-          ) : null
+          ) : undefined
         }
       />
 
@@ -134,17 +134,17 @@ export default function LeaguesScreen() {
 function LeagueCard({ s, latest }: { s: LeagueSummary; latest?: string }) {
   const c = useColors();
   const { league, me } = s;
-  const ended = league.status === "ended";
+  const closed = s.closed;
   const total = Math.max(1, league.endsAt - league.createdAt);
-  const progress = ended ? 1 : Math.min(1, Math.max(0, (Date.now() - league.createdAt) / total));
+  const progress = closed ? 1 : Math.min(1, Math.max(0, (Date.now() - league.createdAt) / total));
   const leader = s.standings[0];
   const leaderName = leader ? league.members[leader.uid]?.displayName ?? league.results?.find((r) => r.memberId === leader.uid)?.memberName : null;
 
   return (
     <Card
       onPress={() => router.push({ pathname: "/league/[id]", params: { id: league.id } })}
-      accessibilityLabel={`${league.name}. You're ranked ${me?.rank ?? "unranked"} of ${s.memberCount}.`}
-      tone={me?.rank === 1 && !ended ? "money" : undefined}
+      accessibilityLabel={`${league.name}${closed ? ", closed" : ""}. You're ranked ${me?.rank ?? "unranked"} of ${s.memberCount}.`}
+      tone={me?.rank === 1 && !closed ? "money" : undefined}
       style={styles.card}
     >
       <View style={styles.cardTop}>
@@ -153,7 +153,7 @@ function LeagueCard({ s, latest }: { s: LeagueSummary; latest?: string }) {
             {league.name}
           </Text>
           <View style={styles.pills}>
-            <Pill label={ended ? "Finished" : `${s.daysLeft}d left`} tone={ended ? "neutral" : "accent"} icon={ended ? "flag-checkered" : "clock-outline"} />
+            <Pill label={closed ? "Closed" : `${s.daysLeft}d left`} tone={closed ? "neutral" : "accent"} icon={closed ? "lock-outline" : "clock-outline"} />
             <Pill label={`${s.memberCount} ${s.memberCount === 1 ? "player" : "players"}`} icon="account-multiple" />
             {league.pot > 0 && <Pill label={`${league.pot.toLocaleString()} pot`} tone="money" icon="trophy" />}
           </View>
@@ -181,7 +181,7 @@ function LeagueCard({ s, latest }: { s: LeagueSummary; latest?: string }) {
         </View>
       </View>
 
-      {!ended && (
+      {!closed && (
         <View style={[styles.track, { backgroundColor: c.secondary }]}>
           <View style={[styles.fill, { width: `${progress * 100}%`, backgroundColor: c.league }]} />
         </View>

@@ -22,7 +22,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { accessor, readGlb } from "./glb.mjs";
-import { BODY_REGIONS, BONES, BUILD_MORPHS, EXPRESSIONS, EYE_SHAPES, EYEBROWS, FACE_SHAPES, HAIR_MODES, HAIR_STYLES, RIG_ID, SOCKETS } from "./rig.mjs";
+import { BODY_REGIONS, BONES, BUILD_MORPHS, EXPRESSIONS, EYE_SHAPES, EYEBROWS, FACE_SHAPES, HAIR_MODES, HAIR_STYLES, NOSE_SHAPES, RIG_ID, SOCKETS } from "./rig.mjs";
 
 export const SLOTS = ["hat", "eyewear", "top", "outerwear", "bottom", "shoes", "accessory"];
 export const TINT_MATERIALS = ["primary", "secondary", "primary_dark", "secondary_dark", "metal", "lens", "sole", "laces"];
@@ -38,8 +38,10 @@ const MATERIALS = {
  * mode, but only one of each is shown); `tris`/`bytes` cap the whole file.
  */
 const BUDGET = {
-  // One body, four heads, lids/lashes for three eye shapes, brows; ~half the file is blendshapes.
-  base: { drawn: 15_000, tris: 40_000, bytes: 2_000_000 },
+  // One body, twelve heads (4 face shapes × 3 noses, one drawn), lids/lashes for three eye shapes,
+  // brows; ~half the file is blendshapes. Meshing each nose instead of morphing the button
+  // (which tore) costs ~1.4 MB: still one bundled file, parsed once.
+  base: { drawn: 15_000, tris: 60_000, bytes: 3_200_000 },
   garment: { drawn: 5_000, tris: 5_000, bytes: 600_000 },
   // A hairstyle and its four under-hat variants.
   hair: { drawn: 5_000, tris: 25_000, bytes: 1_200_000 },
@@ -48,7 +50,8 @@ const BUDGET = {
 };
 const KINDS = Object.keys(BUDGET);
 /** Blendshapes the runtime drives, per part. */
-const FACE_MORPHS = ["noseStraight", "noseBroad", "lipsFull", "mouthWide"];
+const MOUTH_MORPHS = ["lipsFull", "mouthWide"];
+const FACE_MORPHS = ["noseStraight", "noseBroad", ...MOUTH_MORPHS];
 const MOUTH_EXPRESSIONS = EXPRESSIONS.filter((e) => !e.startsWith("eyeBlink"));
 /** Skinned rigs exported from Blender with a Mixamo armature name their bones mixamorig:Hips etc. */
 export const boneName = (n) => (n ?? "").replace(/^mixamorig\d*[:_]?/, "");
@@ -220,17 +223,18 @@ export function validateGlb(file) {
   if (meta?.kind === "base") {
     const body = BODY_REGIONS.map((r) => `Body_${r}`);
     need([...body, "Underwear", "Eyes", "Iris", "Pupils", "Teeth"], "base");
-    need(FACE_SHAPES.map((f) => `Head_${f}`), "base");
+    const heads = FACE_SHAPES.flatMap((f) => NOSE_SHAPES.map((n) => (n === "button" ? `Head_${f}` : `Head_${f}_${n}`)));
+    need(heads, "base");
     need(EYE_SHAPES.flatMap((e) => [`Lids_${e}`, `Lashes_${e}`]), "base");
     need(EYEBROWS.filter((s) => s !== "none").map((s) => `Brows_${s}`), "base");
     needMorphs([...body, "Underwear"], BUILD_MORPHS);
-    needMorphs(FACE_SHAPES.map((f) => `Head_${f}`), [...BUILD_MORPHS, ...FACE_MORPHS, ...MOUTH_EXPRESSIONS]);
+    needMorphs(heads, [...BUILD_MORPHS, ...MOUTH_MORPHS, ...MOUTH_EXPRESSIONS]);
     needMorphs(EYE_SHAPES.flatMap((e) => [`Lids_${e}`, `Lashes_${e}`]), ["eyeBlinkLeft", "eyeBlinkRight"]);
     const clips = (gltf.animations ?? []).map((a) => a.name);
     if (!clips.includes("idle")) errors.push("base needs an idle animation");
     drawn =
       sum([...body, "Underwear", "Eyes", "Iris", "Pupils", "Teeth"]) +
-      max(FACE_SHAPES.map((f) => `Head_${f}`)) +
+      max(heads) +
       max(EYE_SHAPES.map((e) => `Lids_${e}`)) +
       max(EYE_SHAPES.map((e) => `Lashes_${e}`)) +
       max(EYEBROWS.map((s) => `Brows_${s}`));

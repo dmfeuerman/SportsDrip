@@ -3,6 +3,8 @@ import {
   Inter_500Medium,
   Inter_600SemiBold,
   Inter_700Bold,
+  Inter_800ExtraBold,
+  Inter_900Black,
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,9 +17,16 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AdsProvider } from "@/context/AdsContext";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { CartProvider } from "@/context/CartContext";
+import { startStallWatch, trace } from "@/lib/devtrace";
 import ResultPopupHost from "@/components/ResultPopup";
+import EngagementWatchers from "@/components/EngagementWatchers";
+import InviteToastHost from "@/components/InviteToastHost";
+import ToastHost from "@/components/ToastHost";
+import { ToastProvider } from "@/context/ToastContext";
 import AvatarPortraitStudio from "@/components/avatar/AvatarPortraitStudio";
 import { LeagueProvider } from "@/context/LeagueContext";
 import { NotificationProvider } from "@/context/NotificationContext";
@@ -25,6 +34,8 @@ import { useColors } from "@/hooks/useColors";
 import { firebaseConfigured } from "@/lib/firebase";
 
 SplashScreen.preventAutoHideAsync();
+startStallWatch();
+trace("boot", "bundle loaded");
 
 const queryClient = new QueryClient();
 
@@ -44,6 +55,10 @@ function AppShell() {
   const segments = useSegments();
   const colors = useColors();
 
+  useEffect(() => {
+    if (ready) trace("boot", needsOnboarding ? "shell ready (onboarding)" : "shell ready");
+  }, [ready, needsOnboarding]);
+
   if (!ready) return <Splash />;
 
   if (needsOnboarding && segments[0] !== "onboarding") {
@@ -58,19 +73,32 @@ function AppShell() {
   return (
     <LeagueProvider uid={uid}>
       <NotificationProvider uid={uid}>
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
-          <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
-          <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="bets" />
-          <Stack.Screen name="prizes" />
-          <Stack.Screen name="shop" />
-          <Stack.Screen name="customize" options={{ animation: "slide_from_bottom" }} />
-          <Stack.Screen name="activity" />
-          <Stack.Screen name="league/[id]" />
-        </Stack>
-        {uid ? <ResultPopupHost /> : null}
-        <AvatarPortraitStudio />
+        <AdsProvider uid={uid} active={!!uid && !needsOnboarding}>
+          <CartProvider>
+            <ToastProvider>
+            {/* First, so the screens paint over it (it must stay on-screen on Android, see the studio). */}
+            <AvatarPortraitStudio />
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+              <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
+              <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="bets" />
+              <Stack.Screen name="prizes" />
+              <Stack.Screen name="shop" />
+              <Stack.Screen name="customize" options={{ animation: "slide_from_bottom" }} />
+              <Stack.Screen name="checkout" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="activity" />
+              <Stack.Screen name="league/[id]" />
+              <Stack.Screen name="game/[id]" options={{ animation: "slide_from_right" }} />
+            </Stack>
+            {uid ? <ResultPopupHost /> : null}
+            {uid ? <InviteToastHost /> : null}
+            {uid ? <EngagementWatchers /> : null}
+            {/* Last, so banners and the lock-in stamp draw over every screen. */}
+            <ToastHost />
+            </ToastProvider>
+          </CartProvider>
+        </AdsProvider>
       </NotificationProvider>
     </LeagueProvider>
   );
@@ -118,6 +146,8 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    Inter_800ExtraBold,
+    Inter_900Black,
   });
 
   useEffect(() => {

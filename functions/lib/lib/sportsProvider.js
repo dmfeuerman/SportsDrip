@@ -20,15 +20,31 @@
  * client renders whatever is present.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.ESPN_BASE = void 0;
+exports.providerPathsFor = providerPathsFor;
+exports.toStatus = toStatus;
 exports.fetchGames = fetchGames;
 const SPORT_CONFIGS = [
     { sport: "NFL", path: "football/nfl", sportIcon: "football" },
     { sport: "NBA", path: "basketball/nba", sportIcon: "basketball" },
     { sport: "MLB", path: "baseball/mlb", sportIcon: "baseball" },
     { sport: "NHL", path: "hockey/nhl", sportIcon: "hockey-puck" },
-    { sport: "Soccer", path: "soccer/eng.1", sportIcon: "soccer" },
+    { sport: "NCAAF", path: "football/college-football", sportIcon: "football" },
+    { sport: "NCAAB", path: "basketball/mens-college-basketball", sportIcon: "basketball" },
+    { sport: "Soccer", path: "soccer/eng.1", sportIcon: "soccer", label: "Premier League" },
+    { sport: "Soccer", path: "soccer/esp.1", sportIcon: "soccer", label: "La Liga" },
+    { sport: "Soccer", path: "soccer/ita.1", sportIcon: "soccer", label: "Serie A" },
+    { sport: "Soccer", path: "soccer/ger.1", sportIcon: "soccer", label: "Bundesliga" },
+    { sport: "Soccer", path: "soccer/fra.1", sportIcon: "soccer", label: "Ligue 1" },
+    { sport: "Soccer", path: "soccer/uefa.champions", sportIcon: "soccer", label: "Champions League" },
+    { sport: "Soccer", path: "soccer/usa.1", sportIcon: "soccer", label: "MLS" },
 ];
 const BASE = "https://site.api.espn.com/apis/site/v2/sports";
+exports.ESPN_BASE = BASE;
+/** Every provider path a sport can come from. Soccer spans several leagues. */
+function providerPathsFor(sport) {
+    return SPORT_CONFIGS.filter((c) => c.sport === sport).map((c) => c.path);
+}
 /** House margin applied when deriving decimal odds from a moneyline pair. */
 const OVERROUND = 0.045;
 /** Bounds. A 12.0x longshot is a credit-printing machine in a play economy. */
@@ -192,7 +208,40 @@ function buildClock(event, status) {
     const clock = s.type?.shortDetail ?? (s.displayClock ? String(s.displayClock) : null);
     return { period, clock };
 }
-function parseEvent(event, sport, sportIcon, seasonLabel) {
+const finiteOrNull = (v) => {
+    const n = Number(v);
+    return v !== null && v !== undefined && v !== "" && Number.isFinite(n) ? n : null;
+};
+function buildLinescore(home, away) {
+    const h = (home?.linescores ?? []).map((l) => finiteOrNull(l?.value ?? l?.displayValue));
+    const a = (away?.linescores ?? []).map((l) => finiteOrNull(l?.value ?? l?.displayValue));
+    const n = Math.max(h.length, a.length);
+    if (!n)
+        return null;
+    while (h.length < n)
+        h.push(null);
+    while (a.length < n)
+        a.push(null);
+    return { home: h, away: a };
+}
+function buildSituation(comp, home, away, status) {
+    const s = comp?.situation;
+    if (status !== "live" || !s)
+        return null;
+    const pos = s.possession != null ? String(s.possession) : null;
+    return {
+        downDistance: typeof s.downDistanceText === "string" ? s.downDistanceText : null,
+        possession: pos && pos === String(home?.team?.id ?? home?.id) ? "home" : pos && pos === String(away?.team?.id ?? away?.id) ? "away" : null,
+        redZone: Boolean(s.isRedZone),
+        balls: finiteOrNull(s.balls),
+        strikes: finiteOrNull(s.strikes),
+        outs: finiteOrNull(s.outs),
+        onFirst: Boolean(s.onFirst),
+        onSecond: Boolean(s.onSecond),
+        onThird: Boolean(s.onThird),
+    };
+}
+function parseEvent(event, sport, sportIcon, seasonLabel, providerPath) {
     const comp = event?.competitions?.[0];
     if (!comp)
         return null;
@@ -231,26 +280,53 @@ function parseEvent(event, sport, sportIcon, seasonLabel) {
         broadcast: buildBroadcast(comp),
         seasonLabel,
         line: buildLine(comp),
+        providerPath,
+        linescore: scored ? buildLinescore(home, away) : null,
+        live: buildSituation(comp, home, away, status),
         updatedAt: Date.now(),
     };
 }
-function seasonLabelFor(data, sport) {
+function seasonLabelFor(data, cfg) {
     const week = data?.week?.number;
-    if (Number.isFinite(Number(week))) {
-        return sport === "Soccer" ? `Matchday ${week}` : `Week ${week}`;
+    const base = Number.isFinite(Number(week))
+        ? cfg.sport === "Soccer"
+            ? `Matchday ${week}`
+            : `Week ${week}`
+        : (data?.leagues?.[0]?.season?.type?.name ?? null);
+    if (!cfg.label)
+        return base;
+    return base ? `${cfg.label} · ${base}` : cfg.label;
+}
+const ymd = (ms) => new Date(ms).toISOString().slice(0, 10).replace(/-/g, "");
+/**
+ * The scoreboard for yesterday through the next week. Without `dates`, ESPN
+ * returns only its idea of "today" (or the current NFL week), so a game drops
+ * out of the feed before it can be seen to finish, and the board has nothing
+ * beyond tonight. Falls back to the default board if the range is refused.
+ */
+async function fetchScoreboard(cfg, now = Date.now()) {
+    const range = `${ymd(now - 86_400_000)}-${ymd(now + 7 * 86_400_000)}`;
+    for (const query of [`?dates=${range}&limit=300`, ""]) {
+        const res = await fetch(`${BASE}/${cfg.path}/scoreboard${query}`, {
+            signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+            if (query)
+                continue;
+            throw new Error(`ESPN ${cfg.sport} ${res.status}`);
+        }
+        const data = (await res.json());
+        if (query && !(data.events ?? []).length)
+            continue;
+        return data;
     }
-    return data?.leagues?.[0]?.season?.type?.name ?? null;
+    return { events: [] };
 }
 async function fetchSport(cfg) {
-    const res = await fetch(`${BASE}/${cfg.path}/scoreboard`, {
-        signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok)
-        throw new Error(`ESPN ${cfg.sport} ${res.status}`);
-    const data = (await res.json());
-    const label = seasonLabelFor(data, cfg.sport);
+    const data = await fetchScoreboard(cfg);
+    const label = seasonLabelFor(data, cfg);
     return (data.events ?? [])
-        .map((e) => parseEvent(e, cfg.sport, cfg.sportIcon, label))
+        .map((e) => parseEvent(e, cfg.sport, cfg.sportIcon, label, cfg.path))
         .filter((g) => g !== null);
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -263,7 +339,7 @@ async function fetchGames() {
         if (r.status === "fulfilled")
             games.push(...r.value);
         else
-            failures.push(`${SPORT_CONFIGS[i]?.sport}: ${String(r.reason)}`);
+            failures.push(`${SPORT_CONFIGS[i]?.label ?? SPORT_CONFIGS[i]?.sport}: ${String(r.reason)}`);
     });
     return { games, failures };
 }

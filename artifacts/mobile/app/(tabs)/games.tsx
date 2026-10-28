@@ -15,14 +15,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import BetModal, { type BetWallet } from "@/components/BetModal";
 import GameCard, { type MyPosition } from "@/components/GameCard";
-import GameDetailSheet from "@/components/GameDetailSheet";
+import GameDetailSheet, { type DetailBet } from "@/components/GameDetailSheet";
+import SponsoredCard from "@/components/ads/SponsoredCard";
 import TokenBalance from "@/components/TokenBalance";
 import { IconButton } from "@/components/ui";
+import { AD_POLICY } from "@/constants/ads";
+import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
 import { useLeague } from "@/context/LeagueContext";
+import { useToast } from "@/context/ToastContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
 import { useGames } from "@/hooks/useGames";
+import { prefetchGameInsights } from "@/hooks/useGameInsights";
+import { openGameCenter } from "@/lib/gameCenter";
 import * as api from "@/lib/api";
 import { newIdempotencyKey } from "@/lib/api";
 import { SPORTS, type Game, type Side } from "@/types/game";
@@ -31,7 +37,8 @@ const ALL = "ALL";
 
 type Row =
   | { kind: "section"; id: string; title: string; live?: boolean }
-  | { kind: "game"; id: string; game: Game };
+  | { kind: "game"; id: string; game: Game }
+  | { kind: "ad"; id: string };
 
 /**
  * Rewritten games screen.
@@ -55,9 +62,11 @@ export default function GamesScreen() {
   const insets = useSafeAreaInsets();
 
   const { balance, bets, error, clearError } = useApp();
-  const { activeLeagues, uid, placeLeagueBet, myLeagueBets } = useLeague();
+  const { leagues, activeLeagues, uid, placeLeagueBet, myLeagueBets } = useLeague();
+  const { betLocked } = useToast();
   const { unreadCount } = useNotifications();
   const { live, upcoming, loading, error: gamesError } = useGames();
+  const { enabled: adsOn } = useAds();
   const params = useLocalSearchParams<{ wallet?: string }>();
   const [slipError, setSlipError] = useState<string | null>(null);
 
@@ -90,21 +99,40 @@ export default function GamesScreen() {
     const l = live.filter(match);
     const u = upcoming.filter(match);
     const out: Row[] = [];
+    // Sponsored cards sit between games at a fixed rhythm, never as the first row.
+    let seen = 0;
+    let ads = 0;
+    const pushGame = (g: Game) => {
+      out.push({ kind: "game", id: g.id, game: g });
+      seen += 1;
+      const slot = seen - AD_POLICY.boardFirstAfter;
+      if (adsOn && ads < AD_POLICY.boardMax && slot >= 0 && slot % AD_POLICY.boardEvery === 0) {
+        out.push({ kind: "ad", id: `ad-${ads}` });
+        ads += 1;
+      }
+    };
     if (l.length) {
       out.push({ kind: "section", id: "sec-live", title: "Live now", live: true });
-      l.forEach((g) => out.push({ kind: "game", id: g.id, game: g }));
+      l.forEach(pushGame);
     }
-    if (u.length) {
-      out.push({ kind: "section", id: "sec-upcoming", title: "Upcoming" });
-      u.forEach((g) => out.push({ kind: "game", id: g.id, game: g }));
+    // Upcoming games grouped by local day, so the whole week reads as a schedule.
+    let lastDay = "";
+    for (const g of u) {
+      const day = dayKey(g.startsAt);
+      if (day !== lastDay) {
+        lastDay = day;
+        out.push({ kind: "section", id: `sec-${day}`, title: dayTitle(g.startsAt) });
+      }
+      pushGame(g);
     }
     return out;
-  }, [live, upcoming, sport]);
+  }, [live, upcoming, sport, adsOn]);
 
   // The idempotency key belongs to the *intent*, not to the request. Minting
   // it when the sheet opens means a double tap, a retry, or a remount all
   // resolve to the same bet server-side.
   const openBetSheet = useCallback((game: Game, side: Side) => {
+    prefetchGameInsights(game.id);
     setSlipError(null);
     setPending({ game, side, key: newIdempotencyKey() });
   }, []);
@@ -155,9 +183,23 @@ export default function GamesScreen() {
         return;
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      {
+        const t = pending.side === "home" ? pending.game.homeTeam : pending.game.awayTeam;
+        const w = wallets.find((x) => x.id === walletId);
+        betLocked({
+          teamName: t.name,
+          teamAbbr: t.abbreviation,
+          teamColor: t.color,
+          odds: expectedOdds,
+          stake,
+          payout: Math.round(stake * expectedOdds),
+          currency: walletId === "credits" ? "credits" : "league",
+          walletLabel: w?.label,
+        });
+      }
       setPending(null);
     },
-    [pending, placeLeagueBet]
+    [pending, placeLeagueBet, wallets, betLocked]
   );
 
   // The Firestore listener is already live, so "refresh" is only a UX
@@ -167,6 +209,30 @@ export default function GamesScreen() {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 600);
   }, []);
+
+  // Both wallets, each labelled, so the sheet says where every stake came from.
+  const detailBets: DetailBet[] = useMemo(() => {
+    if (!detail) return [];
+    const out: DetailBet[] = bets.filter((b) => b.gameId === detail.id);
+    for (const lg of leagues) {
+      for (const b of myLeagueBets[lg.id] ?? []) {
+        if (b.gameId === detail.id) out.push({ ...b, id: `${lg.id}:${b.id}`, wallet: lg.name });
+      }
+    }
+    return out;
+  }, [detail, bets, leagues, myLeagueBets]);
+
+  // iOS can't present a Modal while another is still animating out; doing so
+  // leaves the bet slip invisible or unresponsive. Let the detail sheet finish
+  // dismissing before the slip presents.
+  const betFromDetail = useCallback(
+    (game: Game, side: Side) => {
+      setDetail(null);
+      if (Platform.OS === "ios") setTimeout(() => openBetSheet(game, side), 350);
+      else openBetSheet(game, side);
+    },
+    [openBetSheet]
+  );
 
   const team = pending
     ? pending.side === "home"
@@ -254,7 +320,9 @@ export default function GamesScreen() {
             .map((r, i) => (r.kind === "section" ? i : -1))
             .filter((i) => i >= 0)}
           renderItem={({ item }) =>
-            item.kind === "section" ? (
+            item.kind === "ad" ? (
+              <SponsoredCard compact style={styles.adRow} />
+            ) : item.kind === "section" ? (
               <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
                 {item.live ? (
                   <View style={[styles.liveDot, { backgroundColor: colors.live }]} />
@@ -296,11 +364,12 @@ export default function GamesScreen() {
       <GameDetailSheet
         game={detail}
         onClose={() => setDetail(null)}
-        onBet={(game, side) => {
+        onBet={betFromDetail}
+        bets={detailBets}
+        onOpenCenter={(game) => {
           setDetail(null);
-          openBetSheet(game, side);
+          openGameCenter(game.id, game.status === "upcoming" ? "matchup" : "live");
         }}
-        bets={detail ? bets.filter((b) => b.gameId === detail.id) : []}
       />
 
       {pending && team && (
@@ -312,6 +381,8 @@ export default function GamesScreen() {
           teamAbbr={team.abbreviation}
           teamColor={team.color}
           odds={team.odds}
+          game={pending.game}
+          side={pending.side}
           wallets={wallets}
           defaultWallet={params.wallet}
           error={slipError}
@@ -321,6 +392,20 @@ export default function GamesScreen() {
       )}
     </View>
   );
+}
+
+function dayKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+function dayTitle(ms: number): string {
+  const d = new Date(ms);
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(d) - start(new Date())) / 86_400_000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  return d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
 
 function SkeletonList({ colors }: { colors: ReturnType<typeof useColors> }) {
@@ -372,7 +457,7 @@ function EmptyState({
       </Text>
       {filtered && !error && (
         <Pressable
-          style={[styles.emptyBtn, { borderColor: colors.border }]}
+          style={[styles.emptyBtn, { borderColor: colors.alpha(colors.primary, 0.6), backgroundColor: colors.alpha(colors.primary, 0.12) }]}
           onPress={onClearFilter}
         >
           <Text style={[styles.emptyBtnText, { color: colors.primary }]}>Show all sports</Text>
@@ -392,7 +477,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 12,
   },
-  title: { fontSize: 24, fontFamily: "Inter_700Bold" },
+  title: { fontSize: 24, fontFamily: "Inter_900Black" },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   pendingBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
   pendingText: { fontSize: 12, fontFamily: "Inter_700Bold" },
@@ -418,6 +503,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
+  adRow: { marginBottom: 10 },
   sectionTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
   skeleton: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10, gap: 12 },
   skelBar: { height: 12, borderRadius: 6 },
@@ -432,6 +518,6 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
   emptyBody: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19 },
-  emptyBtn: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, marginTop: 4 },
-  emptyBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  emptyBtn: { borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, minHeight: 38, justifyContent: "center", marginTop: 4 },
+  emptyBtnText: { fontSize: 14, fontFamily: "Inter_800ExtraBold" },
 });

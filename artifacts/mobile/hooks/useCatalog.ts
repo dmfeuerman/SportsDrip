@@ -2,6 +2,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import type { CatalogItem } from "@/types/catalog";
 import { getDb } from "@/lib/firebase";
+import { firstAnswer } from "@/lib/devtrace";
 import { DEMO, demoCatalog } from "@/lib/demo";
 
 /**
@@ -24,20 +25,29 @@ export function useCatalog() {
       return;
     }
 
+    const answer = firstAnswer("catalog", () => {
+      setError("Can't reach the server. Check your connection.");
+      setLoading(false);
+    });
     const unsub = onSnapshot(
       collection(db, "catalog"),
       (snap) => {
+        answer.hit();
         setAll(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as CatalogItem));
         setError(null);
         setLoading(false);
       },
       (err) => {
+        answer.hit();
         setError(err.message);
         setLoading(false);
       }
     );
 
-    return unsub;
+    return () => {
+      answer.cancel();
+      unsub();
+    };
   }, []);
 
   const items = useMemo(() => {

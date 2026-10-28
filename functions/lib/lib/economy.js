@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PRIZE_BOXES = exports.STARTER_ITEMS = exports.STARTING_BALANCE = exports.Timestamp = exports.FieldValue = exports.db = void 0;
+exports.AD_REWARD = exports.PRIZE_BOXES = exports.STARTER_ITEMS = exports.STARTING_BALANCE = exports.Timestamp = exports.FieldValue = exports.db = void 0;
 exports.pickWeighted = pickWeighted;
 exports.applyCredits = applyCredits;
 exports.pairId = pairId;
@@ -54,6 +54,21 @@ exports.PRIZE_BOXES = {
             { credits: 2000, weight: 1 },
         ],
     },
+};
+/**
+ * Rewarded video bonus. Credited only by the AdMob SSV callback
+ * (http/adReward.ts), never by the client. Mirrored for display in
+ * artifacts/mobile/constants/ads.ts.
+ */
+exports.AD_REWARD = {
+    credits: 100,
+    dailyLimit: 5,
+    /** Must match the customData the app sets on the RewardedAd request. */
+    customData: "credits",
+    /** AdMob retries failed callbacks; anything older than this is ignored. */
+    maxCallbackAgeMs: 24 * 3_600_000,
+    /** App-reported views closer together than this are refused (no video is shorter). */
+    minGapMs: 15_000,
 };
 /** Weighted pick. Runs on the server only — the client never sees the table. */
 function pickWeighted(segments) {

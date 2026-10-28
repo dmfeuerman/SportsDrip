@@ -1,10 +1,17 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import NumericInput from "@/components/NumericInput";
 import LoanCard from "@/components/LoanCard";
+import Shimmer from "@/components/fx/Shimmer";
 import MemberAvatar from "@/components/MemberAvatar";
+import PlayerProfileSheet from "@/components/PlayerProfileSheet";
+import GameQuickView from "@/components/GameQuickView";
+import TeamChips from "@/components/TeamChips";
 import {
   Amount,
   Button,
@@ -22,7 +29,9 @@ import {
 } from "@/components/ui";
 import {
   BANK_PRINCIPAL_CAP_MULTIPLIER,
+  isLeagueClosed,
   PEER_LOAN_MAX_PCT,
+  PEER_LOAN_REQUESTS_ENABLED,
   PRIZE_PRESETS,
   type League,
   type LeagueBet,
@@ -34,13 +43,9 @@ import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { useFriends } from "@/hooks/useFriends";
 import { usePublicProfiles } from "@/hooks/usePublicProfiles";
-import { loanSnapshot, prizeSplit, simpleInterest, type Standing } from "@/lib/loanMath";
+import { flatInterest, loanSnapshot, prizeSplit, type Standing } from "@/lib/loanMath";
 
 type Tab = "standings" | "bets" | "bank" | "feed" | "info";
-
-function periodWord(h: number) {
-  return h === 1 ? "hour" : h === 24 ? "day" : h === 168 ? "week" : `${h}h`;
-}
 
 function ago(at: number, now: number) {
   const m = Math.max(0, Math.round((now - at) / 60_000));
@@ -78,22 +83,28 @@ export default function LeagueDetailScreen() {
   const me = detail.standings.find((s) => s.uid === uid) ?? null;
   const myTokens = uid ? league.members[uid]?.leagueTokens ?? 0 : 0;
   const ended = league.status === "ended";
+  // Read-only from here on: ended by the server, or past endsAt awaiting the sweep.
+  const closed = isLeagueClosed(league, detail.now);
   const daysLeft = Math.max(0, Math.ceil((league.endsAt - detail.now) / 86_400_000));
-  const pendingRequests = detail.loans.filter((l) => l.kind === "peer" && (l.status === "requested" || l.status === "countered") && l.borrowerId !== uid).length;
+  const pendingRequests = closed
+    ? 0
+    : detail.loans.filter((l) => l.kind === "peer" && (l.status === "requested" || l.status === "countered") && l.borrowerId !== uid).length;
 
-  const invite = () =>
+  const invite = () => {
+    if (closed) return;
     Share.share({
       message: `Join my "${league.name}" league on SportDrip — code ${league.code}`,
       title: "Join my league",
     }).catch(() => {});
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
       <ScreenHeader
         back
         title={league.name}
-        subtitle={ended ? "Season over" : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left · code ${league.code}`}
-        right={!ended ? <IconButton icon="account-plus-outline" label="Invite" onPress={invite} /> : undefined}
+        subtitle={closed ? "Closed · read-only" : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left · code ${league.code}`}
+        right={closed ? <Pill label="Closed" tone="neutral" icon="lock-outline" /> : <IconButton icon="account-plus-outline" label="Invite" onPress={invite} />}
       >
         {leagues.length > 1 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
@@ -143,16 +154,31 @@ export default function LeagueDetailScreen() {
       </ScreenHeader>
       <ErrorBanner message={error} onDismiss={clearError} />
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: bottom + (ended ? 0 : 72) }]} showsVerticalScrollIndicator={false}>
-        {params.created && league.memberIds.length === 1 && tab === "standings" && (
+      <KeyboardAwareScrollViewCompat
+        contentContainerStyle={[styles.body, { paddingBottom: bottom + (closed ? 0 : 72) }]}
+        showsVerticalScrollIndicator={false}
+        bottomOffset={closed ? 16 : 88}
+      >
+        {closed && (
+          <Card style={styles.closedBanner} accessibilityLabel="This league is closed. You can view its history, but nothing can be changed.">
+            <MaterialCommunityIcons name="lock-outline" size={18} color={c.mutedForeground} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[styles.cardTitle, { color: c.foreground }]}>League closed</Text>
+              <Text style={[styles.muted, { color: c.mutedForeground }]}>
+                {ended ? "The season is over." : "The season is over — final results are being tallied."} Standings, bets, loans and the feed are view-only.
+              </Text>
+            </View>
+          </Card>
+        )}
+        {!closed && params.created && league.memberIds.length === 1 && tab === "standings" && (
           <Card tone="league" style={{ gap: 8 }}>
             <Text style={[styles.cardTitle, { color: c.foreground }]}>League created</Text>
             <Text style={[styles.muted, { color: c.mutedForeground }]}>Share code {league.code} or invite friends below. Everyone starts with {league.startingLeagueTokens.toLocaleString()} tokens.</Text>
           </Card>
         )}
-        {tab === "standings" && <StandingsTab league={league} standings={detail.standings} uid={uid} onInvite={invite} />}
-        {tab === "bets" && <BetsTab bets={detail.bets} uid={uid} />}
-        {tab === "bank" && <BankTab league={league} loans={detail.loans} uid={uid} me={me} tokens={myTokens} now={detail.now} />}
+        {tab === "standings" && <StandingsTab league={league} standings={detail.standings} uid={uid} closed={closed} onInvite={invite} />}
+        {tab === "bets" && <BetsTab bets={detail.bets} uid={uid} leagueId={closed ? undefined : league.id} />}
+        {tab === "bank" && <BankTab league={league} loans={detail.loans} uid={uid} me={me} tokens={myTokens} now={detail.now} closed={closed} />}
         {tab === "feed" && (
           <Card style={{ padding: 0 }}>
             {detail.activity.length === 0 ? (
@@ -168,10 +194,10 @@ export default function LeagueDetailScreen() {
             )}
           </Card>
         )}
-        {tab === "info" && <InfoTab league={league} uid={uid} />}
-      </ScrollView>
+        {tab === "info" && <InfoTab league={league} uid={uid} closed={closed} />}
+      </KeyboardAwareScrollViewCompat>
 
-      {!ended && (
+      {!closed && (
         <View style={[styles.dock, { backgroundColor: c.background, borderTopColor: c.border, paddingBottom: bottom - 12 }]}>
           <Button
             label={`Bet with ${myTokens.toLocaleString()} league tokens`}
@@ -204,13 +230,43 @@ const FEED_ICON: Record<string, React.ComponentProps<typeof MaterialCommunityIco
 
 // ── Standings ──────────────────────────────────────────────────────────────
 
-function StandingsTab({ league, standings, uid, onInvite }: { league: League; standings: Standing[]; uid: string | null; onInvite: () => void }) {
+const GOLD = "#F5C542";
+const SILVER = "#C9D1CC";
+const BRONZE = "#C4703B";
+
+function StandingsTab({ league, standings, uid, closed, onInvite }: { league: League; standings: Standing[]; uid: string | null; closed: boolean; onInvite: () => void }) {
   const c = useColors();
   const { byId } = useCatalog();
-  const profiles = usePublicProfiles(standings.map((s) => s.uid));
+  const { profile: myProfile } = useApp();
+  const fetched = usePublicProfiles(standings.map((s) => s.uid));
+  // Your own card reads the live profile, so a favourite-team edit shows at
+  // once instead of after the public-profile cache expires.
+  const profiles = useMemo(() => {
+    if (!myProfile || !fetched[myProfile.uid]) return fetched;
+    return { ...fetched, [myProfile.uid]: { ...fetched[myProfile.uid]!, favoriteTeams: myProfile.favoriteTeams ?? [] } };
+  }, [fetched, myProfile]);
   const prizes = prizeSplit(league.pot, league.prizeDistribution, standings.length);
   const ended = league.status === "ended";
   const mine = league.results?.find((r) => r.memberId === uid);
+  const [openUid, setOpenUid] = useState<string | null>(null);
+
+  const info = (s: Standing) => {
+    const m = league.members[s.uid];
+    const r = league.results?.find((x) => x.memberId === s.uid);
+    return {
+      m,
+      r,
+      name: m?.displayName ?? r?.memberName ?? "Player",
+      color: m?.avatarColor ?? r?.memberColor ?? c.mutedForeground,
+      you: s.uid === uid,
+      prize: prizes[s.rank - 1] ?? 0,
+    };
+  };
+
+  const leader = standings[0]?.rank === 1 ? standings[0] : undefined;
+  const rest = leader ? standings.slice(1) : standings;
+  const opened = openUid ? standings.find((s) => s.uid === openUid) : undefined;
+  const openedInfo = opened ? info(opened) : undefined;
 
   return (
     <View style={{ gap: 10 }}>
@@ -229,49 +285,133 @@ function StandingsTab({ league, standings, uid, onInvite }: { league: League; st
           )}
         </Card>
       )}
-      <Text style={[styles.muted, { color: c.mutedForeground }]}>
-        Ranked by net worth — tokens, plus what you're owed, minus what you owe.
-      </Text>
-      {standings.map((s) => {
-        const m = league.members[s.uid];
-        const r = league.results?.find((x) => x.memberId === s.uid);
-        const name = m?.displayName ?? r?.memberName ?? "Player";
-        const color = m?.avatarColor ?? r?.memberColor ?? c.mutedForeground;
-        const you = s.uid === uid;
-        const prize = prizes[s.rank - 1] ?? 0;
-        const rankColor = s.rank === 1 ? c.primary : s.rank === 2 ? "#C9D1CC" : s.rank === 3 ? "#C4703B" : c.mutedForeground;
+
+      {leader && (() => {
+        const L = info(leader);
+        const p = profiles[leader.uid];
         return (
-          <View
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`First place, ${L.you ? "you" : L.name}, net worth ${leader.netWorth.toLocaleString()}. Open profile`}
+            onPress={() => setOpenUid(leader.uid)}
+            style={({ pressed }) => [styles.champ, { backgroundColor: c.card, borderColor: c.alpha(GOLD, 0.7), shadowColor: GOLD, transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+          >
+            <LinearGradient
+              colors={[c.alpha(GOLD, 0.26), c.alpha(GOLD, 0.06), "transparent"] as const}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+            {/* A slow gold glint: first place should look like first place. */}
+            <Shimmer color={GOLD} intensity={0.22} every={3400} sweep={1300} />
+            <View style={styles.champTop}>
+              <View style={[styles.champBadge, { backgroundColor: GOLD }]}>
+                <MaterialCommunityIcons name="crown" size={13} color="#2A1E00" />
+                <Text style={styles.champBadgeText}>{closed ? "CHAMPION" : "1ST PLACE"}</Text>
+              </View>
+              <View style={{ flex: 1 }} />
+              {L.prize > 0 && !closed ? <Pill label={`${L.prize.toLocaleString()} pot share`} tone="money" icon="trophy" /> : null}
+              {L.r && L.r.prizeTokens > 0 ? <Pill label={`won ${L.r.prizeTokens.toLocaleString()}`} tone="money" icon="trophy" /> : null}
+            </View>
+            <View style={styles.champMain}>
+              <MemberAvatar profile={p} name={L.name} color={L.color} catalog={byId} size={78} ring={GOLD} />
+              <View style={{ flex: 1, gap: 4 }}>
+                <View style={styles.inline}>
+                  <Text style={[styles.champName, { color: c.foreground }]} numberOfLines={1}>
+                    {L.name}
+                  </Text>
+                  {L.you && <Pill label="YOU" tone="league" />}
+                </View>
+                <TeamChips teams={p?.favoriteTeams} compact max={3} />
+                <Text style={[styles.memberSub, { color: c.mutedForeground }]} numberOfLines={1}>
+                  {L.m ? `${L.m.betsWon}–${L.m.betsLost} record` : ""}
+                  {leader.debt > 0 ? ` · owes ${leader.debt.toLocaleString()}` : ""}
+                  {leader.receivable > 0 ? ` · owed ${leader.receivable.toLocaleString()}` : ""}
+                </Text>
+              </View>
+            </View>
+            <View style={[styles.champStats, { borderTopColor: c.alpha(GOLD, 0.25) }]}>
+              <View style={{ flex: 1.4 }}>
+                <Text style={[styles.champK, { color: c.subtleForeground }]}>NET WORTH</Text>
+                <Amount value={leader.netWorth} currency="league" size="lg" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.champK, { color: c.subtleForeground }]}>LEAD</Text>
+                <Text style={[styles.champV, { color: c.foreground }]}>
+                  {standings[1] ? `+${Math.max(0, leader.netWorth - standings[1].netWorth).toLocaleString()}` : "—"}
+                </Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={22} color={c.mutedForeground} />
+            </View>
+          </Pressable>
+        );
+      })()}
+
+      <Text style={[styles.muted, { color: c.mutedForeground }]}>
+        Ranked by net worth — tokens, plus what you're owed, minus what you owe. Tap anyone for their stats and bets.
+      </Text>
+      {rest.map((s) => {
+        const R = info(s);
+        const p = profiles[s.uid];
+        const rankColor = s.rank === 1 ? GOLD : s.rank === 2 ? SILVER : s.rank === 3 ? BRONZE : c.mutedForeground;
+        return (
+          <Pressable
             key={s.uid}
-            accessible
-            accessibilityLabel={`Rank ${s.rank}, ${you ? "you" : name}, net worth ${s.netWorth.toLocaleString()}${s.debt ? `, owes ${s.debt.toLocaleString()}` : ""}`}
-            style={[styles.member, { backgroundColor: you ? c.leagueSoft : c.card, borderColor: you ? c.alpha(c.league, 0.5) : c.border }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Rank ${s.rank}, ${R.you ? "you" : R.name}, net worth ${s.netWorth.toLocaleString()}${s.debt ? `, owes ${s.debt.toLocaleString()}` : ""}. Open profile`}
+            onPress={() => setOpenUid(s.uid)}
+            style={({ pressed }) => [styles.member, { backgroundColor: R.you ? c.leagueSoft : c.card, borderColor: R.you ? c.alpha(c.league, 0.5) : c.border, opacity: pressed ? 0.85 : 1 }]}
           >
             <Text style={[styles.rankNum, { color: rankColor }]}>{s.rank}</Text>
-            <MemberAvatar profile={profiles[s.uid]} name={name} color={color} catalog={byId} size={40} />
-            <View style={{ flex: 1, gap: 2 }}>
+            <MemberAvatar profile={p} name={R.name} color={R.color} catalog={byId} size={40} />
+            <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.inline}>
                 <Text style={[styles.memberName, { color: c.foreground }]} numberOfLines={1}>
-                  {name}
+                  {R.name}
                 </Text>
-                {you && <Pill label="YOU" tone="league" />}
+                {R.you && <Pill label="YOU" tone="league" />}
               </View>
+              <TeamChips teams={p?.favoriteTeams} compact max={3} />
               <Text style={[styles.memberSub, { color: c.mutedForeground }]} numberOfLines={2}>
                 {s.tokens.toLocaleString()} tokens
                 {s.debt > 0 ? ` · owes ${s.debt.toLocaleString()}` : ""}
                 {s.receivable > 0 ? ` · owed ${s.receivable.toLocaleString()}` : ""}
-                {m ? ` · ${m.betsWon}–${m.betsLost}` : ""}
+                {R.m ? ` · ${R.m.betsWon}–${R.m.betsLost}` : ""}
               </Text>
             </View>
             <View style={{ alignItems: "flex-end", gap: 2 }}>
               <Amount value={s.netWorth} currency="league" size="sm" />
-              {prize > 0 && !ended ? <Pill label={`${prize.toLocaleString()} pot share`} tone="money" icon="trophy" /> : null}
-              {r && r.prizeTokens > 0 ? <Text style={[styles.memberSub, { color: c.primary }]}>won {r.prizeTokens.toLocaleString()}</Text> : null}
+              {R.prize > 0 && !closed ? <Pill label={`${R.prize.toLocaleString()} pot share`} tone="money" icon="trophy" /> : null}
+              {R.r && R.r.prizeTokens > 0 ? <Text style={[styles.memberSub, { color: c.primary }]}>won {R.r.prizeTokens.toLocaleString()}</Text> : null}
             </View>
-          </View>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} />
+          </Pressable>
         );
       })}
-      {!ended && <InvitePanel league={league} onShare={onInvite} />}
+      {!closed && <InvitePanel league={league} onShare={onInvite} />}
+
+      <PlayerProfileSheet
+        uid={openUid}
+        leagueId={league.id}
+        onClose={() => setOpenUid(null)}
+        seed={
+          openedInfo && openUid
+            ? {
+                displayName: openedInfo.name,
+                username: profiles[openUid]?.username,
+                avatar: profiles[openUid]?.avatar,
+                equipped: profiles[openUid]?.equipped,
+                favoriteTeams: profiles[openUid]?.favoriteTeams,
+              }
+            : undefined
+        }
+        standing={
+          opened
+            ? { rank: opened.rank, of: standings.length, netWorth: opened.netWorth, tokens: opened.tokens, debt: opened.debt, receivable: opened.receivable }
+            : undefined
+        }
+      />
     </View>
   );
 }
@@ -283,6 +423,7 @@ function InvitePanel({ league, onShare }: { league: League; onShare: () => void 
   const { friends } = useFriends(profile?.uid ?? null);
   const [sent, setSent] = useState<Record<string, "busy" | "sent" | string>>({});
   const candidates = friends.filter((f) => !league.memberIds.includes(f.uid)).slice(0, 8);
+  if (isLeagueClosed(league)) return null;
 
   return (
     <Card style={{ gap: 10 }}>
@@ -322,8 +463,9 @@ function InvitePanel({ league, onShare }: { league: League; onShare: () => void 
 
 // ── Bets ───────────────────────────────────────────────────────────────────
 
-function BetsTab({ bets, uid }: { bets: LeagueBet[]; uid: string | null }) {
+function BetsTab({ bets, uid, leagueId }: { bets: LeagueBet[]; uid: string | null; leagueId?: string }) {
   const c = useColors();
+  const [quickGame, setQuickGame] = useState<string | null>(null);
   const open = bets.filter((b) => b.status === "pending");
   const settled = bets.filter((b) => b.status !== "pending");
   if (bets.length === 0) {
@@ -332,7 +474,13 @@ function BetsTab({ bets, uid }: { bets: LeagueBet[]; uid: string | null }) {
   const row = (b: LeagueBet) => {
     const label = b.status === "pending" ? "Open" : b.status === "won" ? "Won" : b.status === "lost" ? "Lost" : b.status === "push" ? "Push" : "Void";
     return (
-      <View key={b.id} style={[styles.betRow, { backgroundColor: c.card, borderColor: c.border, borderLeftColor: b.teamColor }]}>
+      <Pressable
+        key={b.id}
+        accessibilityRole="button"
+        accessibilityHint="Opens the game"
+        onPress={() => setQuickGame(b.gameId)}
+        style={({ pressed }) => [styles.betRow, { backgroundColor: c.card, borderColor: c.border, borderLeftColor: b.teamColor, opacity: pressed ? 0.85 : 1 }]}
+      >
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={[styles.memberName, { color: c.foreground }]} numberOfLines={1}>
             {b.uid === uid ? "You" : b.displayName} · {b.teamAbbr} <Text style={{ color: c.mutedForeground }}>v {b.opponentAbbr}</Text>
@@ -342,7 +490,8 @@ function BetsTab({ bets, uid }: { bets: LeagueBet[]; uid: string | null }) {
           </Text>
         </View>
         <Pill label={label} tone={b.status === "won" ? "positive" : b.status === "lost" ? "negative" : b.status === "pending" ? "league" : "neutral"} />
-      </View>
+        <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} />
+      </Pressable>
     );
   };
   return (
@@ -351,15 +500,18 @@ function BetsTab({ bets, uid }: { bets: LeagueBet[]; uid: string | null }) {
       {open.map(row)}
       {settled.length > 0 && <SectionHeader title="Settled" />}
       {settled.map(row)}
+      <GameQuickView gameId={quickGame} onClose={() => setQuickGame(null)} defaultWallet={leagueId} />
     </View>
   );
 }
 
 // ── Bank & peer loans ──────────────────────────────────────────────────────
 
-function BankTab({ league, loans, uid, me, tokens, now }: { league: League; loans: LeagueLoan[]; uid: string | null; me: Standing | null; tokens: number; now: number }) {
+function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: League; loans: LeagueLoan[]; uid: string | null; me: Standing | null; tokens: number; now: number; closed: boolean }) {
   const c = useColors();
-  const { takeBankLoan, repayLoan } = useLeague();
+  const { takeBankLoan, repayLoan, updateBankSettings } = useLeague();
+  const isCreator = league.creatorId === uid;
+  const [opening, setOpening] = useState(false);
   const ended = league.status === "ended";
   const asOf = ended ? league.endedAt ?? league.endsAt : Math.min(now, league.endsAt);
 
@@ -381,7 +533,7 @@ function BankTab({ league, loans, uid, me, tokens, now }: { league: League; loan
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const borrow = Number.parseInt(amount, 10) || 0;
-  const perPeriod = simpleInterest(borrow, league.bankInterestRate, 1);
+  const fee = flatInterest(borrow, league.bankInterestRate);
 
   return (
     <View style={{ gap: 12 }}>
@@ -389,7 +541,7 @@ function BankTab({ league, loans, uid, me, tokens, now }: { league: League; loan
         <Text style={[styles.cardTitle, { color: c.foreground }]}>Your finances</Text>
         <View style={styles.hero}>
           <StatTile label="Tokens">
-            <Amount value={tokens} currency="league" size="sm" />
+            <Amount value={tokens} currency="league" size="sm" animate />
           </StatTile>
           <StatTile label="Owed">
             <Amount value={totals.owed} currency="league" size="sm" tone={totals.owed ? "debt" : "neutral"} />
@@ -400,24 +552,26 @@ function BankTab({ league, loans, uid, me, tokens, now }: { league: League; loan
         </View>
         {activeMine.length > 0 && (
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
-            {totals.principal.toLocaleString()} principal outstanding · {totals.charged.toLocaleString()} interest charged so far, {totals.paid.toLocaleString()} paid.
+            {totals.principal.toLocaleString()} principal outstanding · {totals.charged.toLocaleString()} flat interest, {totals.paid.toLocaleString()} of it paid.
           </Text>
         )}
       </Card>
 
-      {league.bankLoanEnabled && !ended ? (
+      {!closed && <PeerMarket league={league} loans={loans} uid={uid} tokens={tokens} />}
+
+      {league.bankLoanEnabled && !closed ? (
         <Card style={{ gap: 10 }}>
           <View style={styles.inline}>
             <MaterialCommunityIcons name="bank-outline" size={18} color={c.league} />
             <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>League bank</Text>
-            <Pill label={`${league.bankInterestRate}% / ${periodWord(league.bankInterestIntervalHours)}`} tone="league" />
+            <Pill label={`${league.bankInterestRate}% flat`} tone="league" />
           </View>
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
-            Simple interest on what you still owe — never on interest. You can borrow {room.toLocaleString()} more (limit {cap.toLocaleString()} in principal). Debt counts against your net worth.
+            A one-time {league.bankInterestRate}% fee on what you borrow — it never grows. You can borrow {room.toLocaleString()} more (limit {cap.toLocaleString()} in principal). Debt counts against your net worth.
           </Text>
           <View style={[styles.input, { borderColor: borrow > room ? c.negative : c.border, backgroundColor: c.secondary }]}>
             <MaterialCommunityIcons name="shield-star" size={18} color={c.league} />
-            <TextInput
+            <NumericInput
               style={[styles.inputText, { color: c.foreground }]}
               value={amount}
               onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ""))}
@@ -429,7 +583,7 @@ function BankTab({ league, loans, uid, me, tokens, now }: { league: League; loan
           </View>
           {borrow > 0 && (
             <Text style={[styles.muted, { color: c.mutedForeground }]}>
-              Costs {perPeriod.toLocaleString()} per {periodWord(league.bankInterestIntervalHours)}. Untouched for 3 periods you'd owe {(borrow + perPeriod * 3).toLocaleString()}.
+              You'll repay {(borrow + fee).toLocaleString()} in total ({fee.toLocaleString()} interest), however long it takes.
             </Text>
           )}
           {err ? <Text style={[styles.muted, { color: c.negative }]}>{err}</Text> : null}
@@ -451,22 +605,44 @@ function BankTab({ league, loans, uid, me, tokens, now }: { league: League; loan
             }}
           />
         </Card>
-      ) : !ended ? (
-        <Card>
-          <Text style={[styles.muted, { color: c.mutedForeground }]}>The league bank is closed. You can still borrow from other members below.</Text>
+      ) : !closed ? (
+        <Card style={{ gap: 10 }}>
+          <View style={styles.inline}>
+            <MaterialCommunityIcons name="bank-off-outline" size={18} color={c.mutedForeground} />
+            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>League bank is closed</Text>
+          </View>
+          <Text style={[styles.muted, { color: c.mutedForeground }]}>
+            {isCreator
+              ? "Open it so members can borrow league tokens for a flat fee."
+              : "Only the league creator can open the bank. You can still borrow from friends above."}
+          </Text>
+          {err ? <Text style={[styles.muted, { color: c.negative }]}>{err}</Text> : null}
+          {isCreator && (
+            <Button
+              label={`Open the bank · ${league.bankInterestRate || 10}% flat`}
+              icon="bank-outline"
+              variant="league"
+              loading={opening}
+              onPress={async () => {
+                setOpening(true);
+                setErr(null);
+                const e = await updateBankSettings(league.id, true, league.bankInterestRate || 10, league.bankInterestIntervalHours || 24);
+                setOpening(false);
+                if (e) setErr(e);
+              }}
+            />
+          )}
         </Card>
       ) : null}
 
       {mine.length > 0 && <SectionHeader title="What you owe" />}
       {mine.map((l) => (
-        <LoanCard key={l.id} loan={l} now={asOf} viewer="borrower" tokens={tokens} onRepay={ended ? undefined : (amt) => repayLoan(league.id, l.id, amt)} />
+        <LoanCard key={l.id} loan={l} now={asOf} viewer="borrower" tokens={tokens} onRepay={closed ? undefined : (amt) => repayLoan(league.id, l.id, amt)} />
       ))}
       {lent.length > 0 && <SectionHeader title="What you're owed" />}
       {lent.map((l) => (
         <LoanCard key={l.id} loan={l} now={asOf} viewer="lender" tokens={tokens} />
       ))}
-
-      {!ended && <PeerMarket league={league} loans={loans} uid={uid} tokens={tokens} />}
     </View>
   );
 }
@@ -496,17 +672,38 @@ function PeerMarket({ league, loans, uid, tokens }: { league: League; loans: Lea
 
   const amt = Number.parseInt(amount, 10) || 0;
   const r = Number.parseFloat(rate) || 0;
+  const canRequest = PEER_LOAN_REQUESTS_ENABLED && !isLeagueClosed(league);
+
+  // Requests locked: only already-open requests remain, so they can be funded or withdrawn.
+  if (!canRequest && open.length === 0) return null;
 
   return (
     <View style={{ gap: 10 }}>
-      <SectionHeader title="Borrow from members" action={show ? "Close" : "Ask for a loan"} onAction={() => setShow((v) => !v)} />
-      <Text style={[styles.muted, { color: c.mutedForeground }]}>
-        Name your amount and rate. Another member funds it from their own tokens, or counters. Same simple interest, every {periodWord(league.bankInterestIntervalHours)}.
-      </Text>
-      {show && (
+      {canRequest ? (
+        <>
+          <SectionHeader title="Loans from friends" />
+          <Text style={[styles.muted, { color: c.mutedForeground }]}>
+            Name your amount and a flat return. A friend funds it from their own tokens, or counters. Borrow 100 at 10% and they get back 110 — never more.
+          </Text>
+          <Button
+            label={show ? "Cancel" : "Ask friends for a loan"}
+            icon={show ? "close" : "hand-coin-outline"}
+            variant={show ? "secondary" : "league"}
+            onPress={() => setShow((v) => !v)}
+          />
+        </>
+      ) : (
+        <SectionHeader title="Open loan requests" />
+      )}
+      {canRequest && show && (
         <Card style={{ gap: 8 }}>
-          <TextInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={`Amount (max ${max.toLocaleString()})`} placeholderTextColor={c.subtleForeground} accessibilityLabel="Loan amount" />
-          <TextInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={rate} onChangeText={setRate} keyboardType="decimal-pad" placeholder={`Rate % per ${periodWord(league.bankInterestIntervalHours)} (bank charges ${league.bankInterestRate}%)`} placeholderTextColor={c.subtleForeground} accessibilityLabel="Interest rate" />
+          <NumericInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={`Amount (max ${max.toLocaleString()})`} placeholderTextColor={c.subtleForeground} accessibilityLabel="Loan amount" />
+          <NumericInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={rate} onChangeText={setRate} keyboardType="decimal-pad" placeholder={`Flat return % (bank charges ${league.bankInterestRate}%)`} placeholderTextColor={c.subtleForeground} accessibilityLabel="Interest rate" />
+          {amt > 0 && r > 0 ? (
+            <Text style={[styles.muted, { color: c.mutedForeground }]}>
+              You'll repay {(amt + flatInterest(amt, r)).toLocaleString()} in total ({flatInterest(amt, r).toLocaleString()} interest).
+            </Text>
+          ) : null}
           <TextInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={msg} onChangeText={setMsg} maxLength={80} placeholder="Pitch (optional)" placeholderTextColor={c.subtleForeground} accessibilityLabel="Message" />
           <Button
             label="Post request"
@@ -526,7 +723,7 @@ function PeerMarket({ league, loans, uid, tokens }: { league: League; loans: Lea
         </Card>
       )}
       {err ? <Text style={[styles.muted, { color: c.negative }]}>{err}</Text> : null}
-      {open.length === 0 && !show ? <Text style={[styles.muted, { color: c.subtleForeground }]}>No open requests.</Text> : null}
+      {canRequest && open.length === 0 && !show ? <Text style={[styles.muted, { color: c.subtleForeground }]}>No open requests.</Text> : null}
       {open.map((l) => {
         const mineReq = l.borrowerId === uid;
         const declined = l.declinedBy?.includes(uid ?? "");
@@ -553,7 +750,7 @@ function PeerMarket({ league, loans, uid, tokens }: { league: League; loans: Lea
               </View>
             ) : countered || declined ? null : counterFor === l.id ? (
               <View style={styles.inline}>
-                <TextInput style={[styles.field, { flex: 1, color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={counterRate} onChangeText={setCounterRate} keyboardType="decimal-pad" placeholder="Your rate %" placeholderTextColor={c.subtleForeground} autoFocus />
+                <NumericInput style={[styles.field, { flex: 1, color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={counterRate} onChangeText={setCounterRate} keyboardType="decimal-pad" placeholder="Your rate %" placeholderTextColor={c.subtleForeground} autoFocus />
                 <Button size="sm" label="Send" loading={busy === `ctr${l.id}`} disabled={!(Number.parseFloat(counterRate) > 0)} onPress={async () => {
                   const e = await act(`ctr${l.id}`, () => peerLoanAction(league.id, l.id, "counter", Number.parseFloat(counterRate)));
                   if (!e) setCounterFor(null);
@@ -576,15 +773,13 @@ function PeerMarket({ league, loans, uid, tokens }: { league: League; loans: Lea
 
 // ── Info & settings ────────────────────────────────────────────────────────
 
-function InfoTab({ league, uid }: { league: League; uid: string | null }) {
+function InfoTab({ league, uid, closed }: { league: League; uid: string | null; closed: boolean }) {
   const c = useColors();
   const { updateBankSettings, endLeague, leaveLeague } = useLeague();
   const isCreator = league.creatorId === uid;
-  const ended = league.status === "ended";
   const preset = PRIZE_PRESETS.find((p) => p.value === league.prizeDistribution.preset);
   const [enabled, setEnabled] = useState(league.bankLoanEnabled);
   const [rate, setRate] = useState(String(league.bankInterestRate));
-  const [period, setPeriod] = useState(league.bankInterestIntervalHours);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"end" | "leave" | null>(null);
@@ -593,14 +788,16 @@ function InfoTab({ league, uid }: { league: League; uid: string | null }) {
   const shares = useMemo(() => prizeSplit(league.pot, league.prizeDistribution, Math.max(3, league.memberIds.length)), [league]);
 
   const rows: Array<[string, string]> = [
-    ["Invite code", league.code],
+    ["Status", closed ? "Closed" : "Active"],
+    // Invite code is withheld once closed — nobody new can join.
+    ...(closed ? [] : [["Invite code", league.code] as [string, string]]),
     ["Starting tokens", league.startingLeagueTokens.toLocaleString()],
     ["Buy-in", league.buyIn > 0 ? `${league.buyIn.toLocaleString()} credits` : "Free"],
     ["Prize pot", `${league.pot.toLocaleString()} credits`],
     ["Prize split", preset?.label ?? "Custom"],
     ["Sports", league.allowedSports.join(", ")],
-    ["Ends", new Date(league.endsAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })],
-    ["Bank", league.bankLoanEnabled ? `${league.bankInterestRate}% simple per ${periodWord(league.bankInterestIntervalHours)}` : "Closed"],
+    [closed ? "Ended" : "Ends", new Date(league.endedAt ?? league.endsAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })],
+    ["Bank", league.bankLoanEnabled ? `${league.bankInterestRate}% flat` : "Closed"],
   ];
 
   return (
@@ -628,21 +825,14 @@ function InfoTab({ league, uid }: { league: League; uid: string | null }) {
         </Card>
       )}
 
-      {isCreator && !ended && (
+      {isCreator && !closed && (
         <Card style={{ gap: 10 }}>
           <View style={styles.inline}>
             <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Bank settings</Text>
             <Switch value={enabled} onValueChange={setEnabled} trackColor={{ false: c.border, true: c.league }} accessibilityLabel="Bank open" />
           </View>
           {enabled && (
-            <>
-              <TextInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={rate} onChangeText={setRate} keyboardType="decimal-pad" placeholder="Rate % (0.5–50)" placeholderTextColor={c.subtleForeground} accessibilityLabel="Bank rate" />
-              <View style={styles.inline}>
-                {[1, 6, 24, 168].map((h) => (
-                  <Button key={h} size="sm" label={h === 1 ? "Hourly" : h === 6 ? "6h" : h === 24 ? "Daily" : "Weekly"} variant={period === h ? "league" : "secondary"} onPress={() => setPeriod(h)} />
-                ))}
-              </View>
-            </>
+            <NumericInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={rate} onChangeText={setRate} keyboardType="decimal-pad" placeholder="Flat rate % (0.5–50)" placeholderTextColor={c.subtleForeground} accessibilityLabel="Bank rate" />
           )}
           <Text style={[styles.memberSub, { color: c.subtleForeground }]}>Changes apply to new loans. Existing loans keep the terms they were taken at.</Text>
           {saved ? <Text style={[styles.memberSub, { color: saved === "Saved" ? c.positive : c.negative }]}>{saved}</Text> : null}
@@ -653,7 +843,7 @@ function InfoTab({ league, uid }: { league: League; uid: string | null }) {
             disabled={enabled && !(Number.parseFloat(rate) >= 0.5 && Number.parseFloat(rate) <= 50)}
             onPress={async () => {
               setSaving(true);
-              const e = await updateBankSettings(league.id, enabled, Number.parseFloat(rate) || league.bankInterestRate, period);
+              const e = await updateBankSettings(league.id, enabled, Number.parseFloat(rate) || league.bankInterestRate, league.bankInterestIntervalHours);
               setSaving(false);
               setSaved(e ?? "Saved");
             }}
@@ -661,7 +851,7 @@ function InfoTab({ league, uid }: { league: League; uid: string | null }) {
         </Card>
       )}
 
-      {!ended && (
+      {!closed && (
         <View style={{ gap: 8 }}>
           {isCreator && <Button label="End season now & pay out" icon="flag-checkered" variant="secondary" onPress={() => { setDlgErr(null); setConfirm("end"); }} />}
           <Button label="Leave league" icon="exit-to-app" variant="destructive" onPress={() => { setDlgErr(null); setConfirm("leave"); }} />
@@ -669,7 +859,7 @@ function InfoTab({ league, uid }: { league: League; uid: string | null }) {
       )}
 
       <ConfirmDialog
-        visible={confirm === "end"}
+        visible={!closed && confirm === "end"}
         title="End the season now?"
         body={`Standings lock at current net worth. Open league bets are voided and refunded, and the ${league.pot.toLocaleString()}-credit pot pays out immediately. This can't be undone.`}
         confirmLabel="End & pay out"
@@ -685,7 +875,7 @@ function InfoTab({ league, uid }: { league: League; uid: string | null }) {
         }}
       />
       <ConfirmDialog
-        visible={confirm === "leave"}
+        visible={!closed && confirm === "leave"}
         title="Leave this league?"
         body={`You'll drop out of the standings and can't rejoin.${league.buyIn > 0 ? ` Your ${league.buyIn.toLocaleString()}-credit buy-in stays in the pot.` : ""} You have to settle any loans and wait for open bets first.`}
         confirmLabel="Leave"
@@ -731,5 +921,25 @@ const styles = StyleSheet.create({
   inputText: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   field: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, fontFamily: "Inter_500Medium" },
   infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  closedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  champ: {
+    borderWidth: 1.5,
+    borderRadius: 22,
+    padding: 16,
+    gap: 14,
+    overflow: "hidden",
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  champTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  champBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
+  champBadgeText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8, color: "#2A1E00" },
+  champMain: { flexDirection: "row", alignItems: "center", gap: 14 },
+  champName: { fontSize: 22, fontFamily: "Inter_900Black", letterSpacing: -0.4, flexShrink: 1 },
+  champStats: { flexDirection: "row", alignItems: "flex-end", gap: 12, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12 },
+  champK: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginBottom: 2 },
+  champV: { fontSize: 18, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
   dock: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
 });

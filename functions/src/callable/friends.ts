@@ -1,6 +1,8 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db, FieldValue, pairId, requireAuth } from "../lib/economy";
+import { writeNotification } from "../lib/notify";
+import { simpleNotification } from "../lib/notifyModel";
 
 const MAX_FRIENDS = 500;
 
@@ -24,12 +26,16 @@ export const sendFriendRequest = onCall({ region: "us-central1" }, async (req) =
   const incomingRef = db.collection("friendRequests").doc(`${to}_${from}`);
 
   return db.runTransaction(async (tx) => {
-    const [target, friendship, outgoing, incoming] = await Promise.all([
+    const [target, friendship, outgoing, incoming, sender] = await Promise.all([
       tx.get(targetRef),
       tx.get(friendshipRef),
       tx.get(outgoingRef),
       tx.get(incomingRef),
+      tx.get(db.collection("users").doc(from)),
     ]);
+    const senderName = (sender.get("displayName") as string | undefined) || "A player";
+    const senderHandle = sender.get("username") as string | undefined;
+    const now = Date.now();
 
     if (!target.exists) throw new HttpsError("not-found", "That user doesn't exist.");
     if (friendship.exists) throw new HttpsError("already-exists", "You're already friends.");
@@ -45,6 +51,7 @@ export const sendFriendRequest = onCall({ region: "us-central1" }, async (req) =
         users: [from, to].sort(),
         createdAt: FieldValue.serverTimestamp(),
       });
+      writeNotification(tx, to, friendAccepted(from, to, senderName, now));
       return { ok: true, status: "accepted" as const };
     }
 
@@ -54,6 +61,22 @@ export const sendFriendRequest = onCall({ region: "us-central1" }, async (req) =
       status: "pending",
       createdAt: FieldValue.serverTimestamp(),
     });
+    // Before this the request doc was the only trace, so the recipient saw
+    // nothing until they happened to open the Friends tab. Same deterministic
+    // id on a re-send after a decline, so it resurfaces instead of stacking.
+    writeNotification(
+      tx,
+      to,
+      simpleNotification({
+        id: `freq_${from}_${to}`,
+        type: "friend_request",
+        title: `${senderName} sent you a friend request`,
+        body: senderHandle ? `@${senderHandle} wants to compete with you. Tap to respond.` : "Tap to respond.",
+        now,
+        popup: true,
+        data: { fromUid: from },
+      })
+    );
     return { ok: true, status: "sent" as const };
   });
 });
@@ -68,7 +91,7 @@ export const respondFriendRequest = onCall({ region: "us-central1" }, async (req
   const friendshipRef = db.collection("friendships").doc(pairId(me, fromUid));
 
   return db.runTransaction(async (tx) => {
-    const snap = await tx.get(reqRef);
+    const [snap, meSnap] = await Promise.all([tx.get(reqRef), tx.get(db.collection("users").doc(me))]);
     if (!snap.exists) throw new HttpsError("not-found", "Request not found.");
     if (snap.get("to") !== me) throw new HttpsError("permission-denied", "Not your request.");
     if (snap.get("status") !== "pending") {
@@ -88,9 +111,26 @@ export const respondFriendRequest = onCall({ region: "us-central1" }, async (req
       });
     }
     tx.update(reqRef, { status: "accepted", respondedAt: FieldValue.serverTimestamp() });
+    writeNotification(
+      tx,
+      fromUid,
+      friendAccepted(me, fromUid, (meSnap.get("displayName") as string | undefined) || "A player", Date.now())
+    );
     return { ok: true, status: "accepted" as const };
   });
 });
+
+function friendAccepted(accepter: string, requester: string, accepterName: string, now: number) {
+  return simpleNotification({
+    id: `faccept_${pairId(accepter, requester)}`,
+    type: "friend_accepted",
+    title: `${accepterName} accepted your friend request`,
+    body: "You can now see each other's bets and invite each other to leagues.",
+    now,
+    popup: true,
+    data: { fromUid: accepter },
+  });
+}
 
 export const removeFriend = onCall({ region: "us-central1" }, async (req) => {
   const me = requireAuth(req.auth);
@@ -143,6 +183,7 @@ export const listFriends = onCall({ region: "us-central1" }, async (req) => {
         equipped: d.get("equipped"),
         balance: d.get("balance"),
         stats: d.get("stats"),
+        favoriteTeams: d.get("favoriteTeams") ?? [],
       })),
   };
 });

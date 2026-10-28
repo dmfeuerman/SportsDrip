@@ -13,20 +13,30 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import { Chips as EditChips, Stops, Swatches as EditSwatches } from "@/components/avatar/EditorControls";
+import { Button, SegmentedControl } from "@/components/ui";
 import { useCatalog } from "@/hooks/useCatalog";
+import { DEMO } from "@/lib/demo";
 
-const STARTER_OUTFIT = { top: "tee_basic_white", bottom: "shorts_basic_navy", shoes: "shoes_basic_white" } as const;
 import {
-  DEFAULT_AVATAR,
   EYE_COLORS,
+  EYE_SHAPES,
+  EYEBROWS,
+  FACE_SHAPES,
+  FACIAL_HAIR,
   HAIR_COLORS,
   HAIR_STYLES,
+  MOUTH_SHAPES,
+  NOSE_SHAPES,
   SKIN_TONES,
-  randomAvatar,
+  SIGNUP_AVATAR,
 } from "@/constants/avatarOptions";
 import * as api from "@/lib/api";
 import type { AvatarConfig } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
+
+/** Nothing is worn at signup (createProfile equips nothing; the starter kit goes to the inventory). */
+const NO_OUTFIT = {} as const;
 
 /**
  * The screen that did not exist. Signup previously dropped the user straight
@@ -40,6 +50,7 @@ import { useColors } from "@/hooks/useColors";
  */
 
 type Step = "identity" | "appearance" | "welcome";
+type EditTab = "body" | "face" | "hair";
 
 export default function OnboardingScreen() {
   const colors = useColors();
@@ -47,7 +58,10 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState<Step>("identity");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [avatar, setAvatar] = useState<AvatarConfig>(DEFAULT_AVATAR);
+  // Everyone starts from the same plain base (bald, nothing worn) and builds from there.
+  const [avatar, setAvatar] = useState<AvatarConfig>(SIGNUP_AVATAR);
+  const [tab, setTab] = useState<EditTab>("body");
+  const [cheer, setCheer] = useState(0);
 
   const [checking, setChecking] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -69,7 +83,8 @@ export default function OnboardingScreen() {
     setChecking(true);
     const t = setTimeout(async () => {
       try {
-        const res = await api.checkUsername({ username: normalized });
+        // Demo mode has no backend: every well-formed name is free.
+        const res = DEMO ? { available: true } : await api.checkUsername({ username: normalized });
         if (!cancelled) setAvailable(res.available);
       } catch {
         if (!cancelled) setAvailable(null);
@@ -89,12 +104,15 @@ export default function OnboardingScreen() {
     setError(null);
     setSubmitting(true);
     try {
-      await api.createProfile({
-        username: normalized,
-        displayName: displayName.trim(),
-        avatar,
-      });
+      if (!DEMO) {
+        await api.createProfile({
+          username: normalized,
+          displayName: displayName.trim(),
+          avatar,
+        });
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCheer((n) => n + 1);
       setStep("welcome");
     } catch (err) {
       setError(api.friendlyError(err));
@@ -103,7 +121,7 @@ export default function OnboardingScreen() {
     }
   }, [normalized, displayName, avatar, setStep]);
 
-  // Preview in the starter kit createProfile hands out, not a bare mannequin.
+  // Item meshes for the preview (nothing is worn yet, but the catalog drives the renderer).
   const { byId: catalog } = useCatalog();
 
   return (
@@ -170,69 +188,57 @@ export default function OnboardingScreen() {
       )}
 
       {step === "appearance" && (
-        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-          <Text style={[s.title, { color: colors.foreground }]}>Build your character</Text>
+        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false} stickyHeaderIndices={[1]}>
+          <Text style={[s.title, { color: colors.foreground }]}>Make it yours</Text>
 
-          {/* Live preview — every control below updates this immediately (§8). */}
-          <View style={[s.preview, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-            <AvatarDisplay avatar={avatar} equipped={STARTER_OUTFIT} catalog={catalog} size="lg" autoRotate />
+          {/* Live preview — every control below updates it immediately (§8). Sticks while you scroll. */}
+          <View style={{ backgroundColor: colors.background, paddingBottom: 12 }}>
+            <View style={[s.preview, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+              <AvatarDisplay
+                avatar={avatar}
+                equipped={NO_OUTFIT}
+                catalog={catalog}
+                size="lg"
+                focus={tab === "body" ? "full" : "head"}
+                cheerSignal={cheer}
+              />
+            </View>
+            <SegmentedControl<EditTab>
+              style={{ marginTop: 12 }}
+              options={[
+                { value: "body", label: "Body" },
+                { value: "face", label: "Face" },
+                { value: "hair", label: "Hair" },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
           </View>
 
-          <Pressable
-            style={[s.ghostBtn, { borderColor: colors.border }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setAvatar(randomAvatar());
-            }}
-          >
-            <MaterialCommunityIcons name="dice-5-outline" size={16} color={colors.mutedForeground} />
-            <Text style={[s.ghostBtnText, { color: colors.mutedForeground }]}>Surprise me</Text>
-          </Pressable>
-
-          <Slider
-            label="Height"
-            value={avatar.height}
-            onChange={(height) => setAvatar((a) => ({ ...a, height }))}
-            colors={colors}
-          />
-          <Slider
-            label="Build"
-            value={avatar.bodyType}
-            onChange={(bodyType) => setAvatar((a) => ({ ...a, bodyType }))}
-            colors={colors}
-          />
-
-          <Swatches
-            label="Skin tone"
-            options={SKIN_TONES}
-            value={avatar.skinTone}
-            onChange={(skinTone) => setAvatar((a) => ({ ...a, skinTone }))}
-            colors={colors}
-          />
-
-          <Chips
-            label="Hair"
-            options={HAIR_STYLES.map((h) => ({ id: h.id, label: h.label }))}
-            value={avatar.hairStyle}
-            onChange={(hairStyle) => setAvatar((a) => ({ ...a, hairStyle }))}
-            colors={colors}
-          />
-
-          <Swatches
-            label="Hair colour"
-            options={HAIR_COLORS}
-            value={avatar.hairColor}
-            onChange={(hairColor) => setAvatar((a) => ({ ...a, hairColor }))}
-            colors={colors}
-          />
-
-          <Swatches
-            label="Eyes"
-            options={EYE_COLORS}
-            value={avatar.eyeColor ?? EYE_COLORS[0]!}
-            onChange={(eyeColor) => setAvatar((a) => ({ ...a, eyeColor }))}
-            colors={colors}
-          />
+          {tab === "body" && (
+            <>
+              <EditSwatches label="Skin tone" options={SKIN_TONES} value={avatar.skinTone} onChange={(skinTone) => setAvatar((a) => ({ ...a, skinTone }))} />
+              <Stops label="Height" value={avatar.height} onChange={(height) => setAvatar((a) => ({ ...a, height }))} ends={["Shorter", "Taller"]} />
+              <Stops label="Build" value={avatar.bodyType} onChange={(bodyType) => setAvatar((a) => ({ ...a, bodyType }))} ends={["Slim", "Broad"]} />
+            </>
+          )}
+          {tab === "face" && (
+            <>
+              <EditChips label="Face shape" options={FACE_SHAPES} value={avatar.faceShape ?? "oval"} onChange={(faceShape) => setAvatar((a) => ({ ...a, faceShape }))} />
+              <EditChips label="Eye shape" options={EYE_SHAPES} value={avatar.eyeShape ?? "round"} onChange={(eyeShape) => setAvatar((a) => ({ ...a, eyeShape }))} />
+              <EditSwatches label="Eyes" options={EYE_COLORS} value={avatar.eyeColor ?? EYE_COLORS[0]!} onChange={(eyeColor) => setAvatar((a) => ({ ...a, eyeColor }))} />
+              <EditChips label="Brows" options={EYEBROWS} value={avatar.eyebrows ?? "soft"} onChange={(eyebrows) => setAvatar((a) => ({ ...a, eyebrows }))} />
+              <EditChips label="Nose" options={NOSE_SHAPES} value={avatar.noseShape ?? "button"} onChange={(noseShape) => setAvatar((a) => ({ ...a, noseShape }))} />
+              <EditChips label="Mouth" options={MOUTH_SHAPES} value={avatar.mouthShape ?? "neutral"} onChange={(mouthShape) => setAvatar((a) => ({ ...a, mouthShape }))} />
+              <EditChips label="Facial hair" options={FACIAL_HAIR} value={avatar.facialHair ?? "none"} onChange={(facialHair) => setAvatar((a) => ({ ...a, facialHair }))} />
+            </>
+          )}
+          {tab === "hair" && (
+            <>
+              <EditChips label="Style" options={HAIR_STYLES} value={avatar.hairStyle} onChange={(hairStyle) => setAvatar((a) => ({ ...a, hairStyle }))} />
+              <EditSwatches label="Colour" options={HAIR_COLORS} value={avatar.hairColor} onChange={(hairColor) => setAvatar((a) => ({ ...a, hairColor }))} />
+            </>
+          )}
 
           {error && <Hint colors={colors} tone="error">{error}</Hint>}
 
@@ -243,9 +249,7 @@ export default function OnboardingScreen() {
             onPress={handleCreate}
             colors={colors}
           />
-          <Pressable style={s.backBtn} onPress={() => setStep("identity")}>
-            <Text style={[s.backText, { color: colors.mutedForeground }]}>Back</Text>
-          </Pressable>
+          <Button label="Back" icon="arrow-left" variant="ghost" onPress={() => setStep("identity")} />
         </ScrollView>
       )}
 
@@ -380,147 +384,15 @@ function PrimaryButton({
   );
 }
 
-/**
- * Discrete 5-stop slider. A real gesture slider would need another dependency;
- * five stops is enough resolution for height and build, and it is far easier to
- * hit on a phone than a 1px thumb.
- */
-function Slider({
-  label,
-  value,
-  onChange,
-  colors,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  colors: Colors;
-}) {
-  const stops = [0, 0.25, 0.5, 0.75, 1];
-  const activeIdx = stops.reduce(
-    (best, stop, i) => (Math.abs(stop - value) < Math.abs(stops[best]! - value) ? i : best),
-    0
-  );
-  return (
-    <View style={s.field}>
-      <Text style={[s.fieldLabel, { color: colors.mutedForeground }]}>{label.toUpperCase()}</Text>
-      <View style={s.stopRow}>
-        {stops.map((stop, i) => (
-          <Pressable
-            key={stop}
-            style={[
-              s.stop,
-              {
-                backgroundColor: i === activeIdx ? colors.primary : colors.secondary,
-                borderColor: i === activeIdx ? colors.primary : colors.border,
-              },
-            ]}
-            onPress={() => {
-              Haptics.selectionAsync();
-              onChange(stop);
-            }}
-          />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function Swatches({
-  label,
-  options,
-  value,
-  onChange,
-  colors,
-}: {
-  label: string;
-  options: string[];
-  value: string;
-  onChange: (v: string) => void;
-  colors: Colors;
-}) {
-  return (
-    <View style={s.field}>
-      <Text style={[s.fieldLabel, { color: colors.mutedForeground }]}>{label.toUpperCase()}</Text>
-      <View style={s.swatchRow}>
-        {options.map((c) => (
-          <Pressable
-            key={c}
-            onPress={() => {
-              Haptics.selectionAsync();
-              onChange(c);
-            }}
-            style={[
-              s.swatch,
-              {
-                backgroundColor: c,
-                borderColor: value === c ? colors.primary : colors.border,
-                borderWidth: value === c ? 3 : 1,
-              },
-            ]}
-          />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function Chips({
-  label,
-  options,
-  value,
-  onChange,
-  colors,
-}: {
-  label: string;
-  options: Array<{ id: string; label: string }>;
-  value: string;
-  onChange: (v: string) => void;
-  colors: Colors;
-}) {
-  return (
-    <View style={s.field}>
-      <Text style={[s.fieldLabel, { color: colors.mutedForeground }]}>{label.toUpperCase()}</Text>
-      <View style={s.chipRow}>
-        {options.map((o) => {
-          const active = o.id === value;
-          return (
-            <Pressable
-              key={o.id}
-              onPress={() => {
-                Haptics.selectionAsync();
-                onChange(o.id);
-              }}
-              style={[
-                s.chip,
-                {
-                  backgroundColor: active ? colors.primary : colors.secondary,
-                  borderColor: active ? colors.primary : colors.border,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  s.chipText,
-                  { color: active ? colors.primaryForeground : colors.mutedForeground },
-                ]}
-              >
-                {o.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
 const s = StyleSheet.create({
   safe: { flex: 1 },
+  fill: { flex: 1 },
+  center: { textAlign: "center" },
+  stickyFoot: { paddingHorizontal: 24, paddingTop: 10, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth },
   dots: { flexDirection: "row", gap: 6, justifyContent: "center", paddingVertical: 16 },
   dot: { height: 8, borderRadius: 4 },
   body: { padding: 24, gap: 18, paddingBottom: 48 },
-  title: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
+  title: { fontSize: 30, fontFamily: "Inter_900Black", letterSpacing: -1 },
   sub: { fontSize: 14, fontFamily: "Inter_400Regular", marginTop: -10 },
   field: { gap: 8 },
   fieldLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
@@ -529,24 +401,18 @@ const s = StyleSheet.create({
   at: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   input: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
   hint: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: -10 },
-  preview: {
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingVertical: 24,
-    minHeight: 300,
-  },
+  preview: { height: 290, borderRadius: 20, borderWidth: 1, overflow: "hidden" },
   ghostBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderRadius: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
+    minHeight: 44,
   },
-  ghostBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  ghostBtnText: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
   stopRow: { flexDirection: "row", gap: 8 },
   stop: { flex: 1, height: 34, borderRadius: 10, borderWidth: 1 },
   swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },

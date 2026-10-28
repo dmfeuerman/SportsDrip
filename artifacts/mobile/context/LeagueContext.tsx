@@ -15,14 +15,18 @@ import React, {
   useRef,
   useState,
 } from "react";
-import type {
-  League,
-  LeagueActivity,
-  LeagueBet,
-  LeagueDuration,
-  LeagueLoan,
-  PrizeDistribution,
-  Sport,
+import {
+  isLeagueClosed,
+  LEAGUE_CLOSED_MESSAGE,
+  LOAN_REQUESTS_CLOSED_MESSAGE,
+  PEER_LOAN_REQUESTS_ENABLED,
+  type League,
+  type LeagueActivity,
+  type LeagueBet,
+  type LeagueDuration,
+  type LeagueLoan,
+  type PrizeDistribution,
+  type Sport,
 } from "@/constants/leagueTypes";
 import { useNow } from "@/hooks/useNow";
 import * as api from "@/lib/api";
@@ -65,8 +69,10 @@ interface LeagueContextType {
   ready: boolean;
   uid: string | null;
   leagues: League[];
+  /** Leagues still open for play — excludes closed (ended or past endsAt). */
   activeLeagues: League[];
   getLeague: (id: string) => League | undefined;
+  isClosed: (id: string) => boolean;
   /** Your open + settled league bets, per league. */
   myLeagueBets: Record<string, LeagueBet[]>;
   error: string | null;
@@ -104,6 +110,11 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
   const [ready, setReady] = useState(DEMO);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef<Set<string>>(new Set());
+  const leaguesRef = useRef(leagues);
+  leaguesRef.current = leagues;
+  const now = useNow(30_000);
+  // String key so the context value only changes when a league actually closes.
+  const closedKey = leagues.filter((l) => isLeagueClosed(l, now)).map((l) => l.id).join(",");
 
   const enabled = firebaseConfigured && !!uid;
 
@@ -187,6 +198,19 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
     }
   }, []);
 
+  /** Read-only guard: no mutation reaches the server for a closed league. */
+  const guarded = useCallback(
+    (leagueId: string, key: string, fn: () => Promise<unknown>): Result => {
+      const league = leaguesRef.current.find((l) => l.id === leagueId);
+      if (league && isLeagueClosed(league)) {
+        setError(LEAGUE_CLOSED_MESSAGE);
+        return Promise.resolve(LEAGUE_CLOSED_MESSAGE);
+      }
+      return run(key, fn);
+    },
+    [run]
+  );
+
   const createLeague = useCallback(
     async (input: CreateLeagueInput) => {
       try {
@@ -222,40 +246,54 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
   }, []);
 
   const value = useMemo<LeagueContextType>(
-    () => ({
-      ready,
-      uid,
-      leagues,
-      activeLeagues: leagues.filter((l) => l.status === "active"),
-      getLeague: (id) => leagues.find((l) => l.id === id),
-      myLeagueBets,
-      error,
-      clearError: () => setError(null),
-      createLeague,
-      joinLeague,
-      leaveLeague: (leagueId) => run(`leave:${leagueId}`, () => api.leaveLeague({ leagueId })),
-      endLeague: (leagueId) => run(`end:${leagueId}`, () => api.endLeague({ leagueId })),
-      updateBankSettings: (leagueId, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours) =>
-        run(`bank:${leagueId}`, () =>
-          api.updateLeagueSettings({ leagueId, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours })
-        ),
-      inviteFriend: (leagueId, friendUid) =>
-        run(`invite:${leagueId}:${friendUid}`, () => api.inviteToLeague({ leagueId, friendUid })),
-      placeLeagueBet: (args) => run(`lbet:${args.idempotencyKey}`, () => api.placeLeagueBet(args)),
-      takeBankLoan: (leagueId, amount) =>
-        run(`borrow:${leagueId}`, () => api.takeBankLoan({ leagueId, amount, idempotencyKey: api.newIdempotencyKey() })),
-      repayLoan: (leagueId, loanId, amount) =>
-        run(`repay:${loanId}`, () =>
-          api.repayLoan({ leagueId, loanId, amount, idempotencyKey: api.newIdempotencyKey() })
-        ),
-      requestLoan: (leagueId, amount, rate, message) =>
-        run(`request:${leagueId}`, () =>
-          api.requestPeerLoan({ leagueId, amount, rate, message, idempotencyKey: api.newIdempotencyKey() })
-        ),
-      peerLoanAction: (leagueId, loanId, action, rate) =>
-        run(`peer:${loanId}`, () => api.peerLoanAction({ leagueId, loanId, action, rate })),
-    }),
-    [ready, uid, leagues, myLeagueBets, error, createLeague, joinLeague, run]
+    () => {
+      const closed = new Set(closedKey ? closedKey.split(",") : []);
+      return {
+        ready,
+        uid,
+        leagues,
+        activeLeagues: leagues.filter((l) => !closed.has(l.id)),
+        getLeague: (id) => leagues.find((l) => l.id === id),
+        isClosed: (id) => {
+          const l = leaguesRef.current.find((x) => x.id === id);
+          return !!l && isLeagueClosed(l);
+        },
+        myLeagueBets,
+        error,
+        clearError: () => setError(null),
+        createLeague,
+        joinLeague,
+        leaveLeague: (leagueId) => guarded(leagueId, `leave:${leagueId}`, () => api.leaveLeague({ leagueId })),
+        endLeague: (leagueId) => guarded(leagueId, `end:${leagueId}`, () => api.endLeague({ leagueId })),
+        updateBankSettings: (leagueId, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours) =>
+          guarded(leagueId, `bank:${leagueId}`, () =>
+            api.updateLeagueSettings({ leagueId, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours })
+          ),
+        inviteFriend: (leagueId, friendUid) =>
+          guarded(leagueId, `invite:${leagueId}:${friendUid}`, () => api.inviteToLeague({ leagueId, friendUid })),
+        placeLeagueBet: (args) => guarded(args.leagueId, `lbet:${args.idempotencyKey}`, () => api.placeLeagueBet(args)),
+        takeBankLoan: (leagueId, amount) =>
+          guarded(leagueId, `borrow:${leagueId}`, () =>
+            api.takeBankLoan({ leagueId, amount, idempotencyKey: api.newIdempotencyKey() })
+          ),
+        repayLoan: (leagueId, loanId, amount) =>
+          guarded(leagueId, `repay:${loanId}`, () =>
+            api.repayLoan({ leagueId, loanId, amount, idempotencyKey: api.newIdempotencyKey() })
+          ),
+        requestLoan: (leagueId, amount, rate, message) => {
+          if (!PEER_LOAN_REQUESTS_ENABLED) {
+            setError(LOAN_REQUESTS_CLOSED_MESSAGE);
+            return Promise.resolve(LOAN_REQUESTS_CLOSED_MESSAGE);
+          }
+          return guarded(leagueId, `request:${leagueId}`, () =>
+            api.requestPeerLoan({ leagueId, amount, rate, message, idempotencyKey: api.newIdempotencyKey() })
+          );
+        },
+        peerLoanAction: (leagueId, loanId, action, rate) =>
+          guarded(leagueId, `peer:${loanId}`, () => api.peerLoanAction({ leagueId, loanId, action, rate })),
+      };
+    },
+    [ready, uid, leagues, closedKey, myLeagueBets, error, createLeague, joinLeague, guarded]
   );
 
   return <LeagueContext.Provider value={value}>{children}</LeagueContext.Provider>;
@@ -342,6 +380,8 @@ export interface LeagueSummary {
   me: Standing | null;
   memberCount: number;
   daysLeft: number;
+  /** Ended, or past endsAt — read-only. */
+  closed: boolean;
 }
 
 /**
@@ -398,13 +438,15 @@ export function useLeagueSummaries(): { summaries: LeagueSummary[]; totalDebt: n
         );
       }
       const me = standings.find((s) => s.uid === uid) ?? null;
-      if (!ended && me) totalDebt += me.debt;
+      const closed = isLeagueClosed(league, now);
+      if (!closed && me) totalDebt += me.debt;
       return {
         league,
         standings,
         me,
         memberCount: members.length || standings.length,
         daysLeft: Math.max(0, Math.ceil((league.endsAt - now) / 86_400_000)),
+        closed,
       };
     });
     return { summaries, totalDebt };

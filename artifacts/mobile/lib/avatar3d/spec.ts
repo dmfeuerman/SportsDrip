@@ -25,7 +25,7 @@ export const hairAssetKey = (style: string | undefined | null) => (style && styl
 export const facialHairAssetKey = (style: string | undefined | null) => (style && style !== "none" ? `beard_${style}` : null);
 
 /** Camera framings, in the avatar's rest-pose metres (sd_base_v3: 1.78 tall, eyes at 1.64). */
-export type Focus = "full" | "head" | "torso" | "legs" | "feet";
+export type Focus = "full" | "head" | "torso" | "legs" | "feet" | "reaction" | "hero";
 
 export const FOCUS: Record<Focus, { target: [number, number, number]; distance: number; height: number }> = {
   full: { target: [0, 0.9, 0], distance: 4.5, height: 0.02 },
@@ -33,6 +33,10 @@ export const FOCUS: Record<Focus, { target: [number, number, number]; distance: 
   torso: { target: [0, 1.24, 0], distance: 2.55, height: 0.05 },
   legs: { target: [0, 0.55, 0], distance: 2.6, height: 0.05 },
   feet: { target: [0, 0.12, 0], distance: 1.6, height: 0.13 },
+  /** Knees to raised hands: bet-result reactions (fist pumps, hands to the face). */
+  reaction: { target: [0, 1.18, 0], distance: 3.2, height: 0.05 },
+  /** Head to toe with headroom for a cheer's raised arms (Home). */
+  hero: { target: [0, 1.0, 0], distance: 4.3, height: 0.03 },
 };
 
 export const CAMERA_FOV = 28;
@@ -56,11 +60,14 @@ export function zoomFraming(z: number): Framing3 {
 }
 
 /** Portrait framings rendered offscreen for small avatars. */
-export type Framing = "bust" | "full";
+export type Framing = "bust" | "full" | "hero";
 export const PORTRAIT_SIZE = { width: 256, height: 320 } as const;
+/** The large full-body still at the top of Home: same 4:5 frame, more pixels. */
+export const HERO_SIZE = { width: 480, height: 600 } as const;
 export const PORTRAIT_FOCUS: Record<Framing, { target: [number, number, number]; distance: number; height: number }> = {
   bust: { target: [0, 1.53, 0], distance: 1.62, height: 0.04 },
   full: { target: [0, 0.9, 0], distance: 4.6, height: 0.04 },
+  hero: { target: [0, 0.89, 0], distance: 4.15, height: 0.06 },
 };
 
 export const SLOT_FOCUS: Record<Slot, Focus> = {

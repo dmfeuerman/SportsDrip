@@ -19,7 +19,7 @@
  * client renders whatever is present.
  */
 
-export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "Soccer";
+export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "NCAAF" | "NCAAB" | "Soccer";
 export type GameStatus = "upcoming" | "live" | "final";
 
 export interface TeamSide {
@@ -36,6 +36,25 @@ export interface TeamSide {
   form: Array<"W" | "L" | "D"> | null;
   pointsFor: number | null;
   pointsAgainst: number | null;
+}
+
+/** Live game state the scoreboard already carries. Only set while live. */
+export interface LiveSituation {
+  /** "3rd & 7 at KC 32" */
+  downDistance: string | null;
+  possession: "home" | "away" | null;
+  redZone: boolean;
+  balls: number | null;
+  strikes: number | null;
+  outs: number | null;
+  onFirst: boolean;
+  onSecond: boolean;
+  onThird: boolean;
+}
+
+export interface Linescore {
+  home: Array<number | null>;
+  away: Array<number | null>;
 }
 
 export interface GameLine {
@@ -67,17 +86,43 @@ export interface NormalizedGame {
   broadcast: string | null;
   seasonLabel: string | null;
   line: GameLine | null;
+  /** ESPN path the game came from ("soccer/eng.1"), so the summary can be fetched later. */
+  providerPath: string;
+  linescore: Linescore | null;
+  live: LiveSituation | null;
 }
 
-const SPORT_CONFIGS: Array<{ sport: Sport; path: string; sportIcon: string }> = [
+interface SportConfig {
+  sport: Sport;
+  path: string;
+  sportIcon: string;
+  /** Competition name shown on the card when a sport spans several leagues. */
+  label?: string;
+}
+
+const SPORT_CONFIGS: SportConfig[] = [
   { sport: "NFL", path: "football/nfl", sportIcon: "football" },
   { sport: "NBA", path: "basketball/nba", sportIcon: "basketball" },
   { sport: "MLB", path: "baseball/mlb", sportIcon: "baseball" },
   { sport: "NHL", path: "hockey/nhl", sportIcon: "hockey-puck" },
-  { sport: "Soccer", path: "soccer/eng.1", sportIcon: "soccer" },
+  { sport: "NCAAF", path: "football/college-football", sportIcon: "football" },
+  { sport: "NCAAB", path: "basketball/mens-college-basketball", sportIcon: "basketball" },
+  { sport: "Soccer", path: "soccer/eng.1", sportIcon: "soccer", label: "Premier League" },
+  { sport: "Soccer", path: "soccer/esp.1", sportIcon: "soccer", label: "La Liga" },
+  { sport: "Soccer", path: "soccer/ita.1", sportIcon: "soccer", label: "Serie A" },
+  { sport: "Soccer", path: "soccer/ger.1", sportIcon: "soccer", label: "Bundesliga" },
+  { sport: "Soccer", path: "soccer/fra.1", sportIcon: "soccer", label: "Ligue 1" },
+  { sport: "Soccer", path: "soccer/uefa.champions", sportIcon: "soccer", label: "Champions League" },
+  { sport: "Soccer", path: "soccer/usa.1", sportIcon: "soccer", label: "MLS" },
 ];
 
 const BASE = "https://site.api.espn.com/apis/site/v2/sports";
+export const ESPN_BASE = BASE;
+
+/** Every provider path a sport can come from. Soccer spans several leagues. */
+export function providerPathsFor(sport: Sport): string[] {
+  return SPORT_CONFIGS.filter((c) => c.sport === sport).map((c) => c.path);
+}
 
 /** House margin applied when deriving decimal odds from a moneyline pair. */
 const OVERROUND = 0.045;
@@ -153,7 +198,7 @@ function toColor(hex: string | undefined, fallback = "#4A90D9"): string {
   return `#${clean}`;
 }
 
-function toStatus(name: string): GameStatus {
+export function toStatus(name: string): GameStatus {
   if (
     name === "STATUS_IN_PROGRESS" ||
     name === "STATUS_HALFTIME" ||
@@ -262,11 +307,44 @@ function buildClock(event: any, status: GameStatus): { period: number | null; cl
   return { period, clock };
 }
 
+const finiteOrNull = (v: unknown): number | null => {
+  const n = Number(v);
+  return v !== null && v !== undefined && v !== "" && Number.isFinite(n) ? n : null;
+};
+
+function buildLinescore(home: any, away: any): Linescore | null {
+  const h: Array<number | null> = (home?.linescores ?? []).map((l: any) => finiteOrNull(l?.value ?? l?.displayValue));
+  const a: Array<number | null> = (away?.linescores ?? []).map((l: any) => finiteOrNull(l?.value ?? l?.displayValue));
+  const n = Math.max(h.length, a.length);
+  if (!n) return null;
+  while (h.length < n) h.push(null);
+  while (a.length < n) a.push(null);
+  return { home: h, away: a };
+}
+
+function buildSituation(comp: any, home: any, away: any, status: GameStatus): LiveSituation | null {
+  const s = comp?.situation;
+  if (status !== "live" || !s) return null;
+  const pos = s.possession != null ? String(s.possession) : null;
+  return {
+    downDistance: typeof s.downDistanceText === "string" ? s.downDistanceText : null,
+    possession: pos && pos === String(home?.team?.id ?? home?.id) ? "home" : pos && pos === String(away?.team?.id ?? away?.id) ? "away" : null,
+    redZone: Boolean(s.isRedZone),
+    balls: finiteOrNull(s.balls),
+    strikes: finiteOrNull(s.strikes),
+    outs: finiteOrNull(s.outs),
+    onFirst: Boolean(s.onFirst),
+    onSecond: Boolean(s.onSecond),
+    onThird: Boolean(s.onThird),
+  };
+}
+
 function parseEvent(
   event: any,
   sport: Sport,
   sportIcon: string,
-  seasonLabel: string | null
+  seasonLabel: string | null,
+  providerPath: string
 ): NormalizedGame | null {
   const comp = event?.competitions?.[0];
   if (!comp) return null;
@@ -314,29 +392,55 @@ function parseEvent(
     broadcast: buildBroadcast(comp),
     seasonLabel,
     line: buildLine(comp),
+    providerPath,
+    linescore: scored ? buildLinescore(home, away) : null,
+    live: buildSituation(comp, home, away, status),
     updatedAt: Date.now(),
   };
 }
 
-function seasonLabelFor(data: any, sport: Sport): string | null {
+function seasonLabelFor(data: any, cfg: SportConfig): string | null {
   const week = data?.week?.number;
-  if (Number.isFinite(Number(week))) {
-    return sport === "Soccer" ? `Matchday ${week}` : `Week ${week}`;
-  }
-  return data?.leagues?.[0]?.season?.type?.name ?? null;
+  const base = Number.isFinite(Number(week))
+    ? cfg.sport === "Soccer"
+      ? `Matchday ${week}`
+      : `Week ${week}`
+    : (data?.leagues?.[0]?.season?.type?.name ?? null);
+  if (!cfg.label) return base;
+  return base ? `${cfg.label} · ${base}` : cfg.label;
 }
 
-async function fetchSport(cfg: (typeof SPORT_CONFIGS)[number]): Promise<NormalizedGame[]> {
-  const res = await fetch(`${BASE}/${cfg.path}/scoreboard`, {
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`ESPN ${cfg.sport} ${res.status}`);
+const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10).replace(/-/g, "");
 
-  const data = (await res.json()) as { events?: unknown[] };
-  const label = seasonLabelFor(data, cfg.sport);
+/**
+ * The scoreboard for yesterday through the next week. Without `dates`, ESPN
+ * returns only its idea of "today" (or the current NFL week), so a game drops
+ * out of the feed before it can be seen to finish, and the board has nothing
+ * beyond tonight. Falls back to the default board if the range is refused.
+ */
+async function fetchScoreboard(cfg: SportConfig, now = Date.now()) {
+  const range = `${ymd(now - 86_400_000)}-${ymd(now + 7 * 86_400_000)}`;
+  for (const query of [`?dates=${range}&limit=300`, ""]) {
+    const res = await fetch(`${BASE}/${cfg.path}/scoreboard${query}`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      if (query) continue;
+      throw new Error(`ESPN ${cfg.sport} ${res.status}`);
+    }
+    const data = (await res.json()) as { events?: unknown[] };
+    if (query && !(data.events ?? []).length) continue;
+    return data;
+  }
+  return { events: [] };
+}
+
+async function fetchSport(cfg: SportConfig): Promise<NormalizedGame[]> {
+  const data = await fetchScoreboard(cfg);
+  const label = seasonLabelFor(data, cfg);
 
   return (data.events ?? [])
-    .map((e) => parseEvent(e, cfg.sport, cfg.sportIcon, label))
+    .map((e) => parseEvent(e, cfg.sport, cfg.sportIcon, label, cfg.path))
     .filter((g): g is NormalizedGame => g !== null);
 }
 
@@ -350,7 +454,7 @@ export async function fetchGames(): Promise<{ games: NormalizedGame[]; failures:
 
   results.forEach((r, i) => {
     if (r.status === "fulfilled") games.push(...r.value);
-    else failures.push(`${SPORT_CONFIGS[i]?.sport}: ${String(r.reason)}`);
+    else failures.push(`${SPORT_CONFIGS[i]?.label ?? SPORT_CONFIGS[i]?.sport}: ${String(r.reason)}`);
   });
 
   return { games, failures };

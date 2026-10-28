@@ -1,9 +1,12 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import KeyboardSheet from "@/components/KeyboardSheet";
+import { Linescore, MatchupInsights, ScoringTimeline, SituationCard } from "@/components/insights";
 import { useColors, type Colors } from "@/hooks/useColors";
-import { fairProbabilities, formatPercent, margin, toAmerican, untilKickoff } from "@/lib/odds";
+import { useGameInsights } from "@/hooks/useGameInsights";
+import { fairProbabilities, formatPercent, kickoffLabel, margin, toAmerican, untilKickoff } from "@/lib/odds";
 import type { Game, Side, TeamSide } from "@/types/game";
 
 export interface DetailBet {
@@ -13,6 +16,8 @@ export interface DetailBet {
   odds: number;
   potentialPayout: number;
   status: string;
+  /** League name for league-wallet bets; omitted means credits. */
+  wallet?: string;
 }
 
 interface Props {
@@ -21,6 +26,8 @@ interface Props {
   onBet: (game: Game, side: Side) => void;
   /** The user's bets on this fixture. */
   bets?: DetailBet[];
+  /** Full-screen game center. The sheet closes first. */
+  onOpenCenter?: (game: Game) => void;
 }
 
 /**
@@ -35,173 +42,172 @@ interface Props {
  * know the pair implies 105%; stating the margin is the honest version of
  * showing odds at all, and it costs one row.
  */
-export default function GameDetailSheet({ game, onClose, onBet, bets = [] }: Props) {
+export default function GameDetailSheet({ game, onClose, onBet, bets = [], onOpenCenter }: Props) {
   const c = useColors();
+  // Before the early return: hooks can't be conditional. A null id is a no-op.
+  const insights = useGameInsights(game?.id ?? null, game?.status);
   if (!game) return null;
 
   const prob = fairProbabilities(game.homeTeam.odds, game.awayTeam.odds);
   const vig = margin(game.homeTeam.odds, game.awayTeam.odds);
-  const canBet = game.status === "upcoming";
+  const canBet = game.status === "upcoming" && game.startsAt > Date.now();
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={[styles.scrim, { backgroundColor: c.overlay }]} onPress={onClose} />
+    <KeyboardSheet visible onClose={onClose} maxHeight="88%" style={styles.sheet} headerStyle={styles.header}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+        <Text style={[styles.kicker, { color: c.subtleForeground }]}>
+          {[game.sport, game.seasonLabel, game.venue].filter(Boolean).join("   ")}
+        </Text>
 
-      <View style={[styles.sheet, { backgroundColor: c.elevated, borderColor: c.border }]}>
-        <View style={[styles.handle, { backgroundColor: c.border }]} />
-
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
-          <Text style={[styles.kicker, { color: c.subtleForeground }]}>
-            {[game.sport, game.seasonLabel, game.venue].filter(Boolean).join("   ")}
-          </Text>
-
-          <View style={styles.matchup}>
-            <TeamColumn team={game.awayTeam} score={game.awayScore} probability={prob.away} c={c} />
-            <View style={styles.centre}>
-              <Text style={[styles.at, { color: c.subtleForeground }]}>at</Text>
-              <Text style={[styles.kickoff, { color: c.foreground }]}>
-                {game.status === "live"
-                  ? game.clock ?? "Live"
-                  : game.status === "final"
-                    ? "Final"
-                    : game.startTimeLabel}
-              </Text>
-              {game.status === "upcoming" && (
-                <Text style={[styles.kicker, { color: c.subtleForeground }]}>
-                  {untilKickoff(game.startsAt)}
-                </Text>
-              )}
-            </View>
-            <TeamColumn team={game.homeTeam} score={game.homeScore} probability={prob.home} c={c} />
-          </View>
-
-          {game.situation || game.lastPlay ? (
-            <View style={[styles.callout, { backgroundColor: c.secondary, borderColor: c.border }]}>
-              <MaterialCommunityIcons name="broadcast" size={14} color={c.live} />
-              <Text style={[styles.calloutText, { color: c.cardForeground }]}>
-                {game.lastPlay ?? game.situation}
-              </Text>
-            </View>
-          ) : null}
-
-          <Section title="The market" c={c}>
-            <Row
-              label={game.awayTeam.abbreviation}
-              value={`${game.awayTeam.odds.toFixed(2)}x   ${toAmerican(game.awayTeam.odds)}`}
-              hint={`${formatPercent(prob.away, 1)} to win`}
-              c={c}
-            />
-            <Row
-              label={game.homeTeam.abbreviation}
-              value={`${game.homeTeam.odds.toFixed(2)}x   ${toAmerican(game.homeTeam.odds)}`}
-              hint={`${formatPercent(prob.home, 1)} to win`}
-              c={c}
-            />
-            {game.line?.spread ? <Row label="Spread" value={game.line.spread} c={c} /> : null}
-            {game.line?.overUnder ? (
-              <Row label="Total" value={String(game.line.overUnder)} c={c} />
-            ) : null}
-            <Row
-              label="Built-in edge"
-              value={formatPercent(vig, 1)}
-              hint="the house's cut, already in these odds"
-              c={c}
-            />
-          </Section>
-
-          <Section title="Season so far" c={c}>
-            <Compare
-              label="Record"
-              away={game.awayTeam.record ?? "—"}
-              home={game.homeTeam.record ?? "—"}
-              c={c}
-            />
-            <Compare
-              label="This venue"
-              away={game.awayTeam.splitRecord ?? "—"}
-              home={game.homeTeam.splitRecord ?? "—"}
-              c={c}
-            />
-            <Compare
-              label="Scored / game"
-              away={fmt(game.awayTeam.pointsFor)}
-              home={fmt(game.homeTeam.pointsFor)}
-              c={c}
-            />
-            <Compare
-              label="Allowed / game"
-              away={fmt(game.awayTeam.pointsAgainst)}
-              home={fmt(game.homeTeam.pointsAgainst)}
-              c={c}
-            />
-          </Section>
-
-          {bets.length > 0 && (
-            <Section title={`Your bets (${bets.length})`} c={c}>
-              {bets.map((b) => {
-                const t = b.side === "home" ? game.homeTeam : game.awayTeam;
-                return (
-                  <Row
-                    key={b.id}
-                    label={`${b.stake.toLocaleString()} on ${t.abbreviation}`}
-                    value={b.potentialPayout.toLocaleString()}
-                    hint={`at ${b.odds.toFixed(2)}x · ${b.status}`}
-                    accent={c.primary}
-                    c={c}
-                  />
-                );
-              })}
-            </Section>
-          )}
-
-          {game.broadcast ? (
-            <Text style={[styles.kicker, { color: c.subtleForeground }]}>
-              Watch on {game.broadcast}
+        <View style={styles.matchup}>
+          <TeamColumn team={game.awayTeam} score={game.awayScore} probability={prob.away} c={c} />
+          <View style={styles.centre}>
+            <Text style={[styles.at, { color: c.subtleForeground }]}>at</Text>
+            <Text style={[styles.kickoff, { color: c.foreground }]}>
+              {game.status === "live"
+                ? game.clock ?? "Live"
+                : game.status === "final"
+                  ? "Final"
+                  : kickoffLabel(game.startsAt)}
             </Text>
-          ) : null}
-        </ScrollView>
+            {game.status === "upcoming" && (
+              <Text style={[styles.kicker, { color: c.subtleForeground }]}>
+                {untilKickoff(game.startsAt)}
+              </Text>
+            )}
+          </View>
+          <TeamColumn team={game.homeTeam} score={game.homeScore} probability={prob.home} c={c} />
+        </View>
 
-        {canBet ? (
-          <View style={[styles.actions, { borderTopColor: c.border }]}>
-            {(["away", "home"] as Side[]).map((side) => {
-              const t = side === "home" ? game.homeTeam : game.awayTeam;
+        {onOpenCenter ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onOpenCenter(game)}
+            style={({ pressed }) => [
+              styles.callout,
+              { backgroundColor: c.secondary, borderColor: c.border, opacity: pressed ? 0.8 : 1 },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={game.status === "live" ? "broadcast" : "chart-box-outline"}
+              size={16}
+              color={game.status === "live" ? c.live : c.accent}
+            />
+            <Text style={[styles.calloutText, { color: c.cardForeground }]}>
+              {game.status === "live"
+                ? "Live scoring, play-by-play and win probability"
+                : game.status === "final"
+                  ? "Full recap and box score"
+                  : "Full matchup: form, head-to-head, key players, injuries"}
+            </Text>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} />
+          </Pressable>
+        ) : null}
+
+        <SituationCard game={game} />
+        {game.status !== "upcoming" ? (
+          <>
+            <Linescore game={game} insights={insights.data} />
+            <ScoringTimeline game={game} insights={insights.data} />
+          </>
+        ) : null}
+
+        <Section title="The market" c={c}>
+          <Row
+            label={game.awayTeam.abbreviation}
+            value={`${game.awayTeam.odds.toFixed(2)}x   ${toAmerican(game.awayTeam.odds)}`}
+            hint={`${formatPercent(prob.away, 1)} to win`}
+            c={c}
+          />
+          <Row
+            label={game.homeTeam.abbreviation}
+            value={`${game.homeTeam.odds.toFixed(2)}x   ${toAmerican(game.homeTeam.odds)}`}
+            hint={`${formatPercent(prob.home, 1)} to win`}
+            c={c}
+          />
+          {game.line?.spread ? <Row label="Spread" value={game.line.spread} c={c} /> : null}
+          {game.line?.overUnder ? (
+            <Row label="Total" value={String(game.line.overUnder)} c={c} />
+          ) : null}
+          <Row
+            label="Built-in edge"
+            value={formatPercent(vig, 1)}
+            hint="the house's cut, already in these odds"
+            c={c}
+          />
+        </Section>
+
+        <MatchupInsights
+          game={game}
+          insights={insights.data}
+          loading={insights.loading}
+          error={insights.error}
+          onRetry={() => void insights.reload()}
+        />
+
+        {bets.length > 0 && (
+          <Section title={`Your bets (${bets.length})`} c={c}>
+            {bets.map((b) => {
+              const t = b.side === "home" ? game.homeTeam : game.awayTeam;
               return (
-                <Pressable
-                  key={side}
-                  style={({ pressed }) => [
-                    styles.action,
-                    {
-                      backgroundColor: c.alpha(t.color, pressed ? 0.32 : 0.2),
-                      borderColor: c.alpha(t.color, 0.6),
-                    },
-                  ]}
-                  onPress={() => onBet(game, side)}
-                >
-                  <Text style={[styles.actionTeam, { color: c.foreground }]} numberOfLines={1}>
-                    Back {t.abbreviation}
-                  </Text>
-                  <Text style={[styles.actionOdds, { color: c.mutedForeground }]}>
-                    {t.odds.toFixed(2)}x
-                  </Text>
-                </Pressable>
+                <Row
+                  key={b.id}
+                  label={`${b.stake.toLocaleString()} on ${t.abbreviation}`}
+                  value={b.potentialPayout.toLocaleString()}
+                  hint={`${b.wallet ? `${b.wallet} · league tokens` : "Credits"} · at ${b.odds.toFixed(2)}x · ${b.status}`}
+                  accent={c.primary}
+                  c={c}
+                />
               );
             })}
-          </View>
-        ) : (
-          <View style={[styles.actions, { borderTopColor: c.border }]}>
-            <Text style={[styles.closedNote, { color: c.mutedForeground }]}>
-              {game.status === "live"
-                ? "Betting closed once the game starts."
-                : "This game is over. Results settle on their own."}
-            </Text>
-          </View>
+          </Section>
         )}
-      </View>
-    </Modal>
+
+        {game.broadcast ? (
+          <Text style={[styles.kicker, { color: c.subtleForeground }]}>
+            Watch on {game.broadcast}
+          </Text>
+        ) : null}
+      </ScrollView>
+
+      {canBet ? (
+        <View style={[styles.actions, { borderTopColor: c.border }]}>
+          {(["away", "home"] as Side[]).map((side) => {
+            const t = side === "home" ? game.homeTeam : game.awayTeam;
+            return (
+              <Pressable
+                key={side}
+                style={({ pressed }) => [
+                  styles.action,
+                  {
+                    backgroundColor: c.alpha(t.color, pressed ? 0.32 : 0.2),
+                    borderColor: c.alpha(t.color, 0.6),
+                  },
+                ]}
+                onPress={() => onBet(game, side)}
+              >
+                <Text style={[styles.actionTeam, { color: c.foreground }]} numberOfLines={1}>
+                  Back {t.abbreviation}
+                </Text>
+                <Text style={[styles.actionOdds, { color: c.mutedForeground }]}>
+                  {t.odds.toFixed(2)}x
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={[styles.actions, { borderTopColor: c.border }]}>
+          <Text style={[styles.closedNote, { color: c.mutedForeground }]}>
+            {game.status !== "final"
+              ? "Betting closed once the game starts."
+              : "This game is over. Results settle on their own."}
+          </Text>
+        </View>
+      )}
+    </KeyboardSheet>
   );
 }
-
-const fmt = (n: number | null | undefined) => (typeof n === "number" ? n.toFixed(1) : "—");
 
 function TeamColumn({
   team,
@@ -270,28 +276,9 @@ function Row({
   );
 }
 
-function Compare({ label, away, home, c }: { label: string; away: string; home: string; c: Colors }) {
-  return (
-    <View style={styles.row}>
-      <Text style={[styles.rowValue, { color: c.foreground, width: 68 }]}>{away}</Text>
-      <Text style={[styles.rowLabel, { color: c.subtleForeground, flex: 1, textAlign: "center" }]}>
-        {label}
-      </Text>
-      <Text style={[styles.rowValue, { color: c.foreground, width: 68, textAlign: "right" }]}>{home}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  scrim: { flex: 1 },
-  sheet: {
-    maxHeight: "88%",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    borderWidth: 1,
-    paddingTop: 10,
-  },
-  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 8 },
+  sheet: { paddingHorizontal: 0, gap: 0 },
+  header: { marginHorizontal: 16 },
   body: { paddingHorizontal: 20, paddingBottom: 20, gap: 18 },
   kicker: { fontSize: 11, fontFamily: "Inter_500Medium" },
 
@@ -318,7 +305,7 @@ const styles = StyleSheet.create({
   rowHint: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 },
   rowValue: { fontSize: 14, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
 
-  actions: { flexDirection: "row", gap: 10, padding: 16, borderTopWidth: 1 },
+  actions: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 16, borderTopWidth: 1 },
   action: { flex: 1, borderWidth: 1, borderRadius: 14, paddingVertical: 12, alignItems: "center", gap: 2 },
   actionTeam: { fontSize: 15, fontFamily: "Inter_700Bold" },
   actionOdds: { fontSize: 12, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },

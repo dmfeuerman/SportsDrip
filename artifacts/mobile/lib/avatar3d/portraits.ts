@@ -9,9 +9,10 @@ import type { AvatarConfig } from "../../types/avatar";
 import type { OutfitPiece, ResolvedOutfit } from "./outfit";
 import { hash, lookKey } from "./outfit";
 import type { Framing } from "./spec";
+import { withTimeout } from "../devtrace";
 
 /** Bump when lighting/camera/assets change in a way that should re-render every cached portrait. */
-export const RENDER_VERSION = 3;
+export const RENDER_VERSION = 4;
 
 export type PortraitJob =
   | { kind: "avatar"; key: string; avatar: AvatarConfig; outfit: ResolvedOutfit; framing: Framing }
@@ -53,7 +54,10 @@ function hydrate() {
     .then((raw) => {
       if (!raw) return;
       for (const [k, v] of JSON.parse(raw) as [string, string][]) if (!images.has(k)) images.set(k, v);
-      for (const k of images.keys()) emit(k);
+      // Over a copy: a listener reads the image back (getPortrait), which moves
+      // its key to the end of the Map, and a live keys() iterator would visit
+      // it again — forever. That loop froze the app at launch on iOS.
+      for (const k of [...images.keys()]) emit(k);
     })
     .catch(() => {});
   return hydrated;
@@ -68,7 +72,8 @@ function save() {
 }
 
 function emit(key: string) {
-  listeners.get(key)?.forEach((fn) => fn());
+  const set = listeners.get(key);
+  if (set) for (const fn of [...set]) fn();
 }
 
 function remember(key: string, uri: string) {
@@ -138,7 +143,7 @@ async function pump() {
         continue;
       }
       try {
-        remember(job.key, await worker(job));
+        remember(job.key, await withTimeout(worker(job), 20000, `portrait ${job.key}`));
       } catch (e) {
         failed.add(job.key);
         console.warn("[avatar] portrait render failed", e);

@@ -1,0 +1,223 @@
+/**
+ * Bet-result reactions, built at runtime from the rig's own rest skeleton
+ * (sd_rig_v3 / Mixamo names, rest rotations identity), so they play on every
+ * base and outfit without re-exporting the GLB.
+ *
+ *  - win  : a hop with both arms thrown up in a V, then three fist pumps.
+ *  - loss : shoulders slump, head drops, hands to the face, sobbing.
+ *
+ * Arms are posed by hand targets solved with two-bone IK, so they land on the
+ * face / above the shoulders whatever the spine and head are doing.
+ */
+import * as THREE from "three";
+
+export type ReactionKind = "win" | "loss";
+
+type Rest = Map<string, THREE.Vector3>; // bone → local rest position
+type Parents = Map<string, string | null>;
+
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const Q = () => new THREE.Quaternion();
+const qe = (x: number, y = 0, z = 0) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, "XYZ"));
+const smooth = (t: number, a: number, b: number) => {
+  const x = Math.min(1, Math.max(0, (t - a) / (b - a)));
+  return x * x * (3 - 2 * x);
+};
+/** 0 → 1 over [a, b], held, then 1 → 0 over [c, d]. */
+const env = (t: number, a: number, b: number, c: number, d: number) => smooth(t, a, b) * (1 - smooth(t, c, d));
+
+const CHAIN = ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head"] as const;
+const SIDES = [
+  { s: "Left", g: 1 },
+  { s: "Right", g: -1 },
+] as const;
+
+interface Pose {
+  local: Map<string, THREE.Quaternion>;
+  hips: THREE.Vector3;
+  /** World-space wrist targets (and elbow pole hints) per side. */
+  hands: Partial<Record<"Left" | "Right", { target: THREE.Vector3; pole: THREE.Vector3 }>>;
+}
+
+class Skeleton {
+  restWorld = new Map<string, THREE.Vector3>();
+  constructor(
+    private rest: Rest,
+    private parents: Parents
+  ) {
+    for (const name of rest.keys()) this.restWorld.set(name, this.worldRestOf(name));
+  }
+  private worldRestOf(name: string): THREE.Vector3 {
+    const p = this.parents.get(name);
+    const own = this.rest.get(name)!.clone();
+    return p && this.rest.has(p) ? own.add(this.worldRestOf(p)) : own;
+  }
+  has(name: string) {
+    return this.rest.has(name);
+  }
+  /** World rotation and position of `name` given local rotations (identity where unset). */
+  world(name: string, local: Map<string, THREE.Quaternion>, hips: THREE.Vector3): { q: THREE.Quaternion; p: THREE.Vector3 } {
+    const p = this.parents.get(name);
+    const lq = local.get(name) ?? Q();
+    if (!p || !this.rest.has(p)) return { q: lq.clone(), p: name === "Hips" ? hips.clone() : this.rest.get(name)!.clone() };
+    const parent = this.world(p, local, hips);
+    const offset = this.rest.get(name)!.clone().applyQuaternion(parent.q);
+    return { q: parent.q.clone().multiply(lq), p: parent.p.clone().add(offset) };
+  }
+  /** Sets Arm and ForeArm local rotations so the wrist reaches `target` (world), elbow toward `pole`. */
+  solveArm(side: "Left" | "Right", target: THREE.Vector3, pole: THREE.Vector3, pose: Pose) {
+    const arm = `${side}Arm`, fore = `${side}ForeArm`, hand = `${side}Hand`;
+    const S = this.world(arm, pose.local, pose.hips);
+    const a = this.rest.get(fore)!.length();
+    const b = this.rest.get(hand)!.length();
+    const toT = target.clone().sub(S.p);
+    const d = THREE.MathUtils.clamp(toT.length(), Math.abs(a - b) + 1e-3, a + b - 1e-3);
+    const dir = toT.normalize();
+    const along = (a * a - b * b + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, a * a - along * along));
+    const bend = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir)));
+    if (bend.lengthSq() < 1e-8) bend.set(0, -1, 0);
+    bend.normalize();
+    const E = S.p.clone().add(dir.clone().multiplyScalar(along)).add(bend.multiplyScalar(h));
+    const T = S.p.clone().add(dir.clone().multiplyScalar(d));
+    // Rest segment directions (rest rotations are identity, so local = world at rest).
+    const restArm = this.rest.get(fore)!.clone().normalize();
+    const restFore = this.rest.get(hand)!.clone().normalize();
+    const parentQ = this.world(`${side}Shoulder`, pose.local, pose.hips).q;
+    const armW = Q().setFromUnitVectors(restArm, E.clone().sub(S.p).normalize());
+    // Keep the arm's twist close to the rest pose: minimal rotation from rest, in world.
+    pose.local.set(arm, parentQ.clone().invert().multiply(armW));
+    const foreW = Q().setFromUnitVectors(restFore, T.clone().sub(E).normalize());
+    pose.local.set(fore, armW.clone().invert().multiply(foreW));
+  }
+}
+
+/** World position of a point given in the head's rest frame (world rest coordinates). */
+function onHead(sk: Skeleton, pose: Pose, restPoint: THREE.Vector3) {
+  const head = sk.world("Head", pose.local, pose.hips);
+  return restPoint.clone().sub(sk.restWorld.get("Head")!).applyQuaternion(head.q).add(head.p);
+}
+
+function sample(sk: Skeleton, name: string, dur: number, fps: number, poseAt: (t: number) => Pose) {
+  const times: number[] = [];
+  const poses: Pose[] = [];
+  const n = Math.round(dur * fps);
+  for (let i = 0; i <= n; i++) {
+    const t = (i / n) * dur;
+    const pose = poseAt(t);
+    for (const sd of ["Left", "Right"] as const) {
+      const h = pose.hands[sd];
+      if (h && sk.has(`${sd}Arm`)) sk.solveArm(sd, h.target, h.pole, pose);
+    }
+    times.push(t);
+    poses.push(pose);
+  }
+  const bones = new Set<string>();
+  for (const p of poses) for (const k of p.local.keys()) bones.add(k);
+  const tracks: THREE.KeyframeTrack[] = [];
+  for (const b of bones) {
+    const vals: number[] = [];
+    let prev: THREE.Quaternion | null = null;
+    for (const p of poses) {
+      const q = (p.local.get(b) ?? Q()).clone();
+      if (prev && prev.dot(q) < 0) q.set(-q.x, -q.y, -q.z, -q.w); // shortest path between keys
+      vals.push(q.x, q.y, q.z, q.w);
+      prev = q;
+    }
+    tracks.push(new THREE.QuaternionKeyframeTrack(`${b}.quaternion`, times, vals));
+  }
+  tracks.push(new THREE.VectorKeyframeTrack("Hips.position", times, poses.flatMap((p) => [p.hips.x, p.hips.y, p.hips.z])));
+  return new THREE.AnimationClip(name, dur, tracks);
+}
+
+/**
+ * Relaxed arm (close to the idle): hanging from the shoulder along its rest
+ * line, almost straight, a touch forward. Pole: elbow back.
+ */
+const RELAXED_POLE = V(0, 0.2, -1);
+function restHand(sk: Skeleton, side: "Left" | "Right", pose: Pose) {
+  const sh = sk.world(`${side}Arm`, pose.local, pose.hips).p;
+  const restSh = sk.restWorld.get(`${side}Arm`)!;
+  const dir = sk.restWorld.get(`${side}Hand`)!.clone().sub(restSh).add(V(side === "Left" ? -0.03 : 0.03, 0, 0.04)).normalize();
+  const reach = sk.restWorld.get(`${side}Hand`)!.distanceTo(sk.restWorld.get(`${side}ForeArm`)!) + sk.restWorld.get(`${side}ForeArm`)!.distanceTo(restSh);
+  return sh.clone().add(dir.multiplyScalar(reach * 0.975));
+}
+
+export function buildReactionClips(rest: Rest, parents: Parents): Record<ReactionKind, THREE.AnimationClip> | null {
+  for (const b of [...CHAIN, "LeftArm", "LeftForeArm", "LeftHand", "RightArm", "RightForeArm", "RightHand", "LeftShoulder", "RightShoulder"]) {
+    if (!rest.has(b)) return null; // not on our rig
+  }
+  const sk = new Skeleton(rest, parents);
+  const hips0 = rest.get("Hips")!.clone();
+
+  /* ── win: hop + V, then fist pumps ─────────────────────────────────────── */
+  const WIN = 2.7;
+  const win = sample(sk, "react_win", WIN, 30, (t) => {
+    const pose: Pose = { local: new Map(), hips: hips0.clone(), hands: {} };
+    const on = env(t, 0.05, 0.25, 2.3, 2.65);
+    const crouch = env(t, 0.0, 0.12, 0.14, 0.28) * 0.6 + env(t, 0.55, 0.65, 0.65, 0.8) * 0.5;
+    const hop = Math.max(0, Math.sin(Math.PI * THREE.MathUtils.clamp((t - 0.22) / 0.36, 0, 1)));
+    pose.hips.y += 0.075 * hop - 0.035 * crouch;
+    for (const { s } of SIDES) {
+      pose.local.set(`${s}UpLeg`, qe(-0.35 * crouch));
+      pose.local.set(`${s}Leg`, qe(0.7 * crouch));
+      pose.local.set(`${s}Foot`, qe(-0.35 * crouch + 0.25 * hop));
+    }
+    const pumpPhase = THREE.MathUtils.clamp((t - 0.9) / 1.35, 0, 1);
+    const pump = 0.5 - 0.5 * Math.cos(pumpPhase * Math.PI * 2 * 3);
+    pose.local.set("Spine", qe(-0.05 * on));
+    pose.local.set("Spine1", qe(-0.05 * on, 0.1 * env(t, 0.8, 1.0, 2.1, 2.4)));
+    pose.local.set("Spine2", qe(-0.04 * on + 0.05 * pump * env(t, 0.9, 1.0, 2.1, 2.3)));
+    pose.local.set("Neck", qe(-0.08 * on));
+    pose.local.set("Head", qe(-0.18 * on + 0.08 * pump * env(t, 0.9, 1.0, 2.1, 2.3), 0, 0.06 * Math.sin(t * 9) * env(t, 0.3, 0.5, 0.7, 0.9)));
+    // Phase A: both arms thrown up in a V. Phase B: right fist pumps, left back to the side.
+    const vUp = env(t, 0.1, 0.32, 0.72, 0.95);
+    const pumping = env(t, 0.75, 0.95, 2.15, 2.5);
+    for (const { s, g } of SIDES) {
+      const sh = sk.world(`${s}Arm`, pose.local, pose.hips).p;
+      const relaxed = restHand(sk, s, pose);
+      const vTarget = sh.clone().add(V(0.24 * g, 0.47, 0.06));
+      let target = relaxed.clone().lerp(vTarget, vUp);
+      let pole = RELAXED_POLE.clone().lerp(V(g, -0.2, -0.6), vUp);
+      if (s === "Right") {
+        // Elbow down and out at chest height, forearm up: "yes!" — pumping down and back up.
+        const high = sh.clone().add(V(-0.25, 0.17, 0.2));
+        const low = sh.clone().add(V(-0.22, -0.07, 0.24));
+        target = target.lerp(low.clone().lerp(high, 1 - pump), pumping);
+        pole = pole.lerp(V(-0.7, -1, 0.1), pumping);
+      } else {
+        // Left hand settles on the hip while the right one pumps.
+        const hip = sk.world("Hips", pose.local, pose.hips).p.clone().add(V(0.15, 0.06, 0.04));
+        target = target.lerp(hip, pumping * 0.85);
+        pole = pole.lerp(V(1, 0, -0.4), pumping * 0.85);
+      }
+      pose.hands[s] = { target, pole };
+    }
+    return pose;
+  });
+
+  /* ── loss: slump, head down, hands to the face, sobbing ────────────────── */
+  const LOSS = 3.6;
+  const faceRest = V(0, 1.615, 0.11);
+  const loss = sample(sk, "react_loss", LOSS, 30, (t) => {
+    const pose: Pose = { local: new Map(), hips: hips0.clone(), hands: {} };
+    const slump = env(t, 0.05, 0.55, 3.0, 3.55);
+    const hands = env(t, 0.35, 0.9, 2.85, 3.4);
+    const sob = Math.max(0, Math.sin(t * Math.PI * 2 * 2.2)) * env(t, 0.9, 1.1, 2.7, 2.9);
+    pose.hips.y -= 0.012 * slump;
+    pose.local.set("Spine", qe(0.06 * slump));
+    pose.local.set("Spine1", qe(0.1 * slump));
+    pose.local.set("Spine2", qe(0.13 * slump + 0.035 * sob));
+    pose.local.set("Neck", qe(0.2 * slump));
+    pose.local.set("Head", qe(0.24 * slump + 0.04 * sob, 0.07 * Math.sin(t * 5) * hands, 0));
+    for (const { s } of SIDES) pose.local.set(`${s}Shoulder`, qe(0.08 * slump, 0, (s === "Left" ? -1 : 1) * (0.06 * slump - 0.04 * sob)));
+    for (const { s, g } of SIDES) {
+      const face = onHead(sk, pose, faceRest.clone().add(V(0.04 * g, -0.06, 0.07)));
+      const relaxed = restHand(sk, s, pose);
+      pose.hands[s] = { target: relaxed.lerp(face, hands), pole: RELAXED_POLE.clone().lerp(V(g * 0.9, -1, -0.15), hands) };
+    }
+    return pose;
+  });
+
+  return { win, loss };
+}

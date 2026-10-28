@@ -1,6 +1,7 @@
 import { callable } from "@/lib/firebase";
 
 import type { AvatarConfig, Slot } from "@/types/avatar";
+import type { GameInsights } from "@/types/insights";
 export type { AvatarConfig, Slot } from "@/types/avatar";
 
 export interface PublicUser {
@@ -11,6 +12,15 @@ export interface PublicUser {
   equipped: Partial<Record<Slot, string>>;
   balance?: number;
   stats?: UserStats;
+  favoriteTeams?: FavoriteTeam[];
+}
+
+/** A team someone follows. Stored on users/{uid}.favoriteTeams (max 5). */
+export interface FavoriteTeam {
+  sport: "NFL" | "NBA" | "MLB" | "NHL" | "NCAAF" | "NCAAB" | "Soccer";
+  abbr: string;
+  name: string;
+  color: string;
 }
 
 export interface UserStats {
@@ -36,6 +46,64 @@ export const checkUsername = callable<
 export const updateAvatar = callable<{ avatar: AvatarConfig }, { ok: true }>("updateAvatar");
 
 export const searchUsers = callable<{ q: string }, { results: PublicUser[] }>("searchUsers");
+
+export const updateFavoriteTeams = callable<{ teams: FavoriteTeam[] }, { ok: true; teams: FavoriteTeam[] }>(
+  "updateFavoriteTeams"
+);
+
+// ── player profiles ────────────────────────────────────────────────────────
+export interface ProfileBet {
+  id: string;
+  gameId: string;
+  sport: string | null;
+  side: "home" | "away";
+  teamName: string;
+  teamAbbr: string;
+  teamColor: string;
+  opponentAbbr: string;
+  stake: number;
+  odds: number;
+  potentialPayout: number;
+  status: "pending" | "won" | "lost" | "push" | "cancelled" | string;
+  placedAt: number | null;
+  settledAt: number | null;
+  finalHomeScore: number | null;
+  finalAwayScore: number | null;
+}
+
+export interface PlayerProfile {
+  /** What the server let the viewer see. */
+  relation: "self" | "friend" | "league" | "none";
+  profile: {
+    uid: string;
+    username: string;
+    displayName: string;
+    avatar: AvatarConfig | null;
+    equipped: Partial<Record<Slot, string>>;
+    favoriteTeams: FavoriteTeam[];
+    stats: UserStats | null;
+    memberSince: number | null;
+    balance: number | null;
+  };
+  /** Global bets — self and friends only. */
+  bets: ProfileBet[] | null;
+  /** That league's line and bets, when both are members. */
+  league: {
+    leagueId: string;
+    leagueName: string;
+    leagueTokens: number;
+    betsWon: number;
+    betsLost: number;
+    betsPush: number;
+    joinedAt: number | null;
+    bets: ProfileBet[];
+  } | null;
+}
+
+export const getPlayerProfile = callable<{ uid: string; leagueId?: string }, PlayerProfile>("getPlayerProfile");
+
+// ── game insights ──────────────────────────────────────────────────────────
+export const getGameInsights = callable<{ gameId: string }, { insights: GameInsights }>("getGameInsights");
 
 // ── friends ────────────────────────────────────────────────────────────────
 export const sendFriendRequest = callable<
@@ -101,6 +169,11 @@ export const claimPrizeBox = callable<
 >("claimPrizeBox");
 
 export const resetPrizeBox = callable<{ tier: BoxTier }, { ok: true }>("resetPrizeBox");
+
+export const claimAdReward = callable<
+  { nonce: string },
+  { result: "granted" | "duplicate" | "capped" | "too_soon" | "no_user" | "pending" }
+>("claimAdReward");
 
 // ── leagues ────────────────────────────────────────────────────────────────
 // Every league mutation is a callable. The client reads leagues/{id} and its
@@ -199,5 +272,8 @@ export function friendlyError(err: unknown): string {
   if (code.includes("invalid-argument")) return e?.message ?? "Check the details and try again.";
   if (code.includes("unavailable") || code.includes("deadline-exceeded"))
     return "Network problem — check your connection and try again.";
+  // A callable that isn't deployed (or crashed before answering) surfaces as a bare "internal".
+  if (code.includes("internal") && (!e?.message || e.message === "internal"))
+    return "The server couldn't do that right now. Try again in a moment.";
   return e?.message ?? "Something went wrong. Try again.";
 }

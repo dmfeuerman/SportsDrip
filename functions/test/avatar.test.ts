@@ -133,7 +133,9 @@ test("the base GLB: Mixamo rig, every body region, face variant and blendshape t
   for (const f of FACE_SHAPE_IDS) {
     assert.ok(names.has(`Head_${f}`), f);
     const t = targetNames(json, `Head_${f}`);
-    for (const m of ["buildSlim", "buildBroad", "noseStraight", "noseBroad", "lipsFull", "mouthWide", "mouthSmileLeft", "mouthSmileRight", "jawOpen"]) assert.ok(t.includes(m), `${f} ${m}`);
+    for (const m of ["buildSlim", "buildBroad", "lipsFull", "mouthWide", "mouthSmileLeft", "mouthSmileRight", "jawOpen"]) assert.ok(t.includes(m), `${f} ${m}`);
+    // Each nose shape is its own head mesh (no nose blendshapes on the heads).
+    for (const n of ["straight", "broad"]) assert.ok(names.has(`Head_${f}_${n}`), `${f} ${n}`);
   }
   for (const e of EYE_SHAPE_IDS) {
     for (const p of [`Lids_${e}`, `Lashes_${e}`]) assert.deepEqual(targetNames(json, p), ["eyeBlinkLeft", "eyeBlinkRight"], p);
@@ -221,7 +223,12 @@ test("equipping takes off whatever can't be worn with the new item, in both dire
 
 test("appearance validation rejects bad values and sanitising fills defaults", () => {
   assert.deepEqual(appearanceErrors(DEFAULT_AVATAR), []);
-  assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, skinTone: "#ff00ff" }), ["skinTone"]);
+  // Any #RRGGBB from the colour wheel is allowed; anything else isn't.
+  assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, skinTone: "#ff00ff", hairColor: "#12ab9C", eyeColor: "#00ff00" }), []);
+  assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, skinTone: "pink" }), ["skinTone"]);
+  assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, hairColor: "#fff" }), ["hairColor"]);
+  assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, eyeColor: "rgb(0,0,0)" }), ["eyeColor"]);
+  assert.equal(sanitizeAppearance({ ...DEFAULT_AVATAR, hairColor: "#12ab9c" }).hairColor, "#12AB9C");
   assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, height: 2 }), ["height"]);
   assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, hairStyle: "mohawk" }), ["hairStyle"]);
   assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, isAdmin: true }), ["isAdmin"]);
@@ -408,7 +415,7 @@ test("saveAppearance is all-or-nothing: unowned, wrong-slot, conflicting or inva
   await rejects(call(saveAppearance, "ben", { avatar: ok, equipped: { top: "hoodie" } }), /don't own/);
   await rejects(call(saveAppearance, "ben", { avatar: ok, equipped: { bottom: "tee" } }), /wrong slot/);
   await rejects(call(saveAppearance, "ben", { avatar: ok, equipped: { hat: "cap", accessory: "cans" } }), /can't be worn together/);
-  await rejects(call(saveAppearance, "ben", { avatar: { ...ok, skinTone: "#00ff00" }, equipped: {} }), /skinTone/);
+  await rejects(call(saveAppearance, "ben", { avatar: { ...ok, skinTone: "lime" }, equipped: {} }), /skinTone/);
   await rejects(call(saveAppearance, "ben", { avatar: ok, equipped: { cape: "tee" } }), /./);
   await rejects(call(saveAppearance, null, { avatar: ok, equipped: {} }), /./);
   assert.equal(JSON.stringify(db.read("users/ben")), before);

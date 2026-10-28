@@ -1,19 +1,15 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import NumericInput from "@/components/NumericInput";
 import { Amount, Button, Card, Pill } from "@/components/ui";
 import type { LeagueLoan } from "@/constants/leagueTypes";
 import { useColors } from "@/hooks/useColors";
 import { applyRepayment, loanSnapshot } from "@/lib/loanMath";
-import { untilKickoff } from "@/lib/odds";
-
-function periodLabel(h: number) {
-  return h === 1 ? "hour" : h === 24 ? "day" : h === 168 ? "week" : `${h}h`;
-}
 
 /**
  * One loan, fully itemised: original principal, what's been repaid, interest
- * charged and paid, and the total owed now — all simple interest, all computed
+ * charged and paid, and the total owed now — one flat fee, all computed
  * by the same loanMath the server settles with. The repay form previews the
  * split (interest first, then principal) before anything is sent.
  */
@@ -67,7 +63,7 @@ export default function LoanCard({
             {viewer === "lender" ? `${loan.borrowerName} owes you` : `From ${counterparty}`}
           </Text>
           <Text style={[styles.sub, { color: c.mutedForeground }]}>
-            {loan.ratePct}% simple per {periodLabel(loan.intervalHours)} · on remaining principal
+            {loan.ratePct}% flat · repays {snap.totalRepayable.toLocaleString()} total
           </Text>
         </View>
         {repaid ? <Pill label="Paid off" tone="positive" icon="check" /> : null}
@@ -78,19 +74,18 @@ export default function LoanCard({
           <Text style={[styles.k, { color: c.subtleForeground }]}>{repaid ? "SETTLED" : viewer === "lender" ? "OWED TO YOU" : "TOTAL OWED"}</Text>
           <Amount value={snap.totalOwed} currency="league" size="lg" tone={repaid ? "neutral" : viewer === "lender" ? "league" : "debt"} />
         </View>
-        {!repaid && snap.nextAccrualAt ? (
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={[styles.k, { color: c.subtleForeground }]}>NEXT CHARGE</Text>
-            <Text style={[styles.v, { color: c.foreground }]}>+{snap.nextPeriodInterest.toLocaleString()}</Text>
-            <Text style={[styles.sub, { color: c.mutedForeground }]}>{untilKickoff(snap.nextAccrualAt, now)}</Text>
-          </View>
-        ) : null}
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={[styles.k, { color: c.subtleForeground }]}>{viewer === "lender" ? "RECEIVED" : "REPAID"}</Text>
+          <Text style={[styles.v, { color: c.foreground }]}>
+            {snap.totalRepaid.toLocaleString()} / {snap.totalRepayable.toLocaleString()}
+          </Text>
+        </View>
       </View>
 
       <View style={[styles.grid, { borderTopColor: c.border }]}>
         <Cell label="Original principal" value={snap.principal} />
         <Cell label="Principal left" value={snap.principalOutstanding} />
-        <Cell label="Interest charged" value={snap.interestCharged} />
+        <Cell label={`Interest (${loan.ratePct}%)`} value={snap.interestCharged} />
         <Cell label="Interest paid" value={snap.interestPaid} />
       </View>
 
@@ -102,7 +97,7 @@ export default function LoanCard({
             <View style={{ gap: 8 }}>
               <View style={[styles.input, { borderColor: c.border, backgroundColor: c.secondary }]}>
                 <MaterialCommunityIcons name="shield-star" size={18} color={c.league} />
-                <TextInput
+                <NumericInput
                   style={[styles.inputText, { color: c.foreground }]}
                   value={amount}
                   onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ""))}

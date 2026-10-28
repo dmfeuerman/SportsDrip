@@ -27,17 +27,48 @@ exports.syncGames = (0, scheduler_1.onSchedule)({ schedule: "*/2 * * * *", regio
     for (let i = 0; i < games.length; i += 400) {
         const batch = economy_1.db.batch();
         for (const g of games.slice(i, i + 400)) {
-            batch.set(economy_1.db.collection("games").doc(g.id), g, { merge: true });
+            batch.set(economy_1.db.collection("games").doc(g.id), { ...g, expired: false }, { merge: true });
         }
         await batch.commit();
     }
+    const expired = await expireMissing(new Set(games.map((g) => g.id)));
     await economy_1.db.collection("meta").doc("sportsSync").set({
         lastRunAt: economy_1.FieldValue.serverTimestamp(),
         gameCount: games.length,
+        expired,
         failures,
     }, { merge: true });
     firebase_functions_1.logger.info("syncGames complete", { count: games.length });
 });
+/**
+ * Games still marked upcoming or live well after they started, that the
+ * provider no longer reports (postponed, cancelled, or missed while the sync
+ * wasn't running). They are flagged, not finalised: a final status would
+ * settle bets with no score. Pending bets on them are refunded by
+ * refundStaleBets after 72h. The app hides flagged games.
+ */
+async function expireMissing(seen) {
+    const cutoff = Date.now() - 6 * 3_600_000;
+    const stale = await economy_1.db
+        .collection("games")
+        .where("status", "in", ["upcoming", "live"])
+        .where("startsAt", "<", cutoff)
+        .limit(400)
+        .get();
+    const batch = economy_1.db.batch();
+    let n = 0;
+    for (const d of stale.docs) {
+        if (seen.has(d.id) || d.get("expired") === true)
+            continue;
+        batch.set(d.ref, { expired: true, expiredAt: Date.now() }, { merge: true });
+        n++;
+    }
+    if (n)
+        await batch.commit();
+    if (n)
+        firebase_functions_1.logger.info("expired stale games", { count: n });
+    return n;
+}
 /** Sweeps games that finished more than 48h ago. */
 exports.pruneGames = (0, scheduler_1.onSchedule)({ schedule: "0 5 * * *", region: "us-central1", timeoutSeconds: 300 }, async () => {
     const cutoff = Date.now() - 48 * 3_600_000;
@@ -66,6 +97,7 @@ exports.pruneGames = (0, scheduler_1.onSchedule)({ schedule: "0 5 * * *", region
             continue;
         }
         batch.delete(d.ref);
+        batch.delete(economy_1.db.collection("gameInsights").doc(d.id));
         deleted++;
     }
     if (deleted === 0)

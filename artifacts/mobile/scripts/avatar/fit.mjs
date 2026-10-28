@@ -62,9 +62,10 @@ export function edgeAngle({ front, side, back }, phi) {
  * regains its thickness below the edge (metres of thickness per metre).
  */
 export const HAT_FIT = {
-  // Baseball cap: band across the forehead above the brows, over the tops of the ears, low at the back.
+  // Baseball cap: band across the forehead a couple of centimetres above the brows (where the
+  // brim attaches), over the tops of the ears, low at the back.
   capped: {
-    edge: { front: 1.0, side: 1.3, back: 1.52 },
+    edge: { front: 1.12, side: 1.3, back: 1.52 },
     hatGap: (v) => 0.003 + 0.0085 * (1 - v * v),
     flare: 0.45,
   },

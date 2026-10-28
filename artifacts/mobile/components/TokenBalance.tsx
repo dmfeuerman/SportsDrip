@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import RollingNumber from "@/components/fx/RollingNumber";
 import { useColors } from "@/hooks/useColors";
 
 interface Props {
@@ -17,9 +18,8 @@ export default function TokenBalance({ tokens, size = "md" }: Props) {
   return (
     <View style={[styles.container, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
       <MaterialCommunityIcons name="lightning-bolt" size={iconSize} color={colors.primary} />
-      <Text style={[styles.text, { color: colors.foreground, fontSize }]}>
-        {tokens.toLocaleString()}
-      </Text>
+      {/* Rolls up (green) on a win, a prize or a refund; down (red) on a stake or a purchase. */}
+      <RollingNumber value={tokens} style={[styles.text, { color: colors.foreground, fontSize }]} upColor={colors.positive} downColor={colors.negative} accessibilityLabel={`${tokens.toLocaleString()} credits`} />
     </View>
   );
 }

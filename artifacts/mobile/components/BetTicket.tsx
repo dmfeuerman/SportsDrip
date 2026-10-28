@@ -27,13 +27,15 @@ export type TicketBet = Pick<
 
 interface Props {
   bet: TicketBet;
-  /** League name for league-wallet bets. Shown so the two wallets never blur. */
+  /** League name for league-wallet bets; omitted means the credits wallet. Always shown so the two never blur. */
   walletLabel?: string;
   /** The live game document, when the board still has it. */
   game?: Game | null;
   busy?: boolean;
   onCancel?: () => void;
   onOpenGame?: (game: Game) => void;
+  /** Tap anywhere on the ticket. Works even when the game has left the board. */
+  onOpen?: () => void;
 }
 
 /**
@@ -49,7 +51,7 @@ interface Props {
  * 42% chance"), profit split out from total return, and the settled score so a
  * lost bet explains itself.
  */
-function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame }: Props) {
+function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen }: Props) {
   const c = useColors();
 
   const meta = STATUS[bet.status];
@@ -80,11 +82,18 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame }: Props
       : null;
 
   const canCancel = bet.status === "pending" && (!game || game.status === "upcoming");
+  const walletTint = walletLabel ? c.league : c.primary;
+  const press = onOpen ?? (game && onOpenGame ? () => onOpenGame(game) : undefined);
 
   return (
     <Pressable
-      style={[styles.card, { backgroundColor: c.card, borderColor: c.border, borderLeftColor: tone }]}
-      onPress={game && onOpenGame ? () => onOpenGame(game) : undefined}
+      accessibilityRole={press ? "button" : undefined}
+      accessibilityHint={press ? (game?.status === "live" ? "Opens live scoring" : "Opens game details") : undefined}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: c.card, borderColor: c.border, borderLeftColor: tone, opacity: press && pressed ? 0.85 : 1 },
+      ]}
+      onPress={press}
     >
       <View style={styles.top}>
         <View style={[styles.teamDot, { backgroundColor: bet.teamColor }]} />
@@ -96,14 +105,16 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame }: Props
             {bet.sport}   {bet.teamAbbr} v {bet.opponentAbbr}
             {game?.status === "upcoming" ? `   ${untilKickoff(game.startsAt)}` : ""}
           </Text>
-          {walletLabel ? (
-            <View style={styles.wallet}>
-              <MaterialCommunityIcons name="shield-star" size={11} color={c.league} />
-              <Text style={[styles.walletText, { color: c.league }]} numberOfLines={1}>
-                {walletLabel} · league tokens
-              </Text>
-            </View>
-          ) : null}
+          <View
+            accessible
+            accessibilityLabel={walletLabel ? `Wagered in league ${walletLabel}, league tokens` : "Wagered with credits"}
+            style={[styles.wallet, { backgroundColor: c.alpha(walletTint, 0.12), borderColor: c.alpha(walletTint, 0.45) }]}
+          >
+            <MaterialCommunityIcons name={walletLabel ? "shield-star" : "lightning-bolt"} size={12} color={walletTint} />
+            <Text style={[styles.walletText, { color: walletTint }]} numberOfLines={1}>
+              {walletLabel ? `${walletLabel} · league tokens` : "Credits"}
+            </Text>
+          </View>
         </View>
 
         <View style={[styles.pill, { backgroundColor: c.alpha(tone, 0.14), borderColor: c.alpha(tone, 0.6) }]}>
@@ -111,14 +122,15 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame }: Props
             {position && bet.status === "pending" ? POSITION_LABEL[position] : meta.label}
           </Text>
         </View>
+        {press ? <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} /> : null}
       </View>
 
       {/* Live or final scoreline, from the wearer's point of view: their team
           first, so "21–14" always means "you're up seven". */}
       {(myScore !== null && theirScore !== null) || finalScore ? (
-        <View style={[styles.scoreRow, { backgroundColor: c.secondary }]}>
-          <Text style={[styles.scoreLabel, { color: c.mutedForeground }]}>
-            {game?.status === "live" ? game.clock ?? "Live" : "Final"}
+        <View style={[styles.scoreRow, { backgroundColor: game?.status === "live" ? c.alpha(c.live, 0.1) : c.secondary }]}>
+          <Text style={[styles.scoreLabel, { color: game?.status === "live" ? c.live : c.mutedForeground }]}>
+            {game?.status === "live" ? `● ${game.clock ?? "Live"}` : "Final"}
           </Text>
           <Text style={[styles.score, { color: c.foreground }]}>
             {finalScore ?? `${myScore}–${theirScore}`}
@@ -129,7 +141,7 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame }: Props
       <View style={[styles.divider, { backgroundColor: c.border }]} />
 
       <View style={styles.cells}>
-        <Cell label="Stake" value={bet.stake.toLocaleString()} c={c} />
+        <Cell label="Stake" value={bet.stake.toLocaleString()} hint={walletLabel ? "league tokens" : "credits"} c={c} />
         <Cell
           label="Price"
           value={`${bet.odds.toFixed(2)}x`}
@@ -153,12 +165,12 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame }: Props
 
       {canCancel && onCancel && (
         <Pressable
-          style={[styles.cancel, { borderColor: c.border, opacity: busy ? 0.5 : 1 }]}
+          style={({ pressed }) => [styles.cancel, { borderColor: c.alpha(c.foreground, 0.25), backgroundColor: c.secondary, opacity: busy ? 0.5 : pressed ? 0.8 : 1 }]}
           onPress={onCancel}
           disabled={busy}
         >
-          <MaterialCommunityIcons name="undo-variant" size={14} color={c.mutedForeground} />
-          <Text style={[styles.cancelText, { color: c.mutedForeground }]}>
+          <MaterialCommunityIcons name="undo-variant" size={16} color={c.foreground} />
+          <Text style={[styles.cancelText, { color: c.foreground }]}>
             Cancel and get the stake back
           </Text>
         </Pressable>
@@ -217,8 +229,8 @@ const styles = StyleSheet.create({
   cellLabel: { fontSize: 10, fontFamily: "Inter_500Medium" },
   cellValue: { fontSize: 15, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   cellHint: { fontSize: 10, fontFamily: "Inter_400Regular" },
-  wallet: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
-  walletText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  cancel: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1, borderRadius: 10, paddingVertical: 9 },
-  cancelText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  wallet: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", maxWidth: "100%", gap: 4, marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
+  walletText: { flexShrink: 1, fontSize: 11, fontFamily: "Inter_700Bold" },
+  cancel: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1.5, borderRadius: 10, paddingVertical: 10, minHeight: 40 },
+  cancelText: { fontSize: 13, fontFamily: "Inter_800ExtraBold" },
 });

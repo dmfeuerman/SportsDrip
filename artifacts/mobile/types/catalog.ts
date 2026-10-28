@@ -1,3 +1,4 @@
+import { RARITY_RAMP } from "@/constants/colors";
 import type { AttachSpec } from "@/lib/avatar3d/attach";
 import type { BodyRegion, HairMode } from "@/lib/avatar3d/avatarRules";
 import type { Slot } from "@/types/avatar";
@@ -52,13 +53,7 @@ export interface CatalogItem {
   shape?: string | null;
 }
 
-export const RARITY_COLORS: Record<Rarity, string> = {
-  common: "#8A94A6",
-  uncommon: "#4CAF50",
-  rare: "#2196F3",
-  epic: "#9C27B0",
-  legendary: "#FF9800",
-};
+export const RARITY_COLORS: Record<Rarity, string> = { ...RARITY_RAMP };
 
 export const SLOT_LABELS: Record<Slot, string> = {
   hat: "Hats",

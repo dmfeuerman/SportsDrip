@@ -1,9 +1,12 @@
+import { LinearGradient } from "expo-linear-gradient";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React, { useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import AvatarDisplay from "@/components/AvatarDisplay";
+import { router, useIsFocused } from "expo-router";
+import React, { useMemo, useState } from "react";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import AvatarHero from "@/components/avatar/AvatarHero";
 import BetTicket from "@/components/BetTicket";
+import GameQuickView from "@/components/GameQuickView";
+import SponsoredCard from "@/components/ads/SponsoredCard";
 import { Amount, Button, Card, EmptyState, IconButton, Pill, SectionHeader, useBottomPad, useTopPad } from "@/components/ui";
 import { DEFAULT_AVATAR } from "@/constants/avatarOptions";
 import { BOX_TIERS } from "@/constants/prizeTypes";
@@ -40,6 +43,7 @@ export default function HomeScreen() {
 
   const openCredit = bets.filter((b) => b.status === "pending");
   const openLeague = leagues.flatMap((l) => (myLeagueBets[l.id] ?? []).filter((b) => b.status === "pending").map((b) => ({ b, league: l.name })));
+  const openTotal = openCredit.length + openLeague.length;
   const atRisk = openCredit.reduce((s, b) => s + b.stake, 0);
   const couldReturn = openCredit.reduce((s, b) => s + b.potentialPayout, 0);
 
@@ -56,34 +60,47 @@ export default function HomeScreen() {
     .filter((b) => b.state === "waiting" && (b.readyAt ?? 0) > now)
     .sort((a, b) => (a.readyAt ?? 0) - (b.readyAt ?? 0))[0];
 
-  const firstName = (profile?.displayName ?? "").split(" ")[0] || "there";
+  const name = profile?.displayName?.trim() || profile?.username || "there";
+  const focused = useIsFocused();
+  const [avatarGesture, setAvatarGesture] = useState(false);
+  const [quickGame, setQuickGame] = useState<string | null>(null);
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: top + 12, paddingBottom: bottom }]} showsVerticalScrollIndicator={false}>
-        {/* Identity */}
-        <View style={styles.topRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open your locker"
-            onPress={() => router.navigate("/(tabs)/avatar")}
-            style={[styles.me, { backgroundColor: c.secondary, borderColor: c.border }]}
-          >
-            <AvatarDisplay avatar={profile?.avatar ?? DEFAULT_AVATAR} equipped={profile?.equipped ?? {}} catalog={byId} size="xs" />
-          </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.hello, { color: c.mutedForeground }]}>Hey {firstName}</Text>
-            <Text accessibilityRole="header" style={[styles.h1, { color: c.foreground }]}>
-              Your board
-            </Text>
-          </View>
-          <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
-        </View>
+      <ScrollView
+        scrollEnabled={!avatarGesture}
+        contentContainerStyle={[styles.content, { paddingTop: top + 12, paddingBottom: bottom }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Your character, live and head to toe, first thing on screen. Tap it for a celebration. */}
+        <AvatarHero
+          avatar={profile?.avatar ?? DEFAULT_AVATAR}
+          equipped={profile?.equipped ?? {}}
+          catalog={byId}
+          active={focused}
+          onGesture={setAvatarGesture}
+          header={
+            <>
+              <Text accessibilityRole="header" style={[styles.h1, { color: c.foreground, flex: 1 }]} numberOfLines={1}>
+                Hello {name}
+              </Text>
+              <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
+            </>
+          }
+        />
 
         {/* Wallet */}
-        <Card style={[styles.wallet, { backgroundColor: c.elevated }]}>
+        <Card style={[styles.wallet, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.28) }]}>
+          {/* Sportsbook-style wallet: a soft glow of the action colour behind the balance. */}
+          <LinearGradient
+            pointerEvents="none"
+            colors={[c.alpha(c.primary, c.isDark ? 0.2 : 0.12), c.alpha(c.accent, 0.05), "transparent"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.9, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
           <Text style={[styles.label, { color: c.mutedForeground }]}>CREDITS</Text>
-          <Amount value={balance} size="xl" />
+          <Amount value={balance} size="xl" animate />
           <View style={styles.walletStats}>
             <WalletStat label="In play" value={atRisk.toLocaleString()} hint={`${openCredit.length} open`} />
             <WalletStat label="Could return" value={couldReturn.toLocaleString()} color={c.positive} />
@@ -91,7 +108,7 @@ export default function HomeScreen() {
               label="League debt"
               value={totalDebt.toLocaleString()}
               color={totalDebt > 0 ? c.debt : undefined}
-              hint={totalDebt > 0 ? "simple interest" : "none"}
+              hint={totalDebt > 0 ? "flat interest" : "none"}
             />
           </View>
           <View style={styles.actions}>
@@ -152,7 +169,7 @@ export default function HomeScreen() {
                 </View>
                 <Amount value={s.me?.netWorth ?? 0} currency="league" size="sm" />
                 <Text style={[styles.rowSub, { color: c.subtleForeground }]}>
-                  {s.league.status === "ended" ? "Season over" : `${s.daysLeft}d left`}
+                  {s.closed ? "Closed" : `${s.daysLeft}d left`}
                   {s.me && s.me.debt > 0 ? ` · owes ${s.me.debt.toLocaleString()}` : ""}
                 </Text>
               </Card>
@@ -172,22 +189,34 @@ export default function HomeScreen() {
           </>
         )}
 
+        <SponsoredCard />
+
         {/* Open bets */}
         <SectionHeader
           title="Riding now"
-          action={openCredit.length + openLeague.length > 3 ? `All ${openCredit.length + openLeague.length}` : undefined}
+          action={openTotal > 0 ? `All ${openTotal}` : undefined}
           onAction={() => router.push("/bets")}
+          prominent
         />
-        {openCredit.length + openLeague.length === 0 ? (
+        {openTotal === 0 ? (
           <EmptyState icon="ticket-outline" title="Nothing riding" body="Back a team on the board — results pop up here the moment the game's final." action="Browse games" onAction={() => router.navigate("/(tabs)/games")} />
         ) : (
           <>
             {openCredit.slice(0, 3).map((b) => (
-              <BetTicket key={b.id} bet={b} game={gameById.get(b.gameId) ?? null} />
+              <BetTicket key={b.id} bet={b} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
             ))}
             {openLeague.slice(0, Math.max(0, 3 - openCredit.length)).map(({ b, league }) => (
-              <BetTicket key={b.id} bet={b} walletLabel={league} game={gameById.get(b.gameId) ?? null} />
+              <BetTicket key={b.id} bet={b} walletLabel={league} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
             ))}
+            {openTotal > 3 ? (
+              <Button
+                label={`See all ${openTotal} open bets`}
+                icon="ticket-confirmation-outline"
+                variant="secondary"
+                onPress={() => router.push("/bets")}
+                style={{ borderColor: c.primary, borderWidth: 1.5 }}
+              />
+            ) : null}
           </>
         )}
 
@@ -199,6 +228,7 @@ export default function HomeScreen() {
           </View>
         )}
       </ScrollView>
+      <GameQuickView gameId={quickGame} onClose={() => setQuickGame(null)} />
     </View>
   );
 }
@@ -241,12 +271,9 @@ function ResultRow({ n, last }: { n: AppNotification; last: boolean }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: 16, gap: 12 },
-  topRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  me: { width: 46, height: 52, borderRadius: 14, borderWidth: 1, overflow: "hidden", alignItems: "center", justifyContent: "flex-start", paddingTop: 3 },
-  hello: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  h1: { fontSize: 26, lineHeight: 31, fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
-  wallet: { gap: 8, padding: 18, borderRadius: 22 },
-  label: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  h1: { fontSize: 28, lineHeight: 32, fontFamily: "Inter_900Black", letterSpacing: -1 },
+  wallet: { gap: 8, padding: 18, borderRadius: 22, overflow: "hidden" },
+  label: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.2 },
   walletStats: { flexDirection: "row", gap: 8, marginTop: 4 },
   walletValue: { fontSize: 16, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   actions: { flexDirection: "row", gap: 10, marginTop: 8 },

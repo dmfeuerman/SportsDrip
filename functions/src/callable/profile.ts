@@ -65,11 +65,9 @@ export const createProfile = onCall({ region: "us-central1" }, async (req) => {
       displayName: input.displayName,
       balance: STARTING_BALANCE,
       avatar: input.avatar ?? DEFAULT_AVATAR,
-      equipped: {
-        top: "tee_basic_white",
-        bottom: "shorts_basic_navy",
-        shoes: "shoes_basic_white",
-      },
+      // Nothing worn at signup: the starter kit lands in the inventory to put on
+      // (or not) from the wardrobe.
+      equipped: {},
       stats: { betsPlaced: 0, betsWon: 0, betsLost: 0, betsPush: 0, creditsWon: 0, creditsStaked: 0 },
       onboarded: true,
       createdAt: FieldValue.serverTimestamp(),

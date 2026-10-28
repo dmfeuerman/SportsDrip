@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useEffect } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { openSocialNotification } from "@/components/InviteToastHost";
 import { Amount, Button, EmptyState, ScreenHeader, useBottomPad } from "@/components/ui";
 import { useNotifications, type AppNotification } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
@@ -19,6 +20,8 @@ const ICON: Record<AppNotification["type"], React.ComponentProps<typeof Material
   loan_repaid: "cash-refund",
   loan_countered: "swap-horizontal",
   loan_request: "hand-coin-outline",
+  friend_request: "account-plus",
+  friend_accepted: "account-check",
 };
 
 function ago(at: number, now: number) {
@@ -35,7 +38,16 @@ export default function ActivityScreen() {
   const c = useColors();
   const bottom = useBottomPad(false);
   const now = useNow(60_000);
-  const { notifications, unreadCount, markAllRead, markRead } = useNotifications();
+  const { notifications, unreadCount, markAllRead, markRead, refresh } = useNotifications();
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refresh]);
 
   // Opening the feed reads what's on it, after a beat so the unread dots are seen.
   useEffect(() => {
@@ -51,11 +63,12 @@ export default function ActivityScreen() {
         data={notifications}
         keyExtractor={(n) => n.id}
         contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.mutedForeground} />}
         renderItem={({ item: n }) => {
           const tone = n.type === "bet_won" || n.type === "league_payout" || n.type === "loan_repaid" ? c.positive : n.type === "bet_lost" ? c.negative : n.leagueId ? c.league : c.mutedForeground;
           const go = () => {
             markRead([n.id]);
-            if (n.type === "league_invite" && n.data?.code) router.navigate({ pathname: "/(tabs)/leagues", params: { code: n.data.code } });
+            if ((n.type === "league_invite" && n.data?.code) || n.type === "friend_request" || n.type === "friend_accepted") openSocialNotification(n);
             else if (n.leagueId) router.push({ pathname: "/league/[id]", params: { id: n.leagueId, tab: n.type.startsWith("loan") ? "bank" : n.bet ? "bets" : "standings" } });
             else if (n.bet) router.push("/bets");
           };
@@ -72,6 +85,7 @@ export default function ActivityScreen() {
                   {n.body}
                 </Text>
                 {n.type === "league_invite" && <Text style={[styles.cta, { color: c.accent }]}>Tap to join</Text>}
+                {n.type === "friend_request" && <Text style={[styles.cta, { color: c.accent }]}>Tap to respond</Text>}
               </View>
               <View style={{ alignItems: "flex-end", gap: 4 }}>
                 <Text style={[styles.time, { color: c.subtleForeground }]}>{ago(n.createdAtMs, now)}</Text>

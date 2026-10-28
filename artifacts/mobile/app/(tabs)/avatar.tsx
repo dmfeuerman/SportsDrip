@@ -1,12 +1,17 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React, { useMemo } from "react";
+import { router, useIsFocused } from "expo-router";
+import React, { useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import CartButton from "@/components/CartButton";
+import FavoriteTeamsSheet from "@/components/FavoriteTeamsSheet";
+import PlayerProfileSheet from "@/components/PlayerProfileSheet";
+import TeamChips from "@/components/TeamChips";
 import ItemIcon from "@/components/avatar/ItemIcon";
 import TokenBalance from "@/components/TokenBalance";
 import { Button, Card, ErrorBanner } from "@/components/ui";
+import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalog } from "@/hooks/useCatalog";
@@ -24,6 +29,11 @@ export default function LockerScreen() {
   const { profile, balance, inventory, error, clearError, bets } = useApp();
   const { byId } = useCatalog();
   const { signOut } = useAuth();
+  const { privacyOptionsRequired, openPrivacyOptions } = useAds();
+  const focused = useIsFocused();
+  const [editTeams, setEditTeams] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const favoriteTeams = profile?.favoriteTeams ?? [];
 
   const equipped = profile?.equipped ?? {};
   const owned = useMemo(
@@ -48,6 +58,7 @@ export default function LockerScreen() {
           </Text>
         </View>
         <TokenBalance tokens={balance} />
+        <CartButton />
         <Pressable
           style={[styles.iconBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
           onPress={signOut}
@@ -64,7 +75,7 @@ export default function LockerScreen() {
         <View style={[styles.stage, { backgroundColor: c.card, borderColor: c.border }]}>
           <View style={[styles.floor, { backgroundColor: c.secondary }]} />
           <View style={styles.stageInner}>
-            <AvatarDisplay avatar={profile?.avatar} equipped={equipped} catalog={byId} size="lg" />
+            <AvatarDisplay avatar={profile?.avatar} equipped={equipped} catalog={byId} size="lg" active={focused} />
           </View>
           <View style={[styles.stageBar, { borderTopColor: c.border }]}>
             <Text style={[styles.stageHint, { color: c.mutedForeground }]}>Drag to turn · zoom to inspect</Text>
@@ -93,6 +104,22 @@ export default function LockerScreen() {
             </Text>
           </Card>
         </View>
+
+        <Card style={{ gap: 10 }}>
+          <View style={styles.teamsHead}>
+            <MaterialCommunityIcons name="heart-outline" size={18} color={c.primary} />
+            <Text style={[styles.quickTitle, { color: c.foreground, flex: 1 }]}>Favorite teams</Text>
+            <Button label={favoriteTeams.length ? "Edit" : "Add"} size="sm" variant="secondary" icon="pencil-outline" onPress={() => setEditTeams(true)} />
+          </View>
+          {favoriteTeams.length ? (
+            <TeamChips teams={favoriteTeams} max={5} />
+          ) : (
+            <Text style={[styles.quickSub, { color: c.mutedForeground }]}>Pick up to 5 — they show on your profile and in league standings.</Text>
+          )}
+          {profile?.uid ? (
+            <Button label="View my profile" size="sm" variant="ghost" icon="card-account-details-outline" onPress={() => setShowProfile(true)} />
+          ) : null}
+        </Card>
 
         <Text style={[styles.section, { color: c.foreground }]}>Wearing</Text>
         <View style={styles.slots}>
@@ -135,7 +162,26 @@ export default function LockerScreen() {
             );
           })}
         </View>
+
+        {privacyOptionsRequired ? (
+          <Pressable
+            onPress={openPrivacyOptions}
+            accessibilityRole="button"
+            accessibilityLabel="Privacy and ad choices"
+            style={styles.privacy}
+          >
+            <MaterialCommunityIcons name="shield-account-outline" size={15} color={c.mutedForeground} />
+            <Text style={[styles.privacyText, { color: c.mutedForeground }]}>Privacy & ad choices</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
+
+      <FavoriteTeamsSheet visible={editTeams} initial={favoriteTeams} uid={profile?.uid} onClose={() => setEditTeams(false)} />
+      <PlayerProfileSheet
+        uid={showProfile ? profile?.uid ?? null : null}
+        onClose={() => setShowProfile(false)}
+        seed={profile ? { displayName: profile.displayName, username: profile.username, avatar: profile.avatar, equipped: profile.equipped, favoriteTeams } : undefined}
+      />
     </View>
   );
 }
@@ -143,7 +189,7 @@ export default function LockerScreen() {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, paddingHorizontal: 16, paddingBottom: 12 },
-  title: { fontSize: 22, fontFamily: "Inter_700Bold" },
+  title: { fontSize: 22, fontFamily: "Inter_900Black" },
   handle: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1 },
   iconBtn: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: 16, gap: 14 },
@@ -156,6 +202,7 @@ const styles = StyleSheet.create({
   quickCard: { flex: 1, gap: 4, padding: 12 },
   quickTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
   quickSub: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  teamsHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   section: { fontSize: 16, fontFamily: "Inter_700Bold", marginTop: 4 },
   slots: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   slot: { width: "31.5%", flexGrow: 1, borderRadius: 14, borderWidth: 1, padding: 10, gap: 4 },
@@ -164,4 +211,6 @@ const styles = StyleSheet.create({
   slotValue: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   wardrobe: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   wItem: { width: 66, height: 66, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  privacy: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, marginTop: 4 },
+  privacyText: { fontSize: 12, fontFamily: "Inter_500Medium" },
 });

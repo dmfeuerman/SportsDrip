@@ -14,6 +14,7 @@ import {
   MEMBER_COLORS,
   MIN_LEAGUE_STAKE,
   PEER_LOAN_MAX_PCT,
+  peerLoanRequestsEnabled,
   PEER_RATE_MAX,
   PRIZE_PRESETS,
   SPORTS,
@@ -24,6 +25,7 @@ import {
   applyRepayment,
   loanSnapshot,
   newLoanTerms,
+  totalRepayable,
   type LeagueLoanLike,
   type LoanTerms,
 } from "../lib/loanMath";
@@ -44,7 +46,7 @@ import { finalizeLeague, payoutLeague } from "../lib/leagueLifecycle";
  * Data model
  *   leagues/{id}                    config, pot, members map, results
  *   leagues/{id}/leagueBets/{betId} league-wallet bets (settled by settleBets)
- *   leagues/{id}/loans/{loanId}     bank and peer loans, simple interest
+ *   leagues/{id}/loans/{loanId}     bank and peer loans, flat one-time interest
  *   leagues/{id}/activity/{id}      feed
  *   leagueInvites/{code}            code -> league lookup
  */
@@ -136,7 +138,7 @@ const CreateInput = z.object({
   prizePreset: z.enum(["winner-all", "top-2", "top-3"]),
   bankLoanEnabled: z.boolean(),
   bankInterestRate: z.number().min(BANK_RATE_MIN).max(BANK_RATE_MAX),
-  bankInterestIntervalHours: z.number().int().min(BANK_INTERVAL_MIN_H).max(BANK_INTERVAL_MAX_H),
+  bankInterestIntervalHours: z.number().int().min(BANK_INTERVAL_MIN_H).max(BANK_INTERVAL_MAX_H).default(24),
 });
 
 export const createLeague = onCall({ region: "us-central1" }, async (req) => {
@@ -289,7 +291,8 @@ export const leaveLeague = onCall({ region: "us-central1" }, async (req) => {
 
   return db.runTransaction(async (tx) => {
     const league = await tx.get(ref);
-    if (!league.exists) throw new HttpsError("not-found", "League not found.");
+    // Closed leagues are read-only: membership is frozen with the final standings.
+    requireActiveLeague(league, Date.now());
     const me = requireMember(league, uid);
 
     const [loans, bets] = await Promise.all([
@@ -354,7 +357,7 @@ export const updateLeagueSettings = onCall({ region: "us-central1" }, async (req
       leagueId: z.string().min(1),
       bankLoanEnabled: z.boolean(),
       bankInterestRate: z.number().min(BANK_RATE_MIN).max(BANK_RATE_MAX),
-      bankInterestIntervalHours: z.number().int().min(BANK_INTERVAL_MIN_H).max(BANK_INTERVAL_MAX_H),
+      bankInterestIntervalHours: z.number().int().min(BANK_INTERVAL_MIN_H).max(BANK_INTERVAL_MAX_H).default(24),
     })
     .parse(req.data);
 
@@ -377,7 +380,7 @@ export const updateLeagueSettings = onCall({ region: "us-central1" }, async (req
       uid,
       name: me.displayName,
       text: input.bankLoanEnabled
-        ? `Bank terms: ${input.bankInterestRate}% simple per ${input.bankInterestIntervalHours}h on new loans`
+        ? `Bank terms: ${input.bankInterestRate}% flat on new loans`
         : "The bank is closed to new loans",
     });
     return { ok: true };
@@ -414,7 +417,9 @@ export const inviteToLeague = onCall({ region: "us-central1" }, async (req) => {
         now: Date.now(),
         leagueId,
         leagueName: name,
-        data: { code: league.get("code") as string, leagueId },
+        // Surfaced as an in-app banner (InviteToastHost), not only a feed row.
+        popup: true,
+        data: { code: league.get("code") as string, leagueId, fromUid: uid },
       })
     );
     return { ok: true, status: "sent" as const };
@@ -585,7 +590,7 @@ export const takeBankLoan = onCall({ region: "us-central1" }, async (req) => {
       uid,
       name: me.displayName,
       amount: input.amount,
-      text: `${me.displayName} borrowed ${input.amount.toLocaleString("en-US")} from the bank at ${rate}% per ${interval}h`,
+      text: `${me.displayName} borrowed ${input.amount.toLocaleString("en-US")} from the bank at ${rate}% flat`,
     });
     return { ok: true, loanId: loanRef.id, duplicate: false };
   });
@@ -700,6 +705,7 @@ export const requestPeerLoan = onCall({ region: "us-central1" }, async (req) => 
       idempotencyKey: Key,
     })
     .parse(req.data);
+  if (!peerLoanRequestsEnabled()) throw new HttpsError("failed-precondition", "Loan requests are closed.");
   const ref = leagueRef(input.leagueId);
   const loanRef = ref.collection("loans").doc(`peer_${uid}_${input.idempotencyKey}`);
 
@@ -761,7 +767,7 @@ export const requestPeerLoan = onCall({ region: "us-central1" }, async (req) => 
           id: `loanreq_${loanRef.id}`,
           type: "loan_request",
           title: `${me.displayName} wants a loan`,
-          body: `${input.amount.toLocaleString("en-US")} league tokens at ${rate}% per ${league.get("bankInterestIntervalHours")}h in ${league.get("name")}.`,
+          body: `${input.amount.toLocaleString("en-US")} league tokens at ${rate}% flat (repays ${totalRepayable(input.amount, rate).toLocaleString("en-US")}) in ${league.get("name")}.`,
           wallet: "league",
           leagueId: input.leagueId,
           leagueName: league.get("name") as string,
@@ -836,7 +842,7 @@ export const peerLoanAction = onCall({ region: "us-central1" }, async (req) => {
           id: `funded_${loanRef.id}`,
           type: "loan_funded",
           title: lenderId === uid ? `${lender.displayName} funded your loan` : `${borrower.displayName} took your offer`,
-          body: `${amount.toLocaleString("en-US")} league tokens at ${rate}% per ${interval}h, simple interest.`,
+          body: `${amount.toLocaleString("en-US")} league tokens at ${rate}% flat. Repays ${totalRepayable(amount, rate).toLocaleString("en-US")} in total.`,
           delta: lenderId === uid ? amount : -amount,
           wallet: "league",
           leagueId: input.leagueId,

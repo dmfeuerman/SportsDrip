@@ -4,6 +4,7 @@ exports.equipItem = exports.purchaseItem = exports.SLOTS = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
+const avatar_1 = require("./avatar");
 exports.SLOTS = [
     "hat",
     "top",
@@ -68,35 +69,15 @@ exports.purchaseItem = (0, https_1.onCall)({ region: "us-central1" }, async (req
 });
 /**
  * Equips or clears a slot. Ownership is verified server-side, so a crafted
- * write cannot put a Legendary jersey on an avatar that never bought it.
- * Passing `itemId: null` unequips.
+ * write cannot put a Legendary jersey on an avatar that never bought it, and
+ * anything incompatible with the new item (headphones → hat) comes off in the
+ * same write. Passing `itemId: null` unequips.
  */
 exports.equipItem = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
     const { slot, itemId } = zod_1.z
         .object({ slot: zod_1.z.enum(exports.SLOTS), itemId: zod_1.z.string().min(1).nullable() })
         .parse(req.data);
-    const userRef = economy_1.db.collection("users").doc(uid);
-    if (itemId === null) {
-        await userRef.update({
-            [`equipped.${slot}`]: economy_1.FieldValue.delete(),
-            updatedAt: economy_1.FieldValue.serverTimestamp(),
-        });
-        return { ok: true };
-    }
-    const [owned, item] = await Promise.all([
-        userRef.collection("inventory").doc(itemId).get(),
-        economy_1.db.collection("catalog").doc(itemId).get(),
-    ]);
-    if (!owned.exists)
-        throw new https_1.HttpsError("permission-denied", "You don't own that item.");
-    if (item.exists && item.get("slot") !== slot) {
-        throw new https_1.HttpsError("invalid-argument", "That item doesn't go in that slot.");
-    }
-    await userRef.update({
-        [`equipped.${slot}`]: itemId,
-        updatedAt: economy_1.FieldValue.serverTimestamp(),
-    });
-    return { ok: true };
+    return (0, avatar_1.equipOne)(uid, slot, itemId);
 });
 //# sourceMappingURL=shop.js.map

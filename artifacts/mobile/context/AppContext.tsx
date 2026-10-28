@@ -17,10 +17,11 @@ import React, {
   useState,
 } from "react";
 import * as api from "@/lib/api";
-import type { AvatarConfig, BoxTier, Slot, UserStats } from "@/lib/api";
+import type { AvatarConfig, BoxTier, FavoriteTeam, Slot, UserStats } from "@/lib/api";
 import { firebaseConfigured, getDb } from "@/lib/firebase";
+import { firstAnswer } from "@/lib/devtrace";
 import { SLOTS } from "@/lib/avatar3d/avatarRules";
-import { DEMO, demoBets, demoInventory, demoPrizeBoxes, demoProfile } from "@/lib/demo";
+import { DEMO, demoBets, demoCatalog, demoInventory, demoPrizeBoxes, demoProfile } from "@/lib/demo";
 
 /**
  * Replaces the old AsyncStorage-backed AppContext.
@@ -76,6 +77,8 @@ export interface Profile {
   avatar: AvatarConfig;
   equipped: Partial<Record<Slot, string>>;
   stats: UserStats;
+  /** Teams this player follows (updateFavoriteTeams). Absent on older docs. */
+  favoriteTeams?: FavoriteTeam[];
   onboarded: boolean;
 }
 
@@ -141,6 +144,8 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
   // the first response lands. The server is idempotent regardless; this just
   // keeps the UI honest.
   const inFlight = useRef<Set<string>>(new Set());
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
 
   const signedIn = firebaseConfigured && uid !== "local";
 
@@ -157,15 +162,19 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
     }
 
     const unsubs: Array<() => void> = [];
+    const answer = firstAnswer("profile", () => {});
+    unsubs.push(answer.cancel);
 
     unsubs.push(
       onSnapshot(
         doc(db, "users", uid),
         (snap) => {
+          answer.hit();
           setProfile(snap.exists() ? ({ uid, ...snap.data() } as Profile) : null);
           setProfileLoaded(true);
         },
         (err) => {
+          answer.hit();
           setError(api.friendlyError(err));
           setProfileLoaded(true);
         }
@@ -263,6 +272,16 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       guard(
         `buy:${itemId}`,
         async () => {
+          if (DEMO) {
+            // Demo mode has no backend: buy against the fixture catalog locally.
+            const item = demoCatalog.find((i) => i.id === itemId);
+            const have = profileRef.current?.balance ?? 0;
+            if (!item) throw new Error("That item isn't in the store.");
+            if (have < item.price) throw new Error("Not enough credits.");
+            setInventory((inv) => (inv.includes(itemId) ? inv : [...inv, itemId]));
+            setProfile((p) => (p ? { ...p, balance: p.balance - item.price } : p));
+            return true;
+          }
           await api.purchaseItem({ itemId, idempotencyKey: api.newIdempotencyKey() });
           return true;
         },

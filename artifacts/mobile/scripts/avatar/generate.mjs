@@ -50,7 +50,8 @@ import { TEMPLATES } from "./templates.mjs";
 import { attachmentSpecs } from "./attachments.mjs";
 import { addNormalMaps, atlas, bakeNormals, withUVs } from "./bake.mjs";
 import { encodeJPEG } from "./jpeg.mjs";
-import { bakeAO, gradient, meshSDF, project, simplify, sstep } from "./sdf.mjs";
+import { sparsifyMorphs } from "./sparse.mjs";
+import { bakeAO, gradient, meshSDF, project, simplify, smax, sstep } from "./sdf.mjs";
 
 // GLTFExporter's binary writer reads its Blob through FileReader.
 globalThis.FileReader ??= class {
@@ -360,9 +361,59 @@ function addMesh(ctx, name, mat, geometry, { skinned = false, parent = null, dou
 }
 
 /** Mesh a field; returns null when it's empty. Triangle targets hold in preview too. */
-async function fieldMesh(f, box, h, { targetTris = null, keep = null, error = 0.0006 } = {}) {
-  const m = await meshSDF(f, box, h * Q, { targetTris, keep, error });
+async function fieldMesh(f, box, h, { targetTris = null, keep = null, error = 0.0006, minPiece = 0 } = {}) {
+  let m = await meshSDF(f, box, h * Q, { targetTris, keep, error });
+  if (minPiece > 0 && m.indices.length) m = dropSpecks(m, minPiece);
   return m.indices.length ? m : null;
+}
+
+/**
+ * Removes connected pieces smaller than `minTris` triangles: the slivers a thin
+ * shell or a hat-pressed hair variant leaves where two surfaces nearly touch.
+ */
+function dropSpecks(m, minTris) {
+  const nv = m.positions.length / 3;
+  const parent = Int32Array.from({ length: nv }, (_, i) => i);
+  const find = (a) => {
+    while (parent[a] !== a) a = parent[a] = parent[parent[a]];
+    return a;
+  };
+  const I = m.indices;
+  for (let t = 0; t < I.length; t += 3) {
+    const a = find(I[t]), b = find(I[t + 1]), c = find(I[t + 2]);
+    parent[b] = a;
+    parent[c] = a;
+  }
+  const size = new Map();
+  for (let t = 0; t < I.length; t += 3) {
+    const r = find(I[t]);
+    size.set(r, (size.get(r) ?? 0) + 1);
+  }
+  const keepTri = [];
+  for (let t = 0; t < I.length; t += 3) if (size.get(find(I[t])) >= minTris) keepTri.push(I[t], I[t + 1], I[t + 2]);
+  if (keepTri.length === I.length) return m;
+  // Re-index, carrying every per-vertex array along.
+  const map = new Int32Array(nv).fill(-1);
+  const order = [];
+  const idx = new Uint32Array(keepTri.length);
+  keepTri.forEach((v, i) => {
+    if (map[v] < 0) {
+      map[v] = order.length;
+      order.push(v);
+    }
+    idx[i] = map[v];
+  });
+  const out = { ...m, indices: idx };
+  for (const [k, arr] of Object.entries(m)) {
+    if (k === "indices" || !ArrayBuffer.isView(arr) || arr.length % nv !== 0) continue;
+    const n = arr.length / nv;
+    const o = new arr.constructor(order.length * n);
+    order.forEach((v, i) => {
+      for (let j = 0; j < n; j++) o[i * n + j] = arr[v * n + j];
+    });
+    out[k] = o;
+  }
+  return out;
 }
 
 /* ── blendshapes ─────────────────────────────────────────────────────────── */
@@ -412,6 +463,71 @@ function fieldMorph(md, baseF, variantF, { weight = () => 1, transfer = false, n
   return { dpos, dnrm };
 }
 
+/**
+ * Nose blendshapes for facial hair (the heads themselves are meshed once per
+ * nose shape — see buildHead). The nose variants differ from the button by up to
+ * ~15 mm (a longer bridge, wider wings), too far for fieldMorph's push along
+ * the normal, which folds vertices into each other or skips them. Instead
+ * each vertex moves along a ray from an axis inside the nose (vertical line
+ * x = 0, z = NOSE_AXIS.z, clamped to the bridge's height) to where that ray
+ * crosses the variant's surface — a one-to-one map between the two noses, so
+ * nothing tears. Away from the nose the fields agree and the move is zero.
+ */
+const NOSE_AXIS = { z: 0.088, y0: 1.596, y1: 1.646 };
+const noseFalloff = ([x, y, z]) => sstep(0.052, 0.04, Math.abs(x)) * sstep(1.556, 1.568, y) * sstep(1.682, 1.668, y) * sstep(0.08, 0.092, z);
+function noseRayDir(p) {
+  const cy = Math.min(NOSE_AXIS.y1, Math.max(NOSE_AXIS.y0, p[1]));
+  const d = [p[0], p[1] - cy, p[2] - NOSE_AXIS.z];
+  const l = Math.hypot(...d) || 1;
+  return [d[0] / l, d[1] / l, d[2] / l];
+}
+/** Where the ray p + t·dir first crosses f's zero set, nearest t = 0 (|t| ≤ reach), or 0 if it doesn't. */
+function rayRoot(f, p, dir, reach) {
+  const at = (t) => f(p[0] + dir[0] * t, p[1] + dir[1] * t, p[2] + dir[2] * t);
+  const f0 = at(0);
+  if (Math.abs(f0) < 1e-6) return 0;
+  const step = 0.0004;
+  for (let t = step; t <= reach + 1e-9; t += step) {
+    for (const sgnT of [1, -1]) {
+      const a = sgnT * (t - step), b = sgnT * t;
+      const fa = at(a), fb = at(b);
+      if ((fa <= 0) !== (fb <= 0)) {
+        let lo = a, hi = b, flo = fa;
+        for (let i = 0; i < 24; i++) {
+          const m = (lo + hi) / 2, fm = at(m);
+          if ((fm <= 0) === (flo <= 0)) {
+            lo = m;
+            flo = fm;
+          } else hi = m;
+        }
+        return (lo + hi) / 2;
+      }
+    }
+  }
+  return 0;
+}
+function noseMorph(md, baseF, variantF, { transfer = false, normals = true, reach = 0.02 } = {}) {
+  const n = md.positions.length / 3;
+  const dpos = new Float32Array(n * 3);
+  const dnrm = normals ? new Float32Array(n * 3) : null;
+  for (let v = 0; v < n; v++) {
+    const p = [md.positions[v * 3], md.positions[v * 3 + 1], md.positions[v * 3 + 2]];
+    const w = noseFalloff(p);
+    if (w <= 0) continue;
+    const p0 = transfer ? projectOnto(baseF, p) : p;
+    const dir = noseRayDir(p0);
+    const t = rayRoot(variantF, p0, dir, reach);
+    if (!t) continue;
+    for (let k = 0; k < 3; k++) dpos[v * 3 + k] = dir[k] * t * w;
+    if (dnrm) {
+      const q = [p0[0] + dir[0] * t, p0[1] + dir[1] * t, p0[2] + dir[2] * t];
+      const a = gradient(baseF, ...p0);
+      const b = gradient(variantF, ...q);
+      for (let k = 0; k < 3; k++) dnrm[v * 3 + k] = (b[k] - a[k]) * w;
+    }
+  }
+  return { dpos, dnrm };
+}
 /** A blendshape from an analytic displacement (expressions.mjs). */
 function fnMorph(md, fn) {
   const n = md.positions.length / 3;
@@ -555,8 +671,8 @@ async function quantize(glb) {
   if (process.env.AVATAR_NO_QUANTIZE) return glb;
   if (quantizer === undefined) {
     try {
-      const [{ NodeIO }, { ALL_EXTENSIONS }, { quantize: q, sparse }] = await Promise.all([import("@gltf-transform/core"), import("@gltf-transform/extensions"), import("@gltf-transform/functions")]);
-      quantizer = { io: new NodeIO().registerExtensions(ALL_EXTENSIONS), q, sparse };
+      const [{ NodeIO }, { ALL_EXTENSIONS }, { quantize: q }] = await Promise.all([import("@gltf-transform/core"), import("@gltf-transform/extensions"), import("@gltf-transform/functions")]);
+      quantizer = { io: new NodeIO().registerExtensions(ALL_EXTENSIONS), q };
     } catch {
       quantizer = null;
       console.log("  (glTF-Transform isn't installed: writing unquantized GLBs)");
@@ -576,11 +692,12 @@ async function quantize(glb) {
       // One grid for every mesh in the file: the body's region meshes share their border vertices,
       // and per-mesh grids would round those differently and open pixel cracks along the seams.
       quantizationVolume: "scene",
-    }),
-    // Morph targets that move only part of a mesh (blinks, lips, nose) store just the vertices they move.
-    quantizer.sparse({ ratio: 1 / 3 })
+    })
+    // Not glTF-Transform's sparse(): it writes sparse *normalized* (quantized) accessors with
+    // their values zeroed, which silently flattened nearly every face and build blendshape
+    // (nose, mouth, smile, jaw, blinks, slim/broad). sparse.mjs re-encodes them correctly.
   );
-  return Buffer.from(await quantizer.io.writeBinary(doc));
+  return sparsifyMorphs(Buffer.from(await quantizer.io.writeBinary(doc)));
 }
 
 async function write(scene, file, anims = [], maps = []) {
@@ -711,12 +828,20 @@ async function buildUnderwear() {
 const NOSE_MORPHS = { noseStraight: { nose: "straight" }, noseBroad: { nose: "broad" } };
 const MOUTH_MORPHS = { lipsFull: { mouth: "full" }, mouthWide: { mouth: "wide" } };
 const FACE_MORPHS = { ...NOSE_MORPHS, ...MOUTH_MORPHS };
-const noseBox = ([x, y, z]) => (Math.abs(x) < 0.04 && y > 1.57 && y < 1.67 && z > 0.09 ? 1 : 0);
 const mouthBox = ([x, y, z]) => (Math.abs(x) < 0.05 && y > 1.52 && y < 1.6 && z > 0.06 ? 1 : 0);
 
-async function buildHead(face) {
+/**
+ * One head per face shape × nose shape. Noses used to be blendshapes on the
+ * button head, but a straight or broad nose is up to 15 mm bigger than the
+ * button: the button's few nose triangles, its baked normal map and shading
+ * stretched over it tore and folded. Meshing each nose gives it its own
+ * triangles, normals and normal map; only one head is ever drawn.
+ */
+export const headName = (face, nose = "button") => (nose === "button" ? `Head_${face}` : `Head_${face}_${nose}`);
+
+async function buildHead(face, nose = "button") {
   const t0 = Date.now();
-  const f = headSkin(face);
+  const f = atFace({ nose }, headSkin(face));
   const m = await fieldMesh(f, [[-0.15, 1.472, -0.15], [0.15, 1.81, 0.165]], 0.00095, {
     targetTris: TRIS.head,
     keep: (x, y, z) => y > 1.476,
@@ -732,12 +857,12 @@ async function buildHead(face) {
   for (const name of BUILD_MORPHS) {
     md.morphs[name] = fieldMorph(md, f, atBuild(BUILD_VALUES[name], f), { weight: ([, y]) => sstep(1.58, 1.53, y), maxMove: 0.03 });
   }
-  for (const [name, detail] of Object.entries(FACE_MORPHS)) {
-    md.morphs[name] = fieldMorph(md, f, atFace(detail, f), { weight: NOSE_MORPHS[name] ? noseBox : mouthBox, maxMove: 0.012 });
+  for (const [name, detail] of Object.entries(MOUTH_MORPHS)) {
+    md.morphs[name] = fieldMorph(md, f, atFace({ nose, ...detail }, headSkin(face)), { weight: mouthBox, maxMove: 0.012 });
   }
   // Lids blink on their own meshes; the head carries the mouth and jaw.
   for (const name of EXPRESSIONS) if (!name.startsWith("eyeBlink")) md.morphs[name] = fnMorph(md, X.EXPRESSION_FNS[name]);
-  console.log(`  head ${face}: ${m.indices.length / 3} tris, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log(`  head ${face}/${nose}: ${m.indices.length / 3} tris, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   return md;
 }
 
@@ -766,7 +891,7 @@ async function base() {
     mouths: MOUTH_SHAPES,
     regions: BODY_REGIONS,
     sockets: Object.keys(SOCKETS),
-    morphs: { build: BUILD_MORPHS, face: Object.keys(FACE_MORPHS), expressions: EXPRESSIONS },
+    morphs: { build: BUILD_MORPHS, face: Object.keys(MOUTH_MORPHS), facialHair: Object.keys(FACE_MORPHS), expressions: EXPRESSIONS },
   });
   const maps = [];
   {
@@ -781,13 +906,13 @@ async function base() {
     addMesh(ctx, "Underwear", "base_layer", toGeometry(mds[1]), { skinned: true });
     maps.push({ png, meshes: [...names, "Underwear"] });
   }
-  {
-    // The four heads share one.
+  for (const nose of NOSE_SHAPES) {
+    // The four face shapes with one nose share a normal map.
     const heads = [];
-    for (const face of FACE_SHAPES) heads.push({ md: await headMesh(face), field: headSkin(face) });
+    for (const face of FACE_SHAPES) heads.push({ md: await headMesh(face, nose), field: atFace({ nose }, headSkin(face)) });
     const { mds, png } = bakeSet(heads, texSize("heads"));
-    FACE_SHAPES.forEach((face, i) => addMesh(ctx, `Head_${face}`, "skin", toGeometry(mds[i]), { skinned: true }));
-    maps.push({ png, meshes: FACE_SHAPES.map((f) => `Head_${f}`) });
+    FACE_SHAPES.forEach((face, i) => addMesh(ctx, headName(face, nose), "skin", toGeometry(mds[i]), { skinned: true }));
+    maps.push({ png, meshes: FACE_SHAPES.map((f) => headName(f, nose)) });
   }
 
   const head = REST.Head;
@@ -853,9 +978,13 @@ async function hairAsset(style) {
   const keep = (x, y, z) => scalpD(x, y, z) > -0.004 && C.headD("oval", x, y, z) > -0.003;
   const variants = [];
   for (const mode of [null, ...HAIR_MODES]) {
-    const g = mode ? (x, y, z) => Math.max(f(x, y, z), hairAllowance(mode, x, y, z)) : f;
+    // A soft intersection with the hat's allowance: a hard one left razor-thin
+    // slivers where a big style (afro, curls) grazes it below the brim.
+    // Headphones (banded) only press a strap's width: the free shape stays.
+    const under = (mode !== "banded" && H.HAIR_UNDER_HAT[style]) || f;
+    const g = !mode ? f : style === "ponytail" ? (x, y, z) => H.ponytailPressedD(mode, x, y, z) : (x, y, z) => smax(under(x, y, z), hairAllowance(mode, x, y, z), 0.004);
     const t0 = Date.now();
-    const m = await fieldMesh(g, box, 0.0013, { targetTris: mode ? TRIS.hairPressed : TRIS.hair, keep, error: 0.004 });
+    const m = await fieldMesh(g, box, 0.0013, { targetTris: mode ? TRIS.hairPressed : TRIS.hair, keep, error: 0.004, minPiece: 30 });
     if (!m) continue;
     const md = meshData(m);
     const ao = bakeAO((x, y, z) => Math.min(g(x, y, z), C.headD("oval", x, y, z)), m, { step: 0.004, strength: 0.9, min: 0.5 });
@@ -874,8 +1003,8 @@ async function hairAsset(style) {
   variants.forEach((v, i) => addMesh(ctx, v.name, "hair", toGeometry(mds[i], REST.Head)));
   if (style === "ponytail") {
     for (const mode of [null, ...HAIR_MODES]) {
-      const g = mode ? (x, y, z) => Math.max(H.ponytailTieD(x, y, z), hairAllowance(mode, x, y, z) + 0.002) : H.ponytailTieD;
-      const m = await fieldMesh(g, [[-0.04, 1.64, -0.17], [0.04, 1.71, -0.1]], 0.0009, { targetTris: 240, error: 0.0008 });
+      const g = (x, y, z) => H.ponytailTieD(x, y, z, mode);
+      const m = await fieldMesh(g, [[-0.04, 1.54, -0.17], [0.04, 1.71, -0.08]], 0.0009, { targetTris: 240, error: 0.0008 });
       if (m) addMesh(ctx, mode ? `HairTie_${mode}` : "HairTie", "hair_tie", toGeometry(meshData(m), REST.Head));
     }
   }
@@ -885,9 +1014,10 @@ async function hairAsset(style) {
 /* ── facial hair ─────────────────────────────────────────────────────────── */
 
 const headCache = new Map();
-const headMesh = async (face) => {
-  if (!headCache.has(face)) headCache.set(face, await buildHead(face));
-  return headCache.get(face);
+const headMesh = async (face, nose = "button") => {
+  const key = `${face}/${nose}`;
+  if (!headCache.has(key)) headCache.set(key, await buildHead(face, nose));
+  return headCache.get(key);
 };
 
 /**
@@ -905,18 +1035,25 @@ async function stubbleMesh(face, style = "stubble", { grow = 0, fade = 0.009, al
   // `inner`: drop skin deeper inside the region than this (under a full beard, where nothing shows).
   const sm = subMesh(head, (t) => {
     const [a, b, c] = [head.indices[t * 3], head.indices[t * 3 + 1], head.indices[t * 3 + 2]];
-    return Math.min(region(a), region(b), region(c)) < -0.0005 && Math.max(raw(a), raw(b), raw(c)) > inner && P[a * 3 + 1] > 1.51;
+    return Math.min(region(a), region(b), region(c)) < -0.0005 && Math.max(raw(a), raw(b), raw(c)) > inner && P[a * 3 + 1] > NECK_CUT - 0.004;
   });
   const n = sm.positions.length / 3;
   const colors = new Uint8Array(n * 4);
+  // Carry the head's own baked shading (AO and skin tint): with plain white the
+  // shell read as a lighter, flat patch over the cheeks instead of a shadow.
+  const shade = sm.colors;
   for (let v = 0; v < n; v++) {
     for (let k = 0; k < 3; k++) sm.positions[v * 3 + k] += sm.normals[v * 3 + k] * 0.0006;
     const r = H.beardRegion(style, sm.positions[v * 3], sm.positions[v * 3 + 1], sm.positions[v * 3 + 2]) - grow;
-    colors.set([255, 255, 255, Math.round(255 * alpha * sstep(0, -fade, r) * sstep(1.51, 1.53, sm.positions[v * 3 + 1]))], v * 4);
+    const rgb = shade ? [shade[v * 4], shade[v * 4 + 1], shade[v * 4 + 2]] : [255, 255, 255];
+    colors.set([...rgb, Math.round(255 * alpha * sstep(0, -fade, r) * sstep(NECK_CUT - 0.004, NECK_CUT + 0.006, sm.positions[v * 3 + 1]))], v * 4);
   }
   sm.colors = colors;
   sm.weights = null;
   for (const k of BUILD_MORPHS) delete sm.morphs[k];
+  // The heads mesh each nose separately; the shell follows the chosen nose like the beards do.
+  const hs = headSkin(face);
+  for (const [name, detail] of Object.entries(NOSE_MORPHS)) sm.morphs[name] = noseMorph(sm, hs, atFace(detail, hs), { transfer: true, normals: false });
   return sm;
 }
 
@@ -935,20 +1072,23 @@ async function beardAsset(style) {
       // Only the outer surface: the shell's inner side lies just under the skin.
       keep: (x, y, z) => Math.min(C.headD(face, x, y, z), y < 1.53 ? C.bodyD(x, y, z) : 1) > 0.00005,
       error: 0.0022, // clumps live in the normal map; the shell keeps the silhouette and the taper
+      minPiece: 40,
     });
     if (!m) continue;
     const md = meshData(m);
     md.colors = rgba(bakeAO((x, y, z) => Math.min(f(x, y, z), C.headD(face, x, y, z)), m, { step: 0.003, strength: 0.6, min: 0.65 }));
     // Facial hair moves with the face: shape options carried from the head surface, expressions sampled directly.
     const hs = headSkin(face);
-    for (const [name, detail] of Object.entries(FACE_MORPHS)) {
-      md.morphs[name] = fieldMorph(md, hs, atFace(detail, hs), { transfer: true, weight: NOSE_MORPHS[name] ? noseBox : mouthBox, maxMove: 0.012, normals: false });
+    for (const [name, detail] of Object.entries(NOSE_MORPHS)) md.morphs[name] = noseMorph(md, hs, atFace(detail, hs), { transfer: true, normals: false });
+    for (const [name, detail] of Object.entries(MOUTH_MORPHS)) {
+      md.morphs[name] = fieldMorph(md, hs, atFace(detail, hs), { transfer: true, weight: mouthBox, maxMove: 0.012, normals: false });
     }
     for (const name of EXPRESSIONS) if (!name.startsWith("eyeBlink")) md.morphs[name] = fnMorph(md, X.EXPRESSION_FNS[name]);
     for (const k of Object.keys(md.morphs)) md.morphs[k].dnrm = null;
     baked.push({ name: `Beard_${face}`, md, field: f, detail: H.beardDetail });
     // Round a goatee's short edge, a shadow of growth just past it, so it grows out of the skin instead
-    // of ending on it (a full beard's own 1.6 cm taper does that job).
+    // of ending on it (a full beard's own taper does that job, and the ring would push the fullest
+    // look past the 30k-triangle budget).
     if (style !== "beard") addMesh(ctx, `BeardShadow_${face}`, "stubble", toGeometry(await stubbleMesh(face, style, { grow: 0.007, fade: 0.008, alpha: 0.7, inner: -0.0015 }), REST.Head));
   }
   const maps = [];

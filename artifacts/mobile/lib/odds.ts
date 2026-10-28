@@ -98,3 +98,20 @@ export function untilKickoff(startsAt: number, now = Date.now()): string {
   if (hours < 24) return `in ${hours}h ${mins % 60}m`;
   return `in ${Math.round(hours / 24)}d`;
 }
+
+/**
+ * "Today 7:30 PM", "Tomorrow 1:00 PM", "Sat 3:00 PM", "Nov 2 8:15 PM" in the
+ * device's time zone. The server's label is written in the server's zone at
+ * sync time, so it goes stale ("Today" a day later) and can be hours off.
+ */
+export function kickoffLabel(startsAt: number, now = Date.now()): string {
+  const d = new Date(startsAt);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(d) - day(new Date(now))) / 86_400_000);
+  if (diff === 0) return `Today ${time}`;
+  if (diff === 1) return `Tomorrow ${time}`;
+  if (diff === -1) return `Yesterday ${time}`;
+  if (diff > 1 && diff < 7) return `${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
+  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+}

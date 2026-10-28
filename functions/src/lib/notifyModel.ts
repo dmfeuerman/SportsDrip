@@ -21,7 +21,9 @@ export type NotificationType =
   | "loan_funded"
   | "loan_repaid"
   | "loan_countered"
-  | "loan_request";
+  | "loan_request"
+  | "friend_request"
+  | "friend_accepted";
 
 export type Wallet = "credits" | "league";
 

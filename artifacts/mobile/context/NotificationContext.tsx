@@ -1,14 +1,17 @@
 import {
   collection,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
   updateDoc,
   writeBatch,
+  type QuerySnapshot,
 } from "firebase/firestore";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { usePolling } from "@/hooks/usePolling";
 import { firebaseConfigured, getDb } from "@/lib/firebase";
 import { DEMO, demoNotifications } from "@/lib/demo";
 import {
@@ -44,7 +47,9 @@ export interface AppNotification {
     | "loan_funded"
     | "loan_repaid"
     | "loan_countered"
-    | "loan_request";
+    | "loan_request"
+    | "friend_request"
+    | "friend_accepted";
   title: string;
   body: string;
   delta: number;
@@ -73,6 +78,30 @@ export interface AppNotification {
   data: Record<string, string> | null;
 }
 
+/**
+ * Social, loan and refund events go to the slide-down banner (InviteToastHost
+ * → ToastHost), not the full result popup, which is built around a win, a
+ * loss or a payout.
+ */
+export const SOCIAL_TYPES: ReadonlySet<AppNotification["type"]> = new Set([
+  "league_invite",
+  "friend_request",
+  "friend_accepted",
+  "loan_request",
+  "loan_countered",
+  "loan_funded",
+  "loan_repaid",
+  "bet_refunded",
+]);
+const isSocial = (n: AppNotification) => SOCIAL_TYPES.has(n.type);
+
+function isPermanent(err: { code?: string }) {
+  return err.code === "permission-denied" || err.code === "unauthenticated";
+}
+
+/** Foreground poll interval. Listener is primary; this catches what it drops. */
+export const NOTIFICATION_POLL_MS = 30_000;
+
 interface NotificationContextType {
   notifications: AppNotification[];
   unreadCount: number;
@@ -82,6 +111,11 @@ interface NotificationContextType {
   waiting: number;
   dismissPopup: () => void;
   dismissAllPopups: () => void;
+  /** Newest unseen invite / friend event for the banner, if any. */
+  toast: AppNotification | null;
+  dismissToast: () => void;
+  /** One-shot server read; also runs every NOTIFICATION_POLL_MS in the foreground. */
+  refresh: () => Promise<void>;
   markRead: (ids: string[]) => void;
   markAllRead: () => void;
 }
@@ -91,22 +125,67 @@ const NONE: AppNotification[] = [];
 
 export function NotificationProvider({ uid, children }: { uid: string | null; children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>(DEMO ? demoNotifications : NONE);
-  const [queue, setQueue] = useState<QueueState>(() => (DEMO ? enqueue(EMPTY_QUEUE, demoNotifications, Date.now()) : EMPTY_QUEUE));
+  const [queue, setQueue] = useState<QueueState>(() => (DEMO ? enqueue(EMPTY_QUEUE, demoNotifications.filter((n) => !isSocial(n)), Date.now()) : EMPTY_QUEUE));
+  const [toastQueue, setToastQueue] = useState<QueueState>(EMPTY_QUEUE);
+  // Bumped to re-attach the listener after it errors. Firestore never retries a
+  // listener that has failed, so before this one permission blip at sign-in
+  // (token not yet attached) meant no notifications for the rest of the session.
+  const [listenGen, setListenGen] = useState(0);
+  const signature = useRef("");
+
+  const enabled = firebaseConfigured && !!uid && !DEMO;
+
+  const apply = useCallback((snap: QuerySnapshot) => {
+    const list = snap.docs.map((d) => ({ ...(d.data() as AppNotification), id: d.id }));
+    // Polls return the same data most of the time; don't re-render for nothing.
+    const sig = list.map((n) => `${n.id}:${n.read ? 1 : 0}:${n.createdAtMs}`).join("|");
+    if (sig === signature.current) return;
+    signature.current = sig;
+    const now = Date.now();
+    const results = list.filter((n) => !isSocial(n));
+    const social = list.filter(isSocial).map((n) => ({ ...n, popup: true }));
+    setNotifications(list);
+    setQueue((q) => enqueue(prune(q, results), results, now));
+    setToastQueue((q) => enqueue(prune(q, social), social, now));
+  }, []);
+
+  const notificationsQuery = useCallback(() => {
+    const db = getDb();
+    if (!db || !uid) return null;
+    return query(collection(db, "users", uid, "notifications"), orderBy("createdAtMs", "desc"), limit(60));
+  }, [uid]);
 
   useEffect(() => {
-    if (!firebaseConfigured || !uid) return;
-    const db = getDb();
-    if (!db) return;
-    return onSnapshot(
-      query(collection(db, "users", uid, "notifications"), orderBy("createdAtMs", "desc"), limit(60)),
-      (snap) => {
-        const list = snap.docs.map((d) => ({ ...(d.data() as AppNotification), id: d.id }));
-        setNotifications(list);
-        setQueue((q) => enqueue(prune(q, list), list, Date.now()));
-      },
-      () => {}
-    );
-  }, [uid]);
+    if (!enabled) return;
+    const q = notificationsQuery();
+    if (!q) return;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const unsub = onSnapshot(q, apply, (err) => {
+      if (__DEV__) console.warn(`[notifications] listener: ${err.code} — ${err.message}`);
+      // Rules/auth denials are permanent for this session; retrying just
+      // hammers the backend. Anything else (network, stalled channel) retries.
+      if (isPermanent(err)) return;
+      retry = setTimeout(() => setListenGen((g) => g + 1), 5_000);
+    });
+    return () => {
+      if (retry) clearTimeout(retry);
+      unsub();
+    };
+  }, [enabled, notificationsQuery, apply, listenGen]);
+
+  const refresh = useCallback(async () => {
+    if (!enabled) return;
+    const q = notificationsQuery();
+    if (!q) return;
+    // Never rejects: callers (poll timer, pull-to-refresh) fire and forget.
+    try {
+      apply(await getDocs(q));
+    } catch (err) {
+      if (__DEV__) console.warn(`[notifications] poll: ${(err as { code?: string }).code ?? err}`);
+    }
+  }, [enabled, notificationsQuery, apply]);
+
+  usePolling(refresh, NOTIFICATION_POLL_MS, enabled);
 
   const markRead = useCallback(
     (ids: string[]) => {
@@ -144,6 +223,16 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
     setQueue((q) => dismissEvery(q));
   }, [queue.queue, markRead]);
 
+  const toastId = current(toastQueue);
+  const toast = useMemo(
+    () => (toastId ? notifications.find((n) => n.id === toastId) ?? null : null),
+    [toastId, notifications]
+  );
+  const dismissToast = useCallback(() => {
+    if (!toastId) return;
+    setToastQueue((q) => dismissOne(q, toastId));
+  }, [toastId]);
+
   const markAllRead = useCallback(() => {
     markRead(notifications.filter((n) => !n.read).map((n) => n.id));
   }, [notifications, markRead]);
@@ -156,10 +245,13 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
       waiting: Math.max(0, queue.queue.length - 1),
       dismissPopup,
       dismissAllPopups,
+      toast,
+      dismissToast,
+      refresh,
       markRead,
       markAllRead,
     }),
-    [notifications, popup, queue.queue.length, dismissPopup, dismissAllPopups, markRead, markAllRead]
+    [notifications, popup, queue.queue.length, dismissPopup, dismissAllPopups, toast, dismissToast, refresh, markRead, markAllRead]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

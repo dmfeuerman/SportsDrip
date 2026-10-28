@@ -9,16 +9,31 @@ import { Platform } from "react-native";
  * while a screen still has its own literals.
  */
 
-/** Modular scale, 1.2 ratio off a 15px body. Rounded to whole pixels. */
+/**
+ * Modular scale, 1.2 ratio off a 15px body. Rounded to whole pixels.
+ * Headlines and numbers use Inter ExtraBold / Black with tight tracking, the
+ * dense, high-contrast type sportsbooks use so odds and balances read at a glance.
+ */
+export const FONT = {
+  regular: "Inter_400Regular",
+  medium: "Inter_500Medium",
+  semibold: "Inter_600SemiBold",
+  bold: "Inter_700Bold",
+  heavy: "Inter_800ExtraBold",
+  black: "Inter_900Black",
+} as const;
+
 export const type = {
-  display: { fontSize: 30, lineHeight: 34, fontFamily: "Inter_700Bold", letterSpacing: -0.6 },
-  title: { fontSize: 23, lineHeight: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.4 },
-  heading: { fontSize: 18, lineHeight: 23, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
+  display: { fontSize: 32, lineHeight: 36, fontFamily: FONT.black, letterSpacing: -1 },
+  title: { fontSize: 24, lineHeight: 28, fontFamily: FONT.heavy, letterSpacing: -0.6 },
+  heading: { fontSize: 18, lineHeight: 23, fontFamily: FONT.heavy, letterSpacing: -0.3 },
   body: { fontSize: 15, lineHeight: 21, fontFamily: "Inter_400Regular" },
   bodyStrong: { fontSize: 15, lineHeight: 21, fontFamily: "Inter_600SemiBold" },
   caption: { fontSize: 13, lineHeight: 18, fontFamily: "Inter_400Regular" },
   captionStrong: { fontSize: 13, lineHeight: 18, fontFamily: "Inter_600SemiBold" },
   micro: { fontSize: 11, lineHeight: 14, fontFamily: "Inter_500Medium" },
+  /** Section kickers and column labels: small caps-style, wide tracking. */
+  overline: { fontSize: 10, lineHeight: 13, fontFamily: FONT.heavy, letterSpacing: 1 },
   /**
    * Scores, balances, odds, countdowns. Tabular figures stop a live score from
    * jittering horizontally every time a digit changes.
@@ -26,15 +41,15 @@ export const type = {
   numeric: {
     fontSize: 17,
     lineHeight: 21,
-    fontFamily: "Inter_700Bold",
+    fontFamily: FONT.heavy,
     fontVariant: ["tabular-nums"] as const,
   },
   numericLarge: {
-    fontSize: 26,
-    lineHeight: 30,
-    fontFamily: "Inter_700Bold",
+    fontSize: 28,
+    lineHeight: 32,
+    fontFamily: FONT.black,
     fontVariant: ["tabular-nums"] as const,
-    letterSpacing: -0.5,
+    letterSpacing: -1,
   },
 } as const;
 

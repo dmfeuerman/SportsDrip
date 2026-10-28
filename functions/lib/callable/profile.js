@@ -4,22 +4,13 @@ exports.searchUsers = exports.updateAvatar = exports.checkUsername = exports.cre
 const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
+const avatarRules_1 = require("../lib/avatarRules");
+const avatar_1 = require("./avatar");
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 const CreateProfileInput = zod_1.z.object({
     username: zod_1.z.string().trim().toLowerCase(),
     displayName: zod_1.z.string().trim().min(1).max(30),
-    avatar: zod_1.z
-        .object({
-        height: zod_1.z.number().min(0).max(1).default(0.5),
-        bodyType: zod_1.z.number().min(0).max(1).default(0.5),
-        skinTone: zod_1.z.string().regex(/^#[0-9a-fA-F]{6}$/),
-        hairStyle: zod_1.z.string().max(40),
-        hairColor: zod_1.z.string().regex(/^#[0-9a-fA-F]{6}$/),
-        faceShape: zod_1.z.string().max(40).optional(),
-        eyeColor: zod_1.z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-        eyebrows: zod_1.z.string().max(40).optional(),
-    })
-        .optional(),
+    avatar: avatar_1.AvatarSchema.optional(),
 });
 /**
  * Creates users/{uid} exactly once, claims the username atomically, grants the
@@ -30,7 +21,11 @@ const CreateProfileInput = zod_1.z.object({
  */
 exports.createProfile = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
-    const input = CreateProfileInput.parse(req.data);
+    const parsed = CreateProfileInput.safeParse(req.data);
+    if (!parsed.success) {
+        throw new https_1.HttpsError("invalid-argument", parsed.error.issues[0]?.message ?? "Invalid profile.");
+    }
+    const input = parsed.data;
     if (!USERNAME_RE.test(input.username)) {
         throw new https_1.HttpsError("invalid-argument", "Usernames are 3–20 characters: lowercase letters, numbers and underscores.");
     }
@@ -43,19 +38,19 @@ exports.createProfile = (0, https_1.onCall)({ region: "us-central1" }, async (re
         if (nameSnap.exists)
             throw new https_1.HttpsError("already-exists", "That username is taken.");
         tx.set(nameRef, { uid, createdAt: economy_1.FieldValue.serverTimestamp() });
+        // Email lives in the owner-only private subdoc. users/{uid} is readable by
+        // every signed-in user so friend lists and standings can render, which
+        // made every account's email address public.
+        tx.set(userRef.collection("private").doc("contact"), {
+            email: req.auth?.token.email ?? null,
+            createdAt: economy_1.FieldValue.serverTimestamp(),
+        });
         tx.set(userRef, {
             uid,
-            email: req.auth?.token.email ?? null,
             username: input.username,
             displayName: input.displayName,
             balance: economy_1.STARTING_BALANCE,
-            avatar: input.avatar ?? {
-                height: 0.5,
-                bodyType: 0.5,
-                skinTone: "#C68642",
-                hairStyle: "short_crop",
-                hairColor: "#2B1B12",
-            },
+            avatar: input.avatar ?? avatarRules_1.DEFAULT_AVATAR,
             equipped: {
                 top: "tee_basic_white",
                 bottom: "shorts_basic_navy",
@@ -92,15 +87,17 @@ exports.checkUsername = (0, https_1.onCall)({ region: "us-central1" }, async (re
     const snap = await economy_1.db.collection("usernames").doc(raw).get();
     return { available: !snap.exists, reason: snap.exists ? "taken" : null };
 });
-const AvatarInput = CreateProfileInput.shape.avatar.unwrap();
 /**
- * Appearance-only write. Rules deny direct client writes to users/{uid}, so
- * this is the single path that can change the avatar — which keeps balance,
- * stats and inventory out of reach of a crafted update (S2).
+ * Appearance-only write (onboarding, older clients). Rules deny direct client
+ * writes to users/{uid}, so this and saveAppearance are the only paths that
+ * change the avatar — balance, stats and inventory stay out of reach (S2).
  */
 exports.updateAvatar = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
-    const avatar = AvatarInput.parse(req.data?.avatar);
+    const parsed = avatar_1.AvatarSchema.safeParse(req.data?.avatar);
+    if (!parsed.success)
+        throw new https_1.HttpsError("invalid-argument", parsed.error.issues[0]?.message ?? "Invalid appearance.");
+    const avatar = parsed.data;
     await economy_1.db.collection("users").doc(uid).update({
         avatar,
         updatedAt: economy_1.FieldValue.serverTimestamp(),

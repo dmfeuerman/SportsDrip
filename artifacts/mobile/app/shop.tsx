@@ -19,7 +19,7 @@ import TokenBalance from "@/components/TokenBalance";
 import { DEFAULT_AVATAR } from "@/constants/avatarOptions";
 import { useApp } from "@/context/AppContext";
 import { useCatalog } from "@/hooks/useCatalog";
-import { BackButton } from "@/components/ui";
+import { BackButton, CloseButton } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type { Slot } from "@/lib/api";
 import { RARITY_COLORS, SLOT_LABELS, SLOT_ORDER, type CatalogItem } from "@/types/catalog";
@@ -41,7 +41,7 @@ export default function ShopScreen() {
   const insets = useSafeAreaInsets();
 
   const { balance, profile, inventory, purchaseItem, equip, error, clearError } = useApp();
-  const { items, byId, loading } = useCatalog();
+  const { items, byId, loading, error: catalogError } = useCatalog();
 
   const [slot, setSlot] = useState<Slot | typeof ALL>(ALL);
   const [preview, setPreview] = useState<CatalogItem | null>(null);
@@ -140,13 +140,13 @@ export default function ShopScreen() {
         />
       </View>
 
-      {error && (
+      {(error || catalogError) && (
         <Pressable
           style={[styles.banner, { backgroundColor: colors.destructive + "22", borderColor: colors.destructive }]}
           onPress={clearError}
         >
           <MaterialCommunityIcons name="alert-circle-outline" size={15} color={colors.destructive} />
-          <Text style={[styles.bannerText, { color: colors.destructive }]}>{error}</Text>
+          <Text style={[styles.bannerText, { color: colors.destructive }]}>{error ?? catalogError}</Text>
         </Pressable>
       )}
 
@@ -256,6 +256,7 @@ export default function ShopScreen() {
                 </Text>
               )}
             </Pressable>
+            <CloseButton onPress={() => setPreview(null)} style={styles.previewClose} />
           </View>
         )}
       </Modal>
@@ -272,7 +273,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
   },
-  title: { fontSize: 24, fontFamily: "Inter_700Bold" },
+  title: { fontSize: 24, fontFamily: "Inter_900Black" },
   subtitle: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 2 },
   tabList: { paddingHorizontal: 16, gap: 8 },
   tab: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
@@ -303,6 +304,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 6 },
+  previewClose: { position: "absolute", top: 12, right: 14 },
   previewStage: { borderRadius: 18, height: 300, overflow: "hidden" },
   previewHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   previewName: { flex: 1, fontSize: 19, fontFamily: "Inter_700Bold" },

@@ -28,15 +28,18 @@ export const syncGames = onSchedule(
     for (let i = 0; i < games.length; i += 400) {
       const batch = db.batch();
       for (const g of games.slice(i, i + 400)) {
-        batch.set(db.collection("games").doc(g.id), g, { merge: true });
+        batch.set(db.collection("games").doc(g.id), { ...g, expired: false }, { merge: true });
       }
       await batch.commit();
     }
+
+    const expired = await expireMissing(new Set(games.map((g) => g.id)));
 
     await db.collection("meta").doc("sportsSync").set(
       {
         lastRunAt: FieldValue.serverTimestamp(),
         gameCount: games.length,
+        expired,
         failures,
       },
       { merge: true }
@@ -45,6 +48,33 @@ export const syncGames = onSchedule(
     logger.info("syncGames complete", { count: games.length });
   }
 );
+
+/**
+ * Games still marked upcoming or live well after they started, that the
+ * provider no longer reports (postponed, cancelled, or missed while the sync
+ * wasn't running). They are flagged, not finalised: a final status would
+ * settle bets with no score. Pending bets on them are refunded by
+ * refundStaleBets after 72h. The app hides flagged games.
+ */
+async function expireMissing(seen: Set<string>): Promise<number> {
+  const cutoff = Date.now() - 6 * 3_600_000;
+  const stale = await db
+    .collection("games")
+    .where("status", "in", ["upcoming", "live"])
+    .where("startsAt", "<", cutoff)
+    .limit(400)
+    .get();
+  const batch = db.batch();
+  let n = 0;
+  for (const d of stale.docs) {
+    if (seen.has(d.id) || d.get("expired") === true) continue;
+    batch.set(d.ref, { expired: true, expiredAt: Date.now() }, { merge: true });
+    n++;
+  }
+  if (n) await batch.commit();
+  if (n) logger.info("expired stale games", { count: n });
+  return n;
+}
 
 /** Sweeps games that finished more than 48h ago. */
 export const pruneGames = onSchedule(
@@ -80,6 +110,7 @@ export const pruneGames = onSchedule(
       }
 
       batch.delete(d.ref);
+      batch.delete(db.collection("gameInsights").doc(d.id));
       deleted++;
     }
 

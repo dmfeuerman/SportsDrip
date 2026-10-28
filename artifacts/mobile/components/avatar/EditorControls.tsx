@@ -1,6 +1,9 @@
 import * as Haptics from "expo-haptics";
-import React from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Svg, { Circle, Path } from "react-native-svg";
+import ColorWheelSheet, { hsvToHex } from "@/components/avatar/ColorWheel";
 import { useColors } from "@/hooks/useColors";
 
 const tick = () => Haptics.selectionAsync().catch(() => {});
@@ -48,8 +51,14 @@ export function Stops({ label, value, onChange, ends }: { label: string; value: 
   );
 }
 
-export function Swatches({ label, options, value, onChange }: { label: string; options: string[]; value: string; onChange: (v: string) => void }) {
+/**
+ * Preset colours plus, last, a custom swatch that opens the colour wheel. A
+ * value that isn't a preset shows in the custom swatch, selected.
+ */
+export function Swatches({ label, options, value, onChange, custom = true }: { label: string; options: string[]; value: string; onChange: (v: string) => void; custom?: boolean }) {
   const c = useColors();
+  const [wheel, setWheel] = useState(false);
+  const preset = options.some((o) => o.toLowerCase() === value.toLowerCase());
   return (
     <Field label={label}>
       <View style={styles.wrap}>
@@ -71,10 +80,45 @@ export function Swatches({ label, options, value, onChange }: { label: string; o
             </Pressable>
           );
         })}
+        {custom ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: !preset }}
+            accessibilityLabel={`${label}: pick a custom colour`}
+            onPress={() => {
+              tick();
+              setWheel(true);
+            }}
+            style={[styles.swatchRing, { borderColor: !preset ? c.primary : "transparent" }]}
+          >
+            <View style={styles.swatch}>
+              <Svg width={34} height={34} pointerEvents="none">
+                {RAINBOW.map((w, i) => (
+                  <Path key={i} d={w.d} fill={w.fill} />
+                ))}
+                <Circle cx={17} cy={17} r={10} fill={preset ? c.card : value} stroke="#FFFFFF" strokeWidth={1.5} />
+              </Svg>
+              {preset ? (
+                <View style={styles.plus} pointerEvents="none">
+                  <MaterialCommunityIcons name="plus" size={14} color={c.foreground} />
+                </View>
+              ) : null}
+            </View>
+          </Pressable>
+        ) : null}
       </View>
+      {custom ? <ColorWheelSheet visible={wheel} title={label} value={value} onClose={() => setWheel(false)} onPick={onChange} /> : null}
     </Field>
   );
 }
+
+/** The custom swatch's rim: a small colour wheel. */
+const RAINBOW = Array.from({ length: 24 }, (_, i) => {
+  const R = 17;
+  const p = (a: number) => `${(R + R * Math.cos(a)).toFixed(2)} ${(R + R * Math.sin(a)).toFixed(2)}`;
+  const a0 = ((i - 0.6) / 24) * Math.PI * 2, a1 = ((i + 0.6) / 24) * Math.PI * 2;
+  return { d: `M ${R} ${R} L ${p(a0)} A ${R} ${R} 0 0 1 ${p(a1)} Z`, fill: hsvToHex({ h: (i / 24) * 360, s: 0.85, v: 1 }) };
+});
 
 export function Chips<T extends string>({ label, options, value, onChange }: { label: string; options: Array<{ id: T; label: string }>; value: T; onChange: (v: T) => void }) {
   const c = useColors();
@@ -113,6 +157,7 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   swatchRing: { padding: 3, borderRadius: 24, borderWidth: 2 },
   swatch: { width: 34, height: 34, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth },
+  plus: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
   chipText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 });

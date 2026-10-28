@@ -6,6 +6,7 @@ import type { AvatarConfig } from "../../types/avatar";
 import { mergeAttach, resolveAttach, type AttachSpec } from "./attach";
 import { BODY_REGIONS, SLOT_LAYER, type BodyRegion } from "./avatarRules";
 import type { OutfitPiece, ResolvedOutfit } from "./outfit";
+import { buildReactionClips, type ReactionKind } from "./reactions";
 import type { HairMode } from "./spec";
 
 /** Garment material names that take the item's colours; everything else keeps its authored look. */
@@ -20,7 +21,10 @@ const TINTS: Record<string, (p: THREE.Color, s: THREE.Color) => THREE.Color> = {
 export const EXPRESSIONS = ["eyeBlinkLeft", "eyeBlinkRight", "mouthSmileLeft", "mouthSmileRight", "jawOpen"] as const;
 export type Expression = (typeof EXPRESSIONS)[number];
 
-/** Face-option blendshapes, per AvatarConfig field and value (the first value of each is the neutral head). */
+/**
+ * Face-option blendshapes, per AvatarConfig field and value (the first value of each is the neutral head).
+ * The heads are meshed once per nose shape, so only facial hair carries the nose blendshapes.
+ */
 const FACE_OPTIONS: Record<"noseShape" | "mouthShape", Record<string, string>> = {
   noseShape: { straight: "noseStraight", broad: "noseBroad" },
   mouthShape: { full: "lipsFull", wide: "mouthWide" },
@@ -127,6 +131,9 @@ const WHITE = new THREE.Color("#ffffff");
 const SKIN_SHEEN = new THREE.Color("#ff9a7a");
 const liftSheen = (c: THREE.Color, out: THREE.Color) => out.copy(c).lerp(WHITE, 0.3);
 
+const _lifeEuler = new THREE.Euler();
+const _lifeQuat = new THREE.Quaternion();
+
 export class AvatarRig {
   readonly root = new THREE.Group();
   private model: THREE.Object3D;
@@ -152,7 +159,18 @@ export class AvatarRig {
   private face: Record<Expression, number> = { ...NEUTRAL };
   private faceOverride: Partial<Record<Expression, number>> = {};
   private blink = { next: 1.5 + Math.random() * 3, t: -1, double: false };
-  private reaction: { t: number; dur: number } | null = null;
+  private reaction: { t: number; dur: number; kind: "cheer" | ReactionKind } | null = null;
+  private reactionClips?: Record<ReactionKind, THREE.AnimationClip> | null;
+  private tears: THREE.Mesh[] = [];
+  /** Procedural life on top of the idle clip: breathing, weight shifts, glances. */
+  private life = {
+    t: Math.random() * 30,
+    amp: 1,
+    applied: false,
+    base: new Map<THREE.Bone, THREE.Quaternion>(),
+    hips: new THREE.Vector3(),
+    look: { yaw: 0, pitch: 0, toYaw: 0, toPitch: 0, next: 1.5 },
+  };
 
   constructor(base: GLTF) {
     this.model = cloneSkinned(base.scene);
@@ -434,9 +452,14 @@ export class AvatarRig {
     if (!a) return;
     const face = a.faceShape ?? "oval";
     const eyes = a.eyeShape ?? "round";
+    const nose = a.noseShape ?? "button";
     const hidden = new Set<BodyRegion>();
     for (const g of this.garments.values()) for (const r of g.hides) hidden.add(r);
-    const show = new Set<string>([`Head_${face}`, "Eyes", "Iris", "Pupils", "Teeth", `Lids_${eyes}`, `Lashes_${eyes}`]);
+    // One head mesh per face shape × nose shape (button is the plain `Head_<face>`); an older base
+    // without that nose falls back to the button head below.
+    const headName = nose === "button" ? `Head_${face}` : `Head_${face}_${nose}`;
+    const head = this.baseMeshes.some((m) => m.name === headName) ? headName : `Head_${face}`;
+    const show = new Set<string>([head, "Eyes", "Iris", "Pupils", "Teeth", `Lids_${eyes}`, `Lashes_${eyes}`]);
     // The base layer covers the hips (fitcheck.mjs checks it) until bottoms do.
     if (!hidden.has("hips")) {
       show.add("Underwear");
@@ -490,7 +513,42 @@ export class AvatarRig {
     a.clampWhenFinished = false;
     a.fadeIn(0.15).play();
     this.idle?.fadeOut(0.15);
-    this.reaction = { t: 0, dur: clip.duration };
+    this.reaction = { t: 0, dur: clip.duration, kind: "cheer" };
+    this.playOnce(a);
+  }
+
+  /**
+   * Reacts to a settled bet: a hop and fist pumps with a big grin for a win;
+   * a slump, hands to the face and tears for a loss. Back to idle after.
+   */
+  react(kind: ReactionKind) {
+    if (this.reactionClips === undefined) {
+      const rest = new Map<string, THREE.Vector3>();
+      const parents = new Map<string, string | null>();
+      for (const [name, b] of this.bones) {
+        rest.set(name, this.rest.get(b)!.p.clone());
+        parents.set(name, b.parent && this.bones.has(b.parent.name) ? b.parent.name : null);
+      }
+      this.reactionClips = buildReactionClips(rest, parents);
+    }
+    const clip = this.reactionClips?.[kind];
+    if (!clip) return kind === "win" ? this.cheer() : undefined;
+    // A new result interrupts whatever reaction is playing; the idle keeps running underneath.
+    for (const c of [...Object.values(this.reactionClips!), ...this.clips.filter((x) => x.name === "cheer")]) {
+      const other = this.mixer.existingAction(c);
+      if (other && other.isRunning()) other.stop();
+    }
+    const a = this.mixer.clipAction(clip);
+    a.reset();
+    a.setLoop(THREE.LoopOnce, 1);
+    a.clampWhenFinished = false;
+    a.fadeIn(0.2).play();
+    this.idle?.fadeOut(0.2);
+    this.reaction = { t: 0, dur: clip.duration, kind };
+    this.playOnce(a);
+  }
+
+  private playOnce(a: THREE.AnimationAction) {
     const done = (e: { action: THREE.AnimationAction }) => {
       if (e.action !== a) return;
       this.mixer.removeEventListener("finished", done as never);
@@ -518,12 +576,14 @@ export class AvatarRig {
 
   /** Back to the bind pose, animations stopped, resting face. */
   restPose() {
+    this.life.applied = false;
     this.mixer.stopAllAction();
     for (const [b, r] of this.rest) {
       b.position.copy(r.p);
       b.quaternion.copy(r.q);
     }
     this.reaction = null;
+    this.updateTears(-1, 0);
     this.face = { ...NEUTRAL };
     this.applyFace();
   }
@@ -561,7 +621,7 @@ export class AvatarRig {
     if (clip) {
       this.mixer.clipAction(clip).play();
       this.mixer.setTime(t);
-      if (name === "cheer") this.reaction = { t, dur: clip.duration };
+      if (name === "cheer") this.reaction = { t, dur: clip.duration, kind: "cheer" };
       this.updateFace(0);
     }
   }
@@ -588,6 +648,7 @@ export class AvatarRig {
     }
     let grin = 0;
     let jaw = 0;
+    let sad = 0;
     if (this.reaction) {
       const r = this.reaction;
       r.t += dt;
@@ -597,25 +658,159 @@ export class AvatarRig {
         return k * k * (3 - 2 * k);
       };
       const env = ease(u, 0.03, 0.2) * (1 - ease(u, 0.8, 1));
-      grin = env;
-      jaw = env * (0.55 + 0.1 * Math.sin(r.t * 14));
-      if (u >= 1) this.reaction = null;
+      if (r.kind === "loss") {
+        sad = env;
+        jaw = env * (0.12 + 0.1 * Math.max(0, Math.sin(r.t * Math.PI * 2 * 2.2)));
+      } else {
+        grin = env;
+        jaw = env * (0.55 + 0.1 * Math.sin(r.t * 14));
+      }
+      this.updateTears(r.kind === "loss" ? r.t : -1, env);
+      if (u >= 1) {
+        this.reaction = null;
+        this.updateTears(-1, 0);
+      }
     }
+    // Sad: eyes squeezed half shut, the resting smile gone.
+    lid = Math.max(lid, 0.62 * sad);
+    const smile = NEUTRAL.mouthSmileLeft * (1 - sad);
     this.face.eyeBlinkLeft = lid;
     this.face.eyeBlinkRight = lid;
-    this.face.mouthSmileLeft = NEUTRAL.mouthSmileLeft + (1 - NEUTRAL.mouthSmileLeft) * grin;
-    this.face.mouthSmileRight = NEUTRAL.mouthSmileRight + (1 - NEUTRAL.mouthSmileRight) * grin;
+    this.face.mouthSmileLeft = smile + (1 - smile) * grin;
+    this.face.mouthSmileRight = smile + (1 - smile) * grin;
     this.face.jawOpen = jaw;
     this.applyFace();
   }
 
+  /** Tears running down both cheeks during a loss reaction (`t` < 0 hides them). */
+  private updateTears(t: number, strength: number) {
+    const head = this.bones.get("Head");
+    if (!head) return;
+    if (t < 0) {
+      for (const m of this.tears) m.visible = false;
+      return;
+    }
+    if (!this.tears.length) {
+      const geo = new THREE.SphereGeometry(0.0042, 10, 8);
+      geo.scale(1, 1.5, 0.8);
+      const mat = new THREE.MeshPhysicalMaterial({ color: "#bfe6ff", roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.85, transmission: 0 });
+      // Two drops per eye, half a cycle apart. Positions are in the Head bone's frame.
+      const headRest = this.rest.get(head)!.p;
+      void headRest;
+      for (let i = 0; i < 4; i++) {
+        const m = new THREE.Mesh(geo, mat);
+        m.userData.side = i % 2 ? -1 : 1;
+        m.userData.phase = i < 2 ? 0 : 0.5;
+        m.renderOrder = 2;
+        head.add(m);
+        this.tears.push(m);
+      }
+    }
+    // Head bone origin is at the top of the neck (1.535 m); the lower lid's outer corner is ~0.1 m above.
+    for (const m of this.tears) {
+      const cycle = ((t - 0.9) / 1.1 + m.userData.phase) % 1;
+      const on = t > 0.9 && strength > 0.2;
+      m.visible = on;
+      if (!on) continue;
+      const k = Math.max(0, cycle);
+      const sx = m.userData.side as number;
+      m.position.set(sx * (0.047 + 0.006 * k), 0.093 - 0.05 * k, 0.112 + 0.006 * Math.sin(k * Math.PI) - 0.01 * k);
+      const sc = (0.6 + 0.6 * Math.min(1, k * 4)) * (1 - Math.max(0, k - 0.85) / 0.15);
+      m.scale.setScalar(Math.max(0.01, sc));
+    }
+  }
+
   update(dt: number) {
+    this.undoLife();
     this.mixer.update(dt);
     this.updateFace(dt);
+    this.applyLife(dt);
+  }
+
+  /** Puts back the bones as the mixer left them, so the life layer never accumulates. */
+  private undoLife() {
+    const L = this.life;
+    if (!L.applied) return;
+    for (const [b, q] of L.base) b.quaternion.copy(q);
+    this.bones.get("Hips")?.position.copy(L.hips);
+    L.applied = false;
+  }
+
+  /**
+   * Small, continuous movement layered over the idle clip so a standing
+   * character never reads as frozen: breathing through the chest and
+   * shoulders, a slow shift of weight from foot to foot, a loose arm sway and
+   * the occasional glance around. Damped right down while a reaction plays.
+   */
+  private applyLife(dt: number) {
+    const L = this.life;
+    L.t += dt;
+    L.amp += ((this.reaction ? 0.2 : 1) - L.amp) * (1 - Math.exp(-4 * dt));
+
+    const look = L.look;
+    look.next -= dt;
+    if (look.next <= 0) {
+      const glance = Math.random() < 0.35;
+      look.toYaw = glance ? (Math.random() * 2 - 1) * 0.32 : (Math.random() * 2 - 1) * 0.1;
+      look.toPitch = (Math.random() * 2 - 1) * 0.06 + (glance ? 0.02 : 0);
+      look.next = glance ? 1.2 + Math.random() * 1.2 : 2.5 + Math.random() * 3.5;
+    }
+    const k = 1 - Math.exp(-2.8 * dt);
+    look.yaw += (look.toYaw - look.yaw) * k;
+    look.pitch += (look.toPitch - look.pitch) * k;
+
+    const a = L.amp;
+    const t = L.t;
+    const TAU = Math.PI * 2;
+    const breath = Math.sin((t * TAU) / 4.4);
+    const weight = Math.sin((t * TAU) / 9.5);
+    const sway = Math.sin((t * TAU) / 6.1);
+    const sway2 = Math.sin((t * TAU) / 5.3 + 1.7);
+
+    const touched: Array<[string, number, number, number]> = [
+      // bone, x (pitch), y (yaw), z (roll) in radians; rest axes are world axes.
+      ["Hips", 0, 0.03 * weight, 0.022 * weight],
+      ["Spine", 0.008 * breath, 0, -0.018 * weight],
+      ["Spine1", -0.014 * breath, 0, -0.008 * weight],
+      ["Spine2", -0.018 * breath, 0.02 * sway, 0],
+      ["Neck", 0.4 * look.pitch, 0.4 * look.yaw, 0.012 * weight],
+      ["Head", 0.6 * look.pitch - 0.01 * breath, 0.6 * look.yaw, 0.02 * sway2],
+      ["LeftShoulder", 0, 0, 0.022 * breath],
+      ["RightShoulder", 0, 0, -0.022 * breath],
+      ["LeftArm", 0.05 * sway, 0, 0.03 * (0.5 + 0.5 * sway2)],
+      ["RightArm", -0.05 * sway2, 0, -0.03 * (0.5 + 0.5 * sway)],
+      ["LeftForeArm", -0.06 * (0.5 + 0.5 * sway), 0, 0],
+      ["RightForeArm", -0.06 * (0.5 + 0.5 * sway2), 0, 0],
+      ["LeftUpLeg", 0, 0, -0.022 * weight],
+      ["RightUpLeg", 0, 0, -0.022 * weight],
+    ];
+    for (const [name, x, y, z] of touched) {
+      const b = this.bones.get(name);
+      if (!b) continue;
+      let q = L.base.get(b);
+      if (!q) L.base.set(b, (q = new THREE.Quaternion()));
+      q.copy(b.quaternion);
+      _lifeEuler.set(x * a, y * a, z * a);
+      b.quaternion.multiply(_lifeQuat.setFromEuler(_lifeEuler));
+    }
+    const hips = this.bones.get("Hips");
+    if (hips) {
+      L.hips.copy(hips.position);
+      // Weight onto one foot: the pelvis drifts over it and drops a touch with each breath out.
+      hips.position.x += 0.009 * weight * a;
+      hips.position.y += 0.002 * breath * a;
+    }
+    L.applied = true;
   }
 
   dispose() {
     this.mixer.stopAllAction();
+    for (const m of this.tears) {
+      m.removeFromParent();
+      (m.material as THREE.Material).dispose();
+      m.geometry.dispose();
+    }
+    this.tears = [];
     for (const slot of [...this.garments.keys()]) this.dropGarment(slot);
     this.bindPart(this.hair, null);
     this.bindPart(this.facialHair, null);

@@ -7,7 +7,7 @@ import type { LoanKind, LoanStatus, LoanTerms } from "@/lib/loanMath";
  */
 
 export type LeagueDuration = "1 Week" | "2 Weeks" | "1 Month" | "3 Months";
-export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "Soccer";
+export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "NCAAF" | "NCAAB" | "Soccer";
 export type LeagueStatus = "active" | "ended";
 
 export interface PrizeDistribution {
@@ -141,6 +141,8 @@ export const SPORT_ICONS: Record<Sport, string> = {
   NBA: "basketball",
   MLB: "baseball",
   NHL: "hockey-puck",
+  NCAAF: "football",
+  NCAAB: "basketball",
   Soccer: "soccer",
 };
 
@@ -150,3 +152,17 @@ export const TOKEN_START_OPTIONS = [1_000, 5_000, 10_000, 25_000, 50_000];
 export const BANK_PRINCIPAL_CAP_MULTIPLIER = 1;
 export const PEER_LOAN_MAX_PCT = 0.5;
 export const MIN_LEAGUE_STAKE = 10;
+
+/**
+ * Closed = finalized by the server, or past its end time and waiting on the
+ * sweep. Either way it's read-only: history stays visible, nothing mutates.
+ */
+export function isLeagueClosed(league: Pick<League, "status" | "endsAt">, now: number = Date.now()): boolean {
+  return league.status !== "active" || (!!league.endsAt && now >= league.endsAt);
+}
+
+export const LEAGUE_CLOSED_MESSAGE = "This league is closed. It's read-only now.";
+
+/** Peer loan requests are on. Must match functions/src/lib/leagueConfig.ts. */
+export const PEER_LOAN_REQUESTS_ENABLED = true;
+export const LOAN_REQUESTS_CLOSED_MESSAGE = "Loan requests are closed.";

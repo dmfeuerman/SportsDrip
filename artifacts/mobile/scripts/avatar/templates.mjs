@@ -318,12 +318,16 @@ const CAP = HAT_FIT.capped;
 function capBrimD(x, y, z) {
   if (z < 0.0 || y < 1.6 || y > 1.78) return 0.05;
   // The brim leaves the front edge of the crown, pitched down ~13°, curved down at the sides.
+  // Its root sits inside the crown's front wall, just above the wall's lower edge, so crown and
+  // brim meet with no forehead showing between them (the root used to sit ~1.5 cm below a
+  // higher crown edge, leaving a window onto the forehead).
   const e = edgeAngle(CAP.edge, 0);
   const [cx, cy, cz] = [0, 1.648, 0.004];
-  const edgeY = cy + 0.128 * Math.cos(e) - 0.004;
+  const edgeY = cy + 0.127 * Math.cos(e) + 0.004;
+  const rootZ = cz + 0.115 * Math.sin(e);
   const pitch = Math.tan(0.24);
   const curl = 3.4;
-  const plane = y - (edgeY - pitch * Math.max(0, z - 0.06) - curl * x * x * sstep(0.04, 0.12, z + 0.04));
+  const plane = y - (edgeY - pitch * Math.max(0, z - rootZ) - curl * x * x * sstep(0.04, 0.12, z + 0.04));
   const thick = Math.abs(plane) - 0.0034;
   // Outline: a D-shape — the crown's front at the back, an ellipse at the front.
   const reach = Math.hypot(x / 0.102, (z - 0.088) / 0.118) - 1;
@@ -666,10 +670,12 @@ export const TEMPLATES = {
     socket: "HeadTop",
     parts: [
       rigid("primary", (x, y, z) => {
-        // Crown: the fitted shell, carried up into a flat-topped drum.
+        // Crown: the fitted shell, carried up into a low, tapered crown (a straight-sided
+        // drum read as a top hat).
         const { u, v } = coverage("covered", x, y, z);
         const inner = scalpD(x, y, z) - HAT_FIT.covered.hatGap(v);
-        const drum = Math.max(Math.hypot(x / 1.0, (z - 0.004) * 0.98) - 0.112, y - 1.805);
+        const r = 0.113 - 0.3 * Math.max(0, y - 1.715);
+        const drum = Math.max(Math.hypot(x / 1.0, (z - 0.004) * 0.98) - r, y - 1.792);
         const outer = smin(inner - 0.004, drum, 0.03);
         let d = Math.max(outer, -inner, -u + 0.0);
         d = smax(d, -u, 0.002);

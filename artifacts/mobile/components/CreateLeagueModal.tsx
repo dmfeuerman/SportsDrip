@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useState } from "react";
 import {
+  KeyboardAvoidingView,
   Modal,
   ScrollView,
   StyleSheet,
@@ -10,6 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import NumericInput from "@/components/NumericInput";
+import { CloseButton } from "@/components/ui";
 import {
   BUY_IN_OPTIONS,
   TOKEN_START_OPTIONS,
@@ -20,6 +24,7 @@ import {
   SPORT_ICONS,
 } from "@/constants/leagueTypes";
 import { useColors } from "@/hooks/useColors";
+import { flatInterest } from "@/lib/loanMath";
 
 interface Props {
   visible: boolean;
@@ -46,14 +51,7 @@ const DURATION_OPTIONS: LeagueDuration[] = [
   "1 Month",
   "3 Months",
 ];
-const SPORT_OPTIONS: Sport[] = ["NFL", "NBA", "MLB", "NHL", "Soccer"];
-const INTERVAL_OPTIONS = [
-  { label: "Hourly", hours: 1 },
-  { label: "6 Hours", hours: 6 },
-  { label: "Daily", hours: 24 },
-  { label: "Weekly", hours: 168 },
-];
-
+const SPORT_OPTIONS: Sport[] = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"];
 export default function CreateLeagueModal({
   visible,
   onClose,
@@ -61,6 +59,7 @@ export default function CreateLeagueModal({
   onConfirm,
 }: Props) {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
   const [startingLeagueTokens, setStartingLeagueTokens] = useState(10_000);
   const [duration, setDuration] = useState<LeagueDuration>("1 Month");
@@ -70,9 +69,8 @@ export default function CreateLeagueModal({
     useState<PrizeDistribution["preset"]>("winner-all");
 
   // Bank loan settings
-  const [bankLoanEnabled, setBankLoanEnabled] = useState(false);
+  const [bankLoanEnabled, setBankLoanEnabled] = useState(true);
   const [bankInterestRate, setBankInterestRate] = useState("10");
-  const [bankIntervalHours, setBankIntervalHours] = useState(24);
 
   const preset = PRIZE_PRESETS.find((p) => p.value === selectedPreset)!;
   const prizeDistribution: PrizeDistribution = {
@@ -114,7 +112,7 @@ export default function CreateLeagueModal({
       prizeDistribution,
       bankLoanEnabled,
       rate,
-      bankIntervalHours,
+      24, // legacy interval; loans are flat-fee and don't accrue over time
     );
     setSubmitting(false);
     // Keep the form on failure so nothing the user typed is lost.
@@ -129,9 +127,8 @@ export default function CreateLeagueModal({
     setSports([...SPORT_OPTIONS]);
     setBuyIn(0);
     setSelectedPreset("winner-all");
-    setBankLoanEnabled(false);
+    setBankLoanEnabled(true);
     setBankInterestRate("10");
-    setBankIntervalHours(24);
     onClose();
   }
 
@@ -141,7 +138,11 @@ export default function CreateLeagueModal({
       transparent
       animationType="slide"
       onRequestClose={onClose}
+      statusBarTranslucent
+      navigationBarTranslucent
     >
+      {/* Keeps the name / custom-amount inputs above the keyboard (see KeyboardSheet). */}
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
       <TouchableOpacity
         style={styles.overlay}
         activeOpacity={1}
@@ -150,11 +151,11 @@ export default function CreateLeagueModal({
       <View
         style={[
           styles.sheet,
-          { backgroundColor: colors.card, borderColor: colors.border },
+          { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: insets.bottom },
         ]}
       >
         <View style={[styles.handle, { backgroundColor: colors.border }]} />
-        <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+        <ScrollView showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
           <Text style={[styles.title, { color: colors.foreground }]}>
             Create League
           </Text>
@@ -529,9 +530,9 @@ export default function CreateLeagueModal({
                     { color: colors.mutedForeground, marginTop: 12 },
                   ]}
                 >
-                  SIMPLE INTEREST (% of principal per period, 0.5–50)
+                  FLAT INTEREST (% of amount borrowed, charged once, 0.5–50)
                 </Text>
-                <TextInput
+                <NumericInput
                   style={[
                     styles.input,
                     {
@@ -547,42 +548,6 @@ export default function CreateLeagueModal({
                   placeholderTextColor={colors.mutedForeground}
                   maxLength={5}
                 />
-                <Text
-                  style={[
-                    styles.label,
-                    { color: colors.mutedForeground, marginTop: 8 },
-                  ]}
-                >
-                  INTEREST PERIOD
-                </Text>
-                <View style={styles.optionRow}>
-                  {INTERVAL_OPTIONS.map((opt) => {
-                    const active = bankIntervalHours === opt.hours;
-                    return (
-                      <TouchableOpacity
-                        key={opt.hours}
-                        style={[
-                          styles.optionChip,
-                          {
-                            backgroundColor: active ? colors.accent : colors.card,
-                            borderColor: active ? colors.accent : colors.border,
-                          },
-                        ]}
-                        onPress={() => setBankIntervalHours(opt.hours)}
-                        activeOpacity={0.8}
-                      >
-                        <Text
-                          style={[
-                            styles.optionText,
-                            { color: active ? colors.accentForeground : colors.mutedForeground },
-                          ]}
-                        >
-                          {opt.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
                 <View
                   style={[
                     styles.bankSummary,
@@ -595,13 +560,10 @@ export default function CreateLeagueModal({
                     color={colors.accent}
                   />
                   <Text style={[styles.bankSummaryText, { color: colors.accent }]}>
-                    Simple interest: borrowing 1,000 costs{" "}
-                    {Math.round((1000 * (rateNum || 0)) / 100).toLocaleString()} per{" "}
-                    {INTERVAL_OPTIONS.find(
-                      (o) => o.hours === bankIntervalHours,
-                    )?.label.toLowerCase() ?? "period"}
-                    , charged on what's still borrowed — never on interest. Members can
-                    borrow up to the starting stack. Rate changes only affect new loans.
+                    Flat interest: borrow 1,000 and repay{" "}
+                    {(1000 + flatInterest(1000, rateNum || 0)).toLocaleString()} — no more, however
+                    long it takes. Members can borrow up to the starting stack. Rate changes
+                    only affect new loans.
                   </Text>
                 </View>
               </View>
@@ -721,13 +683,16 @@ export default function CreateLeagueModal({
           ) : null}
           <View style={{ height: 32 }} />
         </ScrollView>
+        <CloseButton onPress={onClose} style={styles.close} />
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
+  close: { position: "absolute", top: 12, right: 16 },
   sheet: {
     maxHeight: "92%",
     borderTopLeftRadius: 24,
@@ -745,7 +710,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 16,
   },
-  title: { fontSize: 22, fontFamily: "Inter_700Bold", marginBottom: 6 },
+  title: { fontSize: 22, fontFamily: "Inter_900Black", marginBottom: 6 },
   subtitle: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 20 },
   label: {
     fontSize: 11,

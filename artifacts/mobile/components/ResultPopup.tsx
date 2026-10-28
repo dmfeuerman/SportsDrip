@@ -2,11 +2,18 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
-import { Amount, Button, Pill } from "@/components/ui";
+import AvatarDisplay from "@/components/AvatarDisplay";
+import Burst from "@/components/fx/Burst";
+import { ActionChip, Amount, Button, Pill } from "@/components/ui";
+import { useAds } from "@/context/AdsContext";
+import { useApp } from "@/context/AppContext";
+import { useCatalog } from "@/hooks/useCatalog";
 import { useNotifications, type AppNotification } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
+import { trace } from "@/lib/devtrace";
+import { REWARD_RARITY } from "@/lib/motion";
 
 /**
  * Win / loss popups.
@@ -19,14 +26,33 @@ import { useColors } from "@/hooks/useColors";
  */
 export default function ResultPopupHost() {
   const { popup, waiting, dismissPopup, dismissAllPopups } = useNotifications();
-  if (!popup) return null;
+  const { breakpoint } = useAds();
+  // Native: hold results until launch has settled; a modal (and its 3D
+  // stage) presenting during launch is one more thing competing for the main thread.
+  const [armed, setArmed] = useState(Platform.OS === "web");
+  useEffect(() => {
+    if (armed) return;
+    const t = setTimeout(() => setArmed(true), 5000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  useEffect(() => {
+    if (armed && popup) trace("popup", `showing ${popup.type} (${waiting} more waiting)`);
+  }, [armed, popup?.id]);
+  if (!popup || !armed) return null;
   return (
     <ResultPopup
       key={popup.id}
       n={popup}
       waiting={waiting}
-      onDismiss={dismissPopup}
-      onDismissAll={dismissAllPopups}
+      onDismiss={() => {
+        dismissPopup();
+        // Only once the last result is gone — never between two of them.
+        if (waiting === 0) breakpoint("results_seen");
+      }}
+      onDismissAll={() => {
+        dismissAllPopups();
+        breakpoint("results_seen");
+      }}
     />
   );
 }
@@ -67,6 +93,16 @@ function ResultPopup({
   const big = won && bet ? bet.payout >= bet.stake * 3 || profit >= 1000 : n.type === "league_payout";
   const shown = useCountUp(Math.abs(won && bet ? profit : n.delta));
   const fired = useRef(false);
+  const { profile } = useApp();
+  const { byId } = useCatalog();
+  // A stable id per popup, so the reaction plays once when it opens.
+  const [reactionId] = useState(() => Date.now());
+  // Mount the 3D stage once the modal is up, not in the same frame as it.
+  const [stageOn, setStageOn] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setStageOn(true), 350);
+    return () => clearTimeout(t);
+  }, []);
 
   const accent = won ? c.positive : lost ? c.negative : c.accent;
   const soft = won ? c.positiveSoft : lost ? c.negativeSoft : c.alpha(c.accent, 0.14);
@@ -88,6 +124,8 @@ function ResultPopup({
     <Modal visible transparent animationType="none" onRequestClose={onDismiss} statusBarTranslucent>
       <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.scrim, { backgroundColor: c.overlay }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} accessibilityLabel="Dismiss" />
+        {/* Confetti for a win — gold for a big one. */}
+        {won ? <Burst colors={big ? REWARD_RARITY.epic.confetti : [c.positive, "#FFFFFF", c.accent, c.positive]} count={big ? 64 : 36} power={big ? 1.5 : 1.05} originY={0.42} /> : null}
         <Animated.View
           entering={ZoomIn.springify().damping(14).stiffness(160)}
           accessibilityViewIsModal
@@ -95,14 +133,32 @@ function ResultPopup({
         >
           {bet && <View style={[styles.stripe, { backgroundColor: bet.teamColor }]} />}
 
-          <View style={styles.top}>
-            <View style={[styles.iconRing, { backgroundColor: soft, borderColor: c.alpha(accent, 0.5) }]}>
-              <MaterialCommunityIcons
-                name={won ? (big ? "trophy" : "check-decagram") : lost ? "close-octagon-outline" : n.type === "league_ended" ? "flag-checkered" : "bell-ring-outline"}
-                size={34}
-                color={accent}
-              />
+          {/* Your character reacts to the result: fist pumps for a win, hands to the face for a loss. */}
+          {won || lost ? (
+            <View style={[styles.stage, { backgroundColor: soft }]}>
+              {stageOn ? (
+                <AvatarDisplay
+                  avatar={profile?.avatar}
+                  equipped={profile?.equipped}
+                  catalog={byId}
+                  size="lg"
+                  interactive={false}
+                  focus="reaction"
+                  reaction={{ kind: won ? "win" : "loss", id: reactionId }}
+                />
+              ) : null}
+              <View style={[styles.stageBadge, { backgroundColor: c.elevated, borderColor: c.alpha(accent, 0.5) }]}>
+                <MaterialCommunityIcons name={won ? (big ? "trophy" : "check-decagram") : "close-octagon-outline"} size={18} color={accent} />
+              </View>
             </View>
+          ) : null}
+
+          <View style={styles.top}>
+            {won || lost ? null : (
+              <View style={[styles.iconRing, { backgroundColor: soft, borderColor: c.alpha(accent, 0.5) }]}>
+                <MaterialCommunityIcons name={n.type === "league_ended" ? "flag-checkered" : "bell-ring-outline"} size={34} color={accent} />
+              </View>
+            )}
             <View style={styles.pills}>
               <Pill
                 label={won ? (big ? "BIG WIN" : "WIN") : lost ? "LOSS" : n.type === "bet_push" ? "PUSH" : "UPDATE"}
@@ -158,14 +214,15 @@ function ResultPopup({
                 }}
               />
             )}
-            <Button label={won ? "Collect" : "Got it"} style={{ flex: 1 }} onPress={onDismiss} haptic={false} />
+            <Button label={won ? "Collect" : "Got it"} style={{ flex: 1 }} onPress={onDismiss} haptic={false} shimmer={won} />
           </View>
           {waiting > 0 && (
-            <Pressable accessibilityRole="button" onPress={onDismissAll} style={styles.more} hitSlop={8}>
+            <View style={[styles.more, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
               <Text style={[styles.moreText, { color: c.mutedForeground }]}>
-                {waiting} more result{waiting > 1 ? "s" : ""} · <Text style={{ color: c.accent }}>Skip all</Text>
+                {waiting} more result{waiting > 1 ? "s" : ""}
               </Text>
-            </Pressable>
+              <ActionChip label="Skip all" chevron={false} onPress={onDismissAll} />
+            </View>
           )}
         </Animated.View>
       </Animated.View>
@@ -200,13 +257,15 @@ const styles = StyleSheet.create({
     elevation: 20,
   },
   stripe: { height: 5, width: "100%" },
-  top: { alignItems: "center", paddingHorizontal: 20, paddingTop: 20, gap: 8 },
+  stage: { height: 230, marginHorizontal: 16, marginTop: 14, borderRadius: 18, overflow: "hidden" },
+  stageBadge: { position: "absolute", top: 10, right: 10, width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  top: { alignItems: "center", paddingHorizontal: 20, paddingTop: 14, gap: 8 },
   iconRing: { width: 68, height: 68, borderRadius: 34, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   pills: { flexDirection: "row", gap: 6, flexWrap: "wrap", justifyContent: "center" },
-  title: { fontSize: 21, lineHeight: 26, fontFamily: "Inter_700Bold", textAlign: "center", letterSpacing: -0.3 },
+  title: { fontSize: 22, lineHeight: 27, fontFamily: "Inter_900Black", textAlign: "center", letterSpacing: -0.6 },
   score: { fontSize: 13, fontFamily: "Inter_500Medium", textAlign: "center" },
   hero: { marginHorizontal: 16, marginTop: 14, borderRadius: 16, paddingVertical: 14, alignItems: "center", gap: 2 },
-  heroLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 1 },
+  heroLabel: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.2 },
   rows: { paddingHorizontal: 20, paddingTop: 14, gap: 7 },
   row: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   rowLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },

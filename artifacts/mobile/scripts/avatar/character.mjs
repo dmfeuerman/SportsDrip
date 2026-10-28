@@ -84,7 +84,7 @@ function limbMuscles(side, build) {
   const L = leg(side, build);
   const tE = A.tJoint;
   const tK = L.tJoint;
-  const m = 1 + 0.16 * build;
+  const m = (1 + 0.16 * build) * 0.92;
   const out = [];
   const axisRot = (sampler, t) => {
     const tan = sampler(t).tan;
@@ -140,8 +140,8 @@ const PEC_R = Object.fromEntries(SIDES.map((s) => [s, rotation(0.1, sgn(s) * 0.2
 
 function deltoidD(s, x, y, z) {
   const k = bk(0.13);
-  const l = toLocal(DELT_R[s], [(0.178 + 0.006 * BUILD) * sgn(s), 1.362, -0.008], x, y, z);
-  return sdEllipsoid(l[0], l[1], l[2], 0.045 * k, 0.066 * bk(0.05), 0.052 * k);
+  const l = toLocal(DELT_R[s], [(0.173 + 0.006 * BUILD) * sgn(s), 1.364, -0.008], x, y, z);
+  return sdEllipsoid(l[0], l[1], l[2], 0.0395 * k, 0.061 * bk(0.05), 0.0455 * k);
 }
 
 function torsoD(x, y, z) {
@@ -149,21 +149,21 @@ function torsoD(x, y, z) {
   if (y < 0.78 || y > 1.66 || ax > 0.32) return Math.max(0.05, Math.abs(y - 1.2) - 0.5);
   const w = bk(0.085), dp = bk(0.07);
   // Rib cage and upper chest give the V; the abdomen pinches the waist in.
-  let d = sdEllipsoid(x, y - 1.268, z - 0.004, 0.142 * w, 0.158, 0.104 * dp);
-  d = smin(d, sdEllipsoid(x, y - 1.345, z - 0.0, 0.15 * bk(0.1), 0.068, 0.092 * dp), 0.05);
+  let d = sdEllipsoid(x, y - 1.268, z - 0.004, 0.136 * w, 0.158, 0.1 * dp);
+  d = smin(d, sdEllipsoid(x, y - 1.345, z - 0.0, 0.142 * bk(0.1), 0.066, 0.089 * dp), 0.05);
   const side = x >= 0 ? "L" : "R";
   {
     const pk = bk(0.16);
     const l = toLocal(PEC_R[side], [0.064 * sgn(side) * w, 1.322, 0.05 * dp], x, y, z);
-    d = smin(d, sdEllipsoid(l[0], l[1], l[2], 0.072 * pk, 0.054 * pk, 0.046 * pk), 0.03);
+    d = smin(d, sdEllipsoid(l[0], l[1], l[2], 0.068 * pk, 0.05 * pk, 0.041 * pk), 0.03);
   }
-  d = smin(d, sdEllipsoid(ax - 0.098 * w, y - 1.24, z + 0.018, 0.064 * bk(0.16), 0.13, 0.072), 0.045); // lats
+  d = smin(d, sdEllipsoid(ax - 0.094 * w, y - 1.24, z + 0.018, 0.058 * bk(0.16), 0.13, 0.068), 0.045); // lats
   d = smin(d, sdEllipsoid(x, y - 1.1, z - 0.01, 0.121 * bk(0.11), 0.13, 0.09 * bk(0.13)), 0.075); // abdomen
   d = smin(d, sdEllipsoid(x, y - 0.95, z + 0.002, 0.138 * bk(0.07), 0.096, 0.1 * bk(0.07)), 0.09); // pelvis
   d = smin(d, sdEllipsoid(ax - 0.062 * bk(0.05), y - 0.918, z + 0.046 * bk(0.08), 0.072 * bk(0.08), 0.078, 0.064 * bk(0.08)), 0.04); // glutes
   d = smin(d, sdEllipsoid(ax - 0.112 * bk(0.06), y - 0.94, z + 0.004, 0.05, 0.07, 0.07), 0.04); // hip flare
   // Trapezius: neck to the top of the shoulder.
-  d = smin(d, sdCone(ax, y, z, [0.03, 1.452 + 0.004 * BUILD, -0.026], [0.15 * bk(0.04), 1.408, -0.02], 0.034 * bk(0.18), 0.028 * bk(0.12)), 0.045);
+  d = smin(d, sdCone(ax, y, z, [0.03, 1.446 + 0.004 * BUILD, -0.026], [0.145 * bk(0.04), 1.406, -0.02], 0.029 * bk(0.18), 0.025 * bk(0.12)), 0.04);
   d = smin(d, deltoidD(side, x, y, z), 0.045);
 
   // Surface detail (inward is positive).
@@ -184,7 +184,7 @@ function torsoD(x, y, z) {
 function neckD(x, y, z) {
   if (y < 1.33 || y > 1.7 || Math.abs(x) > 0.12) return 1;
   const k = bk(0.08);
-  let d = sdCone(x, y, z, [0, 1.38, -0.018], [0, 1.62, -0.004], 0.061 * k, 0.051 * bk(0.05));
+  let d = sdCone(x, y, z, [0, 1.38, -0.018], [0, 1.62, -0.004], 0.057 * k, 0.048 * bk(0.05));
   // Sternocleidomastoid: two cords from behind the ears to the collarbones.
   for (const s of [1, -1]) d = smin(d, sdCone(x, y, z, [0.048 * s, 1.56, -0.016], [0.016 * s * k, 1.43, 0.042 * k], 0.014, 0.012), 0.02);
   return d;
@@ -438,9 +438,13 @@ export const smileAt = (x, w = MOUTH.w) => 0.0026 * Math.min(1.2, Math.abs(x) / 
  * mouthWide) by sampling these fields, so they cost no extra meshes.
  */
 export const NOSE = {
+  // Small and slightly upturned (the meshed default).
   button: { bridge: [[0, 1.636, 0.1205], [0, 1.6045, 0.131]], br: [0.0058, 0.0078], tip: [1.6005, 0.1302, 0.0108, 0.0094, 0.0098], wing: [0.0108, 1.5965, 0.1215, 0.0072, 0.0064, 0.007] },
-  straight: { bridge: [[0, 1.648, 0.1218], [0, 1.6035, 0.1348]], br: [0.0052, 0.007], tip: [1.5995, 0.1336, 0.0096, 0.0088, 0.0092], wing: [0.0102, 1.5965, 0.1224, 0.0066, 0.006, 0.0066] },
-  broad: { bridge: [[0, 1.636, 0.1205], [0, 1.605, 0.1305]], br: [0.0068, 0.0094], tip: [1.6, 0.1298, 0.0132, 0.0104, 0.0102], wing: [0.0136, 1.5962, 0.1206, 0.0088, 0.0074, 0.008] },
+  // Longer, higher bridge, tip further out and lower: reads clearly in profile.
+  // (Projects ~4 mm past the button, not ~13: any further and it hangs off the stylised face.)
+  straight: { bridge: [[0, 1.648, 0.1222], [0, 1.5985, 0.1388]], br: [0.0054, 0.0078], tip: [1.5965, 0.1366, 0.0104, 0.0098, 0.0102], wing: [0.0108, 1.5935, 0.1228, 0.0068, 0.0062, 0.0068] },
+  // Wide, flatter bridge, big rounded tip and full wings: reads clearly from the front.
+  broad: { bridge: [[0, 1.634, 0.12], [0, 1.6045, 0.132]], br: [0.0094, 0.0128], tip: [1.599, 0.1322, 0.0178, 0.0122, 0.0112], wing: [0.0188, 1.5948, 0.1192, 0.0114, 0.0088, 0.0092] },
 };
 export const MOUTH_SHAPE = {
   neutral: { w: 0.02, up: [0.02, 0.0052, 0.0092], lo: [0.0178, 0.0066, 0.0092], fwd: 0 },
@@ -461,7 +465,7 @@ export function craniumD(x, y, z) {
 
 function lowerFaceD(x, y, z, f) {
   // Maxilla and cheeks: the mass of the face under the eyes.
-  let d = sdEllipsoid(x, y - 1.594, z - 0.032, 0.081 * f.cheek, 0.066, 0.083);
+  let d = sdEllipsoid(x, y - 1.594, z - 0.032, 0.078 * f.cheek, 0.066, 0.082);
   // Jaw line: from under the ear to the chin, both sides, blended at the chin (no crease at x = 0).
   const jaw = (sx) => sdCone(sx, y, z, [f.jawX, f.jawY, -0.018], [0.016 * f.chin, f.chinY + 0.002, 0.07], 0.021, 0.017);
   d = smin(d, smin(jaw(x), jaw(-x), 0.02), 0.03);
@@ -521,7 +525,9 @@ export function headD(shape, x, y, z) {
   }
 
   // Nose: bridge, a rounded tip and soft wings.
-  if (ax < 0.04 && y > 1.57 && y < 1.66 && z > 0.095) {
+  // (The box is wide enough for the broadest nose's wings and the straight nose's bridge plus
+  // their blend, so no variant is clipped by it — a clipped field leaves a ridge in the morph.)
+  if (ax < 0.052 && y > 1.562 && y < 1.672 && z > 0.088) {
     const N = NOSE_SEL;
     let n = sdCone(x, y, z, N.bridge[0], N.bridge[1], N.br[0], N.br[1]);
     n = smin(n, sdEllipsoid(x, y - N.tip[0], z - N.tip[1], N.tip[2], N.tip[3], N.tip[4]), 0.008);

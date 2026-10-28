@@ -1,11 +1,17 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Amount, Button } from "@/components/ui";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import Animated, { ZoomIn } from "react-native-reanimated";
+import PressableScale from "@/components/fx/PressableScale";
+import RollingNumber from "@/components/fx/RollingNumber";
+import KeyboardSheet from "@/components/KeyboardSheet";
+import NumericInput from "@/components/NumericInput";
+import TeamEdge from "@/components/insights/TeamEdge";
+import { ActionChip, Amount, Button } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { formatPercent, impliedProbability } from "@/lib/odds";
+import type { Game, Side } from "@/types/game";
 
 export interface BetWallet {
   /** "credits" or a league id. */
@@ -31,23 +37,38 @@ interface Props {
   submitting?: boolean;
   /** Server rejection, shown in the sheet so the user can fix and retry. */
   error?: string | null;
+  /** The fixture and pick, for the pre-commit insights panel. */
+  game?: Game;
+  side?: Side;
 }
 
 const MIN_STAKE = 10;
 
+function pickWallet(wallets: BetWallet[], preferred?: string): string {
+  return preferred && wallets.some((w) => w.id === preferred) ? preferred : wallets[0]?.id ?? "credits";
+}
+
 /**
  * The bet slip.
  *
- * What it adds over the old sheet:
  *  - a wallet picker: credits, or any league you're in that allows this sport
- *    and is still running when the game starts. League betting existed in the
- *    data model but had no way in from the UI at all.
+ *    and is still running when the game starts.
  *  - quick stakes as a share of the chosen wallet, because 50/100/250/500 is
  *    meaningless against a 25,000-token league stack
  *  - everything that matters before committing: implied chance, return,
  *    profit, and the balance it leaves — plus a plain note when the stake is
  *    more than half the wallet. No urgency, no nudging.
  *  - the server's rejection stays in the sheet instead of closing it.
+ *
+ * Keyboard: the sheet body scrolls and the "Betting with" strip + Place bet
+ * button are a fixed footer, so KeyboardSheet's avoiding view shrinks the body
+ * and the action stays on screen above the keyboard.
+ *
+ * Wallet switching: every tap target in the sheet persists taps while the
+ * keyboard is up (the old horizontal picker swallowed the first tap to dismiss
+ * the keyboard), the stake is cleared because a number typed against one
+ * wallet means nothing in another, and focus is handed back to the same input
+ * instance so typing simply continues.
  */
 export default function BetModal({
   visible,
@@ -62,23 +83,56 @@ export default function BetModal({
   defaultWallet,
   submitting = false,
   error,
+  game,
+  side,
 }: Props) {
   const c = useColors();
-  const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
-  const [walletId, setWalletId] = useState(defaultWallet ?? wallets[0]?.id ?? "credits");
+  const [walletId, setWalletId] = useState(() => pickWallet(wallets, defaultWallet));
+  const [focused, setFocused] = useState(false);
+
+  const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const inputY = useRef(0);
 
   useEffect(() => {
     if (visible) {
       setAmount("");
-      setWalletId(defaultWallet && wallets.some((w) => w.id === defaultWallet) ? defaultWallet : wallets[0]?.id ?? "credits");
+      setWalletId(pickWallet(wallets, defaultWallet));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, defaultWallet]);
 
+  // The wallet list is rebuilt from live league snapshots; if the selected one
+  // drops out (league ended, membership changed) fall back instead of leaving
+  // the slip pointing at a wallet that no longer renders.
+  useEffect(() => {
+    if (!wallets.some((w) => w.id === walletId)) {
+      setWalletId(pickWallet(wallets));
+      setAmount("");
+    }
+  }, [wallets, walletId]);
+
+  const revealInput = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, inputY.current - 12), animated: true });
+  }, []);
+
+  // Once the keyboard has finished resizing the sheet, bring the stake box
+  // back into view; the Place bet footer is already pinned above the keyboard.
+  useEffect(() => {
+    if (!visible) return;
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      if (inputRef.current?.isFocused()) revealInput();
+    });
+    return () => sub.remove();
+  }, [visible, revealInput]);
+
   const wallet = wallets.find((w) => w.id === walletId) ?? wallets[0];
   const available = wallet?.balance ?? 0;
-  const currency = wallet?.kind === "league" ? "league" : "credits";
+  const isLeague = wallet?.kind === "league";
+  const currency = isLeague ? "league" : "credits";
+  const tint = isLeague ? c.league : c.primary;
+  const unit = isLeague ? "tokens" : "credits";
 
   const stake = Number.parseInt(amount, 10) || 0;
   const payout = Math.round(stake * odds);
@@ -95,25 +149,51 @@ export default function BetModal({
     return [...new Set(picks)].filter((x) => x <= available);
   }, [available]);
 
+  function focusInput() {
+    if (submitting) return;
+    const input = inputRef.current;
+    if (!input) return;
+    if (input.isFocused()) revealInput();
+    else input.focus();
+  }
+
+  function selectWallet(id: string) {
+    if (id === walletId || submitting) return;
+    Haptics.selectionAsync().catch(() => {});
+    const keepTyping = inputRef.current?.isFocused() ?? false;
+    setWalletId(id);
+    setAmount("");
+    // Re-assert focus after the re-render so the same input keeps the keyboard.
+    if (keepTyping) requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
   async function handleConfirm() {
     if (!canBet || !wallet) return;
+    Keyboard.dismiss();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     await onConfirm(stake, wallet.id);
   }
 
   function handleClose() {
     if (submitting) return;
+    Keyboard.dismiss();
     onClose();
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <Pressable style={[styles.overlay, { backgroundColor: c.overlay }]} onPress={handleClose} accessibilityLabel="Close bet slip" />
-      <View style={[styles.sheet, { backgroundColor: c.elevated, borderColor: c.border, paddingBottom: insets.bottom + 18 }]}>
-        <View style={[styles.handle, { backgroundColor: c.border }]} />
+    <KeyboardSheet visible={visible} onClose={handleClose} dismissible={!submitting} style={styles.sheet}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={[styles.gameLabel, { color: c.mutedForeground }]}>{gameSummary}</Text>
 
-        <View style={[styles.teamRow, { backgroundColor: c.alpha(teamColor, 0.14), borderColor: c.alpha(teamColor, 0.45) }]}>
+        {/* The pick springs onto the slip. */}
+        <Animated.View entering={ZoomIn.springify().damping(13).stiffness(220)} style={[styles.teamRow, { backgroundColor: c.alpha(teamColor, 0.14), borderColor: c.alpha(teamColor, 0.45) }]}>
           <View style={[styles.teamCircle, { backgroundColor: c.alpha(teamColor, 0.22), borderColor: teamColor }]}>
             <Text style={[styles.teamAbbr, { color: c.foreground }]}>{teamAbbr}</Text>
           </View>
@@ -125,34 +205,38 @@ export default function BetModal({
               {odds.toFixed(2)}x · market gives it {formatPercent(chance)}
             </Text>
           </View>
-        </View>
+        </Animated.View>
+
+        {game && side ? <TeamEdge game={game} side={side} /> : null}
 
         {wallets.length > 1 && (
           <View style={{ gap: 6 }}>
             <Text style={[styles.label, { color: c.mutedForeground }]}>PAY WITH</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ gap: 8 }}
+            >
               {wallets.map((w) => {
                 const on = w.id === walletId;
-                const tint = w.kind === "league" ? c.league : c.primary;
+                const wTint = w.kind === "league" ? c.league : c.primary;
                 return (
                   <Pressable
                     key={w.id}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                    accessibilityLabel={`${w.label}, ${w.balance.toLocaleString()} available`}
+                    accessibilityState={{ selected: on, disabled: submitting }}
+                    accessibilityLabel={`${w.label}, ${w.balance.toLocaleString()} ${w.kind === "league" ? "league tokens" : "credits"} available`}
                     disabled={submitting}
-                    onPress={() => {
-                      Haptics.selectionAsync().catch(() => {});
-                      setWalletId(w.id);
-                    }}
-                    style={[
-                      styles.wallet,
-                      { backgroundColor: on ? c.alpha(tint, 0.14) : c.secondary, borderColor: on ? tint : c.border },
-                    ]}
+                    onPress={() => selectWallet(w.id)}
+                    style={[styles.wallet, { backgroundColor: on ? c.alpha(wTint, 0.14) : c.secondary, borderColor: on ? wTint : c.border }]}
                   >
-                    <Text style={[styles.walletName, { color: on ? c.foreground : c.mutedForeground }]} numberOfLines={1}>
-                      {w.label}
-                    </Text>
+                    <View style={styles.walletHead}>
+                      <MaterialCommunityIcons name={w.kind === "league" ? "shield-star" : "lightning-bolt"} size={12} color={on ? wTint : c.mutedForeground} />
+                      <Text style={[styles.walletName, { color: on ? c.foreground : c.mutedForeground }]} numberOfLines={1}>
+                        {w.label}
+                      </Text>
+                    </View>
                     <Amount value={w.balance} currency={w.kind === "league" ? "league" : "credits"} size="sm" />
                   </Pressable>
                 );
@@ -161,66 +245,106 @@ export default function BetModal({
           </View>
         )}
 
-        <View style={[styles.inputWrap, { backgroundColor: c.secondary, borderColor: tooBig ? c.negative : c.border }]}>
-          <MaterialCommunityIcons name={currency === "league" ? "shield-star" : "lightning-bolt"} size={20} color={currency === "league" ? c.league : c.primary} />
-          <TextInput
+        {/* The whole box is the tap target, not just the text glyphs inside it. */}
+        <Pressable
+          onPress={focusInput}
+          onLayout={(e) => {
+            inputY.current = e.nativeEvent.layout.y;
+          }}
+          accessible={false}
+          style={[
+            styles.inputWrap,
+            { backgroundColor: c.secondary, borderColor: tooBig ? c.negative : focused ? tint : c.border },
+          ]}
+        >
+          <MaterialCommunityIcons name={isLeague ? "shield-star" : "lightning-bolt"} size={20} color={tint} />
+          <NumericInput
+            ref={inputRef}
             style={[styles.input, { color: c.foreground }]}
             value={amount}
             onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ""))}
-            placeholder="Stake"
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder={`Stake (${unit})`}
             placeholderTextColor={c.subtleForeground}
             keyboardType="number-pad"
             editable={!submitting}
-            accessibilityLabel="Stake amount"
+            accessibilityLabel={`Stake amount in ${wallet?.label ?? "credits"} ${unit}`}
           />
-          <Pressable accessibilityRole="button" onPress={() => setAmount(String(available))} disabled={submitting} hitSlop={8}>
-            <Text style={[styles.maxBtn, { color: c.accent }]}>MAX</Text>
-          </Pressable>
-        </View>
+          <ActionChip label="MAX" accessibilityLabel="Bet maximum" chevron={false} onPress={() => setAmount(String(available))} disabled={submitting} />
+        </Pressable>
 
         <View style={styles.quickRow}>
           {quick.map((q) => (
-            <Pressable
+            <PressableScale
               key={q}
               accessibilityRole="button"
-              style={[styles.quickBtn, { backgroundColor: c.secondary, borderColor: stake === q ? c.foreground : c.border }]}
+              style={[styles.quickBtn, { backgroundColor: stake === q ? c.alpha(tint, 0.14) : c.secondary, borderColor: stake === q ? tint : c.border }]}
+              scaleTo={0.92}
+              haptic="tick"
               onPress={() => setAmount(String(q))}
               disabled={submitting}
             >
               <Text style={[styles.quickText, { color: c.foreground }]}>{q.toLocaleString()}</Text>
-            </Pressable>
+            </PressableScale>
           ))}
         </View>
 
         <View style={[styles.summary, { borderColor: c.border }]}>
-          <SummaryRow label="Returns if it lands" value={payout.toLocaleString()} strong />
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: c.mutedForeground }]} numberOfLines={1}>
+              Returns if it lands
+            </Text>
+            <RollingNumber value={payout} style={[styles.summaryStrong, { color: c.foreground }]} duration={420} flash={false} />
+          </View>
           <SummaryRow label="Profit" value={`+${Math.max(0, profit).toLocaleString()}`} color={c.positive} />
           <SummaryRow label="If it loses" value={stake ? `−${stake.toLocaleString()}` : "0"} color={stake ? c.negative : undefined} />
-          <SummaryRow label="Balance after placing" value={Math.max(0, available - stake).toLocaleString()} />
+          <SummaryRow label={`${wallet?.label ?? "Balance"} after placing`} value={`${Math.max(0, available - stake).toLocaleString()} ${unit}`} />
         </View>
 
         {tooSmall && <Text style={[styles.note, { color: c.mutedForeground }]}>Minimum stake is {MIN_STAKE}.</Text>}
-        {tooBig && <Text style={[styles.note, { color: c.negative }]}>That's more than this wallet holds.</Text>}
-        {heavy && !tooBig && (
-          <Text style={[styles.note, { color: c.warning }]}>That's over half of this wallet on one game.</Text>
-        )}
+        {tooBig && <Text style={[styles.note, { color: c.negative }]}>That's more than {wallet?.label ?? "this wallet"} holds.</Text>}
+        {heavy && !tooBig && <Text style={[styles.note, { color: c.warning }]}>That's over half of this wallet on one game.</Text>}
         {error ? (
           <Text accessibilityRole="alert" style={[styles.note, { color: c.negative }]}>
             {error}
           </Text>
         ) : null}
+      </ScrollView>
 
+      {/* Pinned footer: always visible, keyboard up or down. */}
+      <View style={[styles.footer, { borderTopColor: c.border }]}>
+        {wallet ? (
+          <View
+            accessible
+            accessibilityLabel={`Betting with ${wallet.label}, ${isLeague ? "league tokens" : "credits"}`}
+            style={[styles.payingWith, { backgroundColor: c.alpha(tint, 0.12), borderColor: c.alpha(tint, 0.5) }]}
+          >
+            <MaterialCommunityIcons name={isLeague ? "shield-star" : "lightning-bolt"} size={18} color={tint} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.payingLabel, { color: c.mutedForeground }]}>BETTING WITH</Text>
+              <Text style={[styles.payingName, { color: c.foreground }]} numberOfLines={1}>
+                {wallet.label}
+              </Text>
+            </View>
+            <View style={[styles.kindPill, { backgroundColor: c.alpha(tint, 0.2) }]}>
+              <Text style={[styles.kindText, { color: tint }]}>{isLeague ? "LEAGUE TOKENS" : "CREDITS"}</Text>
+            </View>
+          </View>
+        ) : null}
         <Button
-          label={stake >= MIN_STAKE ? `Place bet · ${stake.toLocaleString()}` : "Place bet"}
+          label={stake >= MIN_STAKE ? `Place bet · ${stake.toLocaleString()} ${unit}` : "Place bet"}
           size="lg"
           onPress={handleConfirm}
           disabled={!canBet}
           loading={submitting}
           variant={currency === "league" ? "league" : "primary"}
           haptic={false}
+          shimmer={canBet}
+          accessibilityHint={wallet ? `Stakes from ${wallet.label}` : undefined}
         />
       </View>
-    </Modal>
+    </KeyboardSheet>
   );
 }
 
@@ -228,16 +352,19 @@ function SummaryRow({ label, value, color, strong }: { label: string; value: str
   const c = useColors();
   return (
     <View style={styles.summaryRow}>
-      <Text style={[styles.summaryLabel, { color: c.mutedForeground }]}>{label}</Text>
+      <Text style={[styles.summaryLabel, { color: c.mutedForeground }]} numberOfLines={1}>
+        {label}
+      </Text>
       <Text style={[strong ? styles.summaryStrong : styles.summaryValue, { color: color ?? c.foreground }]}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 20, paddingTop: 12, gap: 12 },
-  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 4 },
+  sheet: { gap: 0 },
+  scroll: { flexGrow: 0, flexShrink: 1 },
+  body: { gap: 12, paddingBottom: 12 },
+  footer: { gap: 10, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   gameLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
   teamRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1 },
   teamCircle: { width: 46, height: 46, borderRadius: 23, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
@@ -246,17 +373,23 @@ const styles = StyleSheet.create({
   oddsLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
   label: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   wallet: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 2, minWidth: 110, maxWidth: 180 },
-  walletName: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
-  input: { flex: 1, fontSize: 22, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
+  walletHead: { flexDirection: "row", alignItems: "center", gap: 4 },
+  walletName: { fontSize: 12, fontFamily: "Inter_600SemiBold", flexShrink: 1 },
+  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1.5, borderRadius: 14, paddingHorizontal: 14, minHeight: 56 },
+  input: { flex: 1, alignSelf: "stretch", fontSize: 22, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   maxBtn: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
   quickRow: { flexDirection: "row", gap: 8 },
   quickBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 9, alignItems: "center" },
   quickText: { fontSize: 13, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
   summary: { gap: 6, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
-  summaryRow: { flexDirection: "row", justifyContent: "space-between" },
-  summaryLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  summaryRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  summaryLabel: { flexShrink: 1, fontSize: 13, fontFamily: "Inter_400Regular" },
   summaryValue: { fontSize: 13, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
   summaryStrong: { fontSize: 15, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   note: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  payingWith: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  payingLabel: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  payingName: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  kindPill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  kindText: { fontSize: 9, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.6 },
 });

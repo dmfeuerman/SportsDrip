@@ -62,6 +62,22 @@ export const PRIZE_BOXES: Record<BoxTier, PrizeBoxDef> = {
   },
 };
 
+/**
+ * Rewarded video bonus. Credited only by the AdMob SSV callback
+ * (http/adReward.ts), never by the client. Mirrored for display in
+ * artifacts/mobile/constants/ads.ts.
+ */
+export const AD_REWARD = {
+  credits: 100,
+  dailyLimit: 5,
+  /** Must match the customData the app sets on the RewardedAd request. */
+  customData: "credits",
+  /** AdMob retries failed callbacks; anything older than this is ignored. */
+  maxCallbackAgeMs: 24 * 3_600_000,
+  /** App-reported views closer together than this are refused (no video is shorter). */
+  minGapMs: 15_000,
+} as const;
+
 /** Weighted pick. Runs on the server only — the client never sees the table. */
 export function pickWeighted(segments: Array<{ credits: number; weight: number }>): number {
   const total = segments.reduce((s, x) => s + x.weight, 0);
@@ -86,6 +102,7 @@ export type LedgerType =
   | "purchase"
   | "league_buy_in"
   | "league_payout"
+  | "ad_reward"
   | "admin_adjust";
 
 export interface LedgerEntry {

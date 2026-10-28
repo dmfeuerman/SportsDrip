@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,7 +18,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import { Chips, Field, Stops, Swatches } from "@/components/avatar/EditorControls";
 import ItemIcon from "@/components/avatar/ItemIcon";
-import { Button, ConfirmDialog, ErrorBanner } from "@/components/ui";
+import CartButton from "@/components/CartButton";
+import { Button, ChoiceDialog, ConfirmDialog, ErrorBanner } from "@/components/ui";
 import {
   EYE_COLORS,
   EYE_SHAPES,
@@ -32,6 +34,7 @@ import {
   SKIN_TONES,
 } from "@/constants/avatarOptions";
 import { useApp } from "@/context/AppContext";
+import { useCart } from "@/context/CartContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { applyEquip } from "@/lib/avatar3d/avatarRules";
@@ -69,8 +72,9 @@ export default function CustomizeScreen() {
   const { height: winH, width: winW } = useWindowDimensions();
   const params = useLocalSearchParams<{ category?: string }>();
   const navigation = useNavigation();
-  const { profile, inventory, balance, saveLook, purchaseItem, error, clearError } = useApp();
+  const { profile, inventory, balance, saveLook, error, clearError } = useApp();
   const { items, byId } = useCatalog();
+  const cart = useCart();
 
   const saved = useMemo(
     () => ({ avatar: normalizeAvatar(profile?.avatar), equipped: canon(profile?.equipped ?? {}) }),
@@ -80,11 +84,10 @@ export default function CustomizeScreen() {
   const [equipped, setEquipped] = useState<Equipped>(saved.equipped);
   const [cat, setCat] = useState<CatId>(() => (CATS.some((x) => x.id === params.category) ? (params.category as CatId) : "body"));
   const [saving, setSaving] = useState(false);
-  const [buying, setBuying] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [cheer, setCheer] = useState(0);
-  const leaving = useRef(false);
-  const catScroll = useRef<ScrollView>(null);
+  const [leaving, setLeaving] = useState(false);
+  const catScroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const pendingNav = useRef<unknown>(null);
 
   // Follow the server copy until the user starts editing (first load, or a
@@ -99,6 +102,38 @@ export default function CustomizeScreen() {
   const dirty = !same(avatar, saved.avatar) || !same(canon(equipped), saved.equipped);
   const owned = useMemo(() => new Set(inventory), [inventory]);
   const unowned = Object.values(equipped).filter((id): id is string => !!id && !owned.has(id));
+  const unownedKey = unowned.join(",");
+  const cartTotal = unowned.reduce((s, id) => s + (byId.get(id)?.price ?? 0), 0);
+
+  // ── cart ─────────────────────────────────────────────────────────────────
+  // The cart is exactly the store items being tried on (one per slot), so the
+  // badge always matches what's on the character. Checkout gets the whole
+  // draft look, to save it once everything in it is bought.
+  useEffect(() => {
+    cart.setIds(unowned);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unownedKey]);
+  useEffect(() => {
+    cart.setDraft(unowned.length ? { avatar, equipped: canon(equipped) } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [avatar, equipped, unownedKey]);
+  // Removed at checkout → take it off here too (back to what's saved for that slot, if owned).
+  const cartKey = cart.ids.join(",");
+  useEffect(() => {
+    const gone = unowned.filter((id) => !cart.has(id));
+    if (!gone.length) return;
+    setEquipped((e) => {
+      const next = { ...e };
+      for (const id of gone) {
+        const slot = byId.get(id)?.slot;
+        if (!slot || next[slot] !== id) continue;
+        const back = saved.equipped[slot];
+        next[slot] = back && owned.has(back) ? back : undefined;
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartKey]);
 
   // ── edits ────────────────────────────────────────────────────────────────
   const edit = (patch: Partial<AvatarConfig>) => {
@@ -147,36 +182,29 @@ export default function CustomizeScreen() {
     if (!ok) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     touched.current = false;
-    leaving.current = true;
+    setLeaving(true);
+    allowLeave();
     setCheer((n) => n + 1);
     setTimeout(() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/avatar")), 1300);
   };
 
-  const buy = async (item: CatalogItem) => {
-    setBuying(item.id);
-    const ok = await purchaseItem(item.id);
-    setBuying(null);
-    if (ok) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      showToast(`${item.name} is yours.`);
-    }
-  };
-
   // ── leaving with unsaved changes ─────────────────────────────────────────
-  useEffect(() => {
-    const unsub = navigation.addListener("beforeRemove", (e: { preventDefault: () => void; data: { action: unknown } }) => {
-      if (!dirty || leaving.current) return;
-      e.preventDefault();
-      pendingNav.current = e.data.action;
-      setConfirm(true);
-    });
-    return unsub;
-  }, [navigation, dirty]);
+  const allowLeave = usePreventRemove(dirty && !leaving, ({ data }) => {
+    pendingNav.current = data.action;
+    setConfirm(true);
+  });
 
   const close = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/avatar"));
+  const checkout = () => {
+    pendingNav.current = null;
+    setConfirm(false);
+    router.push("/checkout");
+  };
   const discard = () => {
     setConfirm(false);
-    leaving.current = true;
+    cart.clear();
+    setLeaving(true);
+    allowLeave();
     if (pendingNav.current) navigation.dispatch(pendingNav.current as never);
     else close();
   };
@@ -225,8 +253,9 @@ export default function CustomizeScreen() {
           onPress={save}
           loading={saving}
           disabled={!dirty || unowned.length > 0 || saving}
-          accessibilityHint={unowned.length ? "Buy or remove items you don't own first" : undefined}
+          accessibilityHint={unowned.length ? "Check out the items in your cart first" : undefined}
         />
+        <CartButton />
       </View>
 
       {/* stage */}
@@ -288,7 +317,7 @@ export default function CustomizeScreen() {
       <ErrorBanner message={error} onDismiss={clearError} />
 
       {/* panel */}
-      <ScrollView contentContainerStyle={[styles.panel, { paddingBottom: insets.bottom + 28 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.fill} contentContainerStyle={[styles.panel, { paddingBottom: insets.bottom + (unowned.length ? 96 : 28) }]} showsVerticalScrollIndicator={false}>
         {cat === "body" && (
           <>
             <Swatches label="Skin tone" options={SKIN_TONES} value={avatar.skinTone} onChange={(skinTone) => edit({ skinTone })} />
@@ -331,33 +360,39 @@ export default function CustomizeScreen() {
           />
         )}
 
-        {unowned.length > 0 ? (
-          <View style={[styles.buyBar, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.5) }]}>
-            {unowned.map((id) => {
-              const item = byId.get(id);
-              if (!item) return null;
-              const short = balance < item.price;
-              return (
-                <View key={id} style={styles.buyRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.buyName, { color: c.foreground }]} numberOfLines={1}>
-                      Trying on {item.name}
-                    </Text>
-                    <Text style={[styles.buySub, { color: short ? c.negative : c.mutedForeground }]}>
-                      {short ? `${item.price.toLocaleString()} credits — you have ${balance.toLocaleString()}` : "Buy it to save this look"}
-                    </Text>
-                  </View>
-                  <Button label="Remove" size="sm" variant="ghost" onPress={() => wear(item.slot, saved.equipped[item.slot] && owned.has(saved.equipped[item.slot]!) ? saved.equipped[item.slot]! : null)} />
-                  <Button label={`Buy · ${item.price.toLocaleString()}`} size="sm" onPress={() => buy(item)} loading={buying === id} disabled={short} />
-                </View>
-              );
-            })}
-          </View>
-        ) : null}
       </ScrollView>
 
+      {unowned.length > 0 ? (
+        <View style={[styles.cartBar, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.5), bottom: insets.bottom + 12 }]}>
+          <MaterialCommunityIcons name="cart" size={18} color={c.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.buyName, { color: c.foreground }]} numberOfLines={1}>
+              {unowned.length} {unowned.length === 1 ? "item" : "items"} in your cart · {cartTotal.toLocaleString()}
+            </Text>
+            <Text style={[styles.buySub, { color: balance < cartTotal ? c.negative : c.mutedForeground }]} numberOfLines={1}>
+              {balance < cartTotal ? `You have ${balance.toLocaleString()} credits` : "Buy them to save this look"}
+            </Text>
+          </View>
+          <Button label="Checkout" size="sm" onPress={() => router.push("/checkout")} />
+        </View>
+      ) : null}
+
+      <ChoiceDialog
+        visible={confirm && unowned.length > 0}
+        title={`${unowned.length} ${unowned.length === 1 ? "item" : "items"} in your cart`}
+        body={`You're trying on ${unowned.map((id) => byId.get(id)?.name ?? "an item").join(", ")}. Check out to keep ${unowned.length === 1 ? "it" : "them"}, or discard your changes.`}
+        actions={[
+          { label: `Checkout · ${cartTotal.toLocaleString()}`, icon: "cart", onPress: checkout },
+          { label: "Discard", variant: "destructive", onPress: discard },
+        ]}
+        onCancel={() => {
+          pendingNav.current = null;
+          setConfirm(false);
+        }}
+      />
+
       <ConfirmDialog
-        visible={confirm}
+        visible={confirm && unowned.length === 0}
         title="Discard changes?"
         body="Your character goes back to how it was last saved."
         confirmLabel="Discard"
@@ -490,7 +525,8 @@ const styles = StyleSheet.create({
   },
   toastText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
   hint: { position: "absolute", left: 14, bottom: 12, fontSize: 11, fontFamily: "Inter_500Medium" },
-  catBar: { flexGrow: 0, borderBottomWidth: StyleSheet.hairlineWidth },
+  // Never squeezed: when the panel below fills up, it scrolls; the category row keeps its height.
+  catBar: { flexGrow: 0, flexShrink: 0, borderBottomWidth: StyleSheet.hairlineWidth },
   catRow: { paddingHorizontal: 10, paddingVertical: 8, gap: 4 },
   cat: { alignItems: "center", gap: 3, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, borderWidth: 1, minWidth: 62 },
   catText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
@@ -505,8 +541,23 @@ const styles = StyleSheet.create({
   badge: { position: "absolute", top: 7, right: 7, width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   price: { position: "absolute", top: 7, right: 6, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   priceText: { fontSize: 10, fontFamily: "Inter_700Bold" },
-  buyBar: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 10 },
-  buyRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  cartBar: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
   buyName: { fontSize: 14, fontFamily: "Inter_700Bold" },
   buySub: { fontSize: 12, fontFamily: "Inter_400Regular" },
 });

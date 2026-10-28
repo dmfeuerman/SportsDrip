@@ -32,7 +32,7 @@ interface MemberLite {
  *  - open league bets are voided and their stakes returned, so nobody is
  *    ranked with tokens stuck in a bet that can no longer pay
  *  - standings rank on net worth (tokens + money owed to you − money you owe)
- *    as of the season end, using the same simple-interest math as the client
+ *    as of the season end, using the same flat-interest math as the client
  *  - the pot split is recorded with `paid: false`; payoutLeague moves the
  *    real credits, one idempotent transaction per winner
  *

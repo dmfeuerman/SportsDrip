@@ -9,7 +9,7 @@
  */
 import { HEAD } from "./rig.mjs";
 import { bodyD, EYE, headD, headSkinD, MOUTH } from "./character.mjs";
-import { edgeAngle, polar, R_MEAN, scalpD } from "./fit.mjs";
+import { coverage, edgeAngle, hairAllowance, polar, R_MEAN, scalpD } from "./fit.mjs";
 import { clamp, gauss, sdCone, sdEllipsoid, smax, smin, sstep } from "./sdf.mjs";
 
 const [CX, CY, CZ] = HEAD.center;
@@ -191,21 +191,73 @@ export const HAIR = {
   },
 
   ponytail: (x, y, z) => {
-    let d = shell(x, y, z, { front: 0.95, side: 1.52, back: 2.34, burn: 0.1 }, (th, ph) => 0.0062 - combed(th, ph, 40, 0.0012, 4), 0.003);
-    // Tail from the tie at the back of the head.
-    const pts = [[0, 1.675, -0.13], [0, 1.65, -0.158], [0, 1.585, -0.168], [0, 1.52, -0.158], [0, 1.47, -0.142]];
-    const rad = [0.021, 0.027, 0.025, 0.017, 0.007];
-    let tail = 1;
-    for (let i = 0; i < pts.length - 1; i++) tail = smin(tail, sdCone(x, y, z, pts[i], pts[i + 1], rad[i], rad[i + 1]), 0.008);
-    tail -= 0.0015 * Math.abs(Math.sin(Math.atan2(x, z + 0.15) * 14 + y * 40));
-    d = smin(d, tail, 0.01);
+    let d = smin(ponytailCapD(x, y, z), ponytailTailD(null, x, y, z), 0.01);
     return clearOfBody(d, x, y, z, 0.004);
   },
 };
 
+/**
+ * Styles whose free shape can't be pressed under a hat: the afro's 17 cm
+ * sphere cut by a hat's allowance left a jagged, flaring skirt. Under any
+ * headwear it is tucked instead: a dense coiled layer that follows the head
+ * and fills out a little below the edge.
+ */
+export const HAIR_UNDER_HAT = {
+  afro: (x, y, z) => {
+    let d = shell(x, y, z, { front: 0.9, side: 1.56, back: 2.36, burn: 0.1 }, (th, ph, v) => 0.017 * (1 - 0.35 * v * v) + 0.004, 0.006);
+    const n = noise3(x * 140, y * 140, z * 140) + 0.5 * noise3(x * 300 + 3, y * 300, z * 300);
+    d -= 0.003 * Math.max(-0.4, n);
+    return clearOfBody(d, x, y, z, 0.005);
+  },
+};
+
+/** The ponytail's scalp layer: hair pulled back tight to the tie. */
+export const ponytailCapD = (x, y, z) => shell(x, y, z, { front: 0.95, side: 1.52, back: 2.34, burn: 0.1 }, (th, ph) => 0.0062 - combed(th, ph, 40, 0.0012, 4), 0.003);
+
+/**
+ * Where the ponytail is tied, per headwear mode. Free hair is tied high on
+ * the crown; under a hat the tie drops to just below the hat's back edge, so
+ * the tail hangs from the hair under the hat instead of being cut off by it
+ * (which left the lower half floating behind the neck).
+ */
+export const PONY_TIE = {
+  free: [0, 1.676, -0.134],
+  capped: [0, 1.622, -0.127],
+  covered: [0, 1.575, -0.117],
+  helmet: [0, 1.566, -0.114],
+  banded: [0, 1.676, -0.134],
+};
+const tieOf = (mode) => PONY_TIE[mode ?? "free"];
+
+/** The tail, hanging from the tie to just above the shoulders; anything a hat covers is cut away. */
+export function ponytailTailD(mode, x, y, z) {
+  const [tx, ty, tz] = tieOf(mode);
+  // The free tail's shape, re-rooted at this mode's tie and shortened to keep the same end point.
+  const end = 1.47;
+  const k = (ty - end) / (1.676 - end);
+  const at = (dy, dz) => [tx, ty - dy * k, tz + dz];
+  const pts = [at(0, 0.004), at(0.025, -0.024), at(0.09, -0.034), at(0.155, -0.024), [tx, end, tz - 0.008]];
+  const rad = [0.021, 0.027, 0.025, 0.017, 0.007];
+  if (Math.abs(x) > 0.06 || y > ty + 0.04 || y < end - 0.02 || z > tz + 0.04 || z < tz - 0.08) return 0.03;
+  let tail = 1;
+  for (let i = 0; i < pts.length - 1; i++) tail = smin(tail, sdCone(x, y, z, pts[i], pts[i + 1], rad[i], rad[i + 1]), 0.008);
+  tail -= 0.0015 * Math.abs(Math.sin(Math.atan2(x, z + 0.15) * 14 + y * 40));
+  if (mode && mode !== "banded") tail = smax(tail, coverage(mode, x, y, z).u + 0.004, 0.004);
+  return tail;
+}
+
+/** The ponytail under a hat of this mode: pressed scalp layer plus the re-rooted tail. */
+export function ponytailPressedD(mode, x, y, z) {
+  const capPart = Math.max(ponytailCapD(x, y, z), hairAllowance(mode, x, y, z));
+  return clearOfBody(smin(capPart, ponytailTailD(mode, x, y, z), 0.01), x, y, z, 0.004);
+}
+
 /** The ponytail's tie, its own material. */
-export function ponytailTieD(x, y, z) {
-  return sdEllipsoid(x, y - 1.676, z + 0.134, 0.026, 0.012, 0.022);
+export function ponytailTieD(x, y, z, mode = null) {
+  const [tx, ty, tz] = tieOf(mode);
+  let d = sdEllipsoid(x - tx, y - ty, z - tz, 0.026, 0.012, 0.022);
+  if (mode && mode !== "banded") d = smax(d, coverage(mode, x, y, z).u + 0.003, 0.003);
+  return d;
 }
 
 /** Simplification tolerance per style (m): bumpy styles keep their silhouette, not every bump. */
@@ -325,32 +377,48 @@ export const beardFlow = (x, y, z) => [...tangential([0, -1, 0.25], x, y, z, [0,
 
 /* ── facial hair ─────────────────────────────────────────────────────────── */
 
-/** Where facial hair grows on a face shape: negative inside the region. */
+/**
+ * Where facial hair grows on a face shape: negative inside the region.
+ *
+ * The cheek line runs on a diagonal, from the sideburn in front of the ear
+ * down to the mouth corner, the way real growth does; the mustache sits under
+ * the nose. The back edge stops in front of the ear and follows the jaw angle
+ * down, so the beard wraps the jaw instead of ending in a flat plate.
+ */
 export function beardRegion(style, x, y, z) {
   const ax = Math.abs(x);
-  // Cheek line: from the sideburn in front of the ear down across the cheek to the mouth corner.
-  const cheekLine = 1.6 + 0.018 * sstep(0.03, 0.09, ax) - 0.012 * gauss(ax, 0.03, 0.02);
   const lipsOut = Math.max(Math.abs(y - (MOUTH.y + 0.0008)) - 0.0075, ax - (MOUTH.w + 0.002)); // lips stay bare
-  const back = -(z - (-0.025 + 0.02 * sstep(1.55, 1.5, y))); // stop at the ear / jaw angle
   if (style === "beard" || style === "stubble") {
-    let r = Math.max(y - cheekLine, back);
+    // Seen from the side it's a diagonal: 1.632 at the sideburn in front of the ear, down to
+    // 1.586 at the mouth corner; the mustache fills in under the nose.
+    const side = sstep(0.028, 0.042, ax);
+    const cheekLine = 1.586 + side * 0.046 * sstep(0.088, 0.012, z);
+    // In front of the ear at the top, dropping back to the jaw angle under it.
+    const zBack = 0.012 - 0.036 * sstep(1.6, 1.52, y);
+    let r = Math.max(y - cheekLine, zBack - z);
     r = Math.max(r, -lipsOut);
-    // Down the jaw onto the top of the neck, not further.
-    r = Math.max(r, 1.505 - y + 0.03 * sstep(0.0, 0.05, z));
+    // Over the whole chin (front and underside) and onto the top of the throat, no further:
+    // a little lower at the front than behind the jaw angle, where it stops at the neck.
+    r = Math.max(r, 1.505 - y - 0.011 * sstep(0.0, 0.05, z));
     return r;
   }
   // Goatee: chin and a mustache joined at the mouth corners.
-  const chin = Math.max(ax - 0.026 - 0.004 * sstep(1.56, 1.53, y), y - (MOUTH.y - 0.006), 1.515 - y, 0.05 - z);
+  // Wraps the point of the chin and its underside (chins bottom out at y ≈ 1.504–1.508).
+  const chin = Math.max(ax - 0.026 - 0.004 * sstep(1.56, 1.53, y), y - (MOUTH.y - 0.006), 1.497 - y, 0.042 - z);
   const stache = Math.max(ax - (MOUTH.w + 0.005), Math.abs(y - (MOUTH.y + 0.0125)) - 0.0055, 0.1 - z);
   const corners = Math.max(Math.abs(ax - (MOUTH.w + 0.004)) - 0.0035, Math.abs(y - MOUTH.y) - 0.012, 0.09 - z);
   return Math.max(Math.min(chin, stache, corners), -lipsOut);
 }
 
+/** Full thickness off the skin, before the taper at the edges. */
 const BEARD_THICK = {
   stubble: () => 0.0005,
-  goatee: (x, y) => 0.0035 + 0.0025 * sstep(MOUTH.y - 0.01, 1.52, y),
-  beard: (x, y, z) => 0.004 + 0.0035 * sstep(1.6, 1.53, y) + 0.0015 * sstep(0.04, 0.0, Math.abs(x)) * sstep(1.56, 1.52, y),
+  goatee: (x, y) => 0.003 + 0.0025 * sstep(MOUTH.y - 0.01, 1.52, y),
+  // Close on the cheeks, fuller over the chin and under the jaw.
+  beard: (x, y, z) => 0.0034 + 0.0038 * sstep(1.585, 1.535, y) * sstep(0.075, 0.02, Math.abs(x)) + 0.001 * sstep(0.02, 0.07, z) * sstep(1.56, 1.52, y),
 };
+/** How far in from the region's edge the hair reaches full thickness. */
+const BEARD_TAPER = { stubble: 0.004, goatee: 0.008, beard: 0.012 };
 
 export const FACIAL_HAIR_STYLES = ["stubble", "goatee", "beard"];
 
@@ -358,10 +426,11 @@ export const FACIAL_HAIR_STYLES = ["stubble", "goatee", "beard"];
 export function beardD(style, face, x, y, z) {
   if (y > 1.64 || y < 1.47 || z < -0.06 || Math.abs(x) > 0.13) return 0.05;
   const skin = Math.min(headD(face, x, y, z), y < 1.56 ? bodyD(x, y, z) : 1);
-  // Thins out over the last 1.6 cm to its edge, so it grows from the skin instead of sitting on it like a mask.
+  // Thins out to almost nothing at its edge, so it grows from the skin instead of sitting on it like a mask.
   const region = beardRegion(style, x, y, z);
-  const t = 0.0011 + (BEARD_THICK[style](x, y, z) - 0.0011) * sstep(0.002, -0.016, region);
-  let d = smax(skin - t, region, style === "stubble" ? 0.002 : 0.003);
+  const ramp = sstep(0, -BEARD_TAPER[style], region);
+  const t = 0.0012 + (BEARD_THICK[style](x, y, z) - 0.0012) * ramp;
+  let d = smax(skin - t, region, style === "stubble" ? 0.002 : 0.0025);
   if (style !== "stubble") {
     // Clumps (the strands themselves are in the normal map).
     const n = noise3(x * 160, y * 90, z * 160);

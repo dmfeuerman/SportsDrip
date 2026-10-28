@@ -1,11 +1,10 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -15,7 +14,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
-import { Button, IconButton } from "@/components/ui";
+import PlayerProfileSheet from "@/components/PlayerProfileSheet";
+import TeamChips from "@/components/TeamChips";
+import { Button, ConfirmDialog, IconButton } from "@/components/ui";
 import { useLeague } from "@/context/LeagueContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { useApp } from "@/context/AppContext";
@@ -65,8 +66,10 @@ export default function FriendsScreen() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PublicUser[]>([]);
   const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState<PublicUser | null>(null);
+  const [selectedUid, setSelectedUid] = useState<string | null>(null);
+  const params = useLocalSearchParams<{ open?: string }>();
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const { unreadCount } = useNotifications();
   const { activeLeagues, inviteFriend } = useLeague();
   const [invited, setInvited] = useState<Record<string, "busy" | "sent" | "error">>({});
@@ -109,6 +112,122 @@ export default function FriendsScreen() {
   }, []);
 
   const searching_ui = query.trim().length >= 2;
+
+  // Every user this screen knows about, so the profile sheet can paint its
+  // header before getPlayerProfile answers.
+  const known = useMemo(() => {
+    const m = new Map<string, PublicUser>();
+    for (const u of Object.values(senders)) m.set(u.uid, u);
+    for (const u of results) m.set(u.uid, u);
+    for (const u of friends) m.set(u.uid, u);
+    return m;
+  }, [senders, results, friends]);
+  const selected = selectedUid ? known.get(selectedUid) ?? null : null;
+
+  // Deep link from an invite / friend notification: /(tabs)/friends?open=<uid>
+  useEffect(() => {
+    if (params.open) {
+      setSelectedUid(params.open);
+      router.setParams({ open: undefined });
+    }
+  }, [params.open]);
+
+  const incomingFrom = useMemo(() => new Set(incoming.map((r) => r.from)), [incoming]);
+
+  const renderActions = (uid: string) => {
+    if (uid === profile?.uid) return null;
+    if (incomingFrom.has(uid)) {
+      return (
+        <View style={styles.actionRow}>
+          <Button
+            label="Accept request"
+            icon="account-check"
+            style={{ flex: 1 }}
+            loading={busy === `req:${uid}`}
+            onPress={() => act(`req:${uid}`, () => respond(uid, true))}
+          />
+          <Button label="Decline" variant="secondary" loading={busy === `dec:${uid}`} onPress={() => act(`dec:${uid}`, () => respond(uid, false))} />
+        </View>
+      );
+    }
+    if (!friendUids.has(uid)) {
+      const pending = outgoingUids.has(uid);
+      return (
+        <Button
+          label={pending ? "Request sent" : "Add friend"}
+          icon={pending ? "clock-outline" : "account-plus"}
+          variant={pending ? "secondary" : "primary"}
+          disabled={pending}
+          loading={busy === uid}
+          onPress={() => act(uid, () => sendRequest(uid))}
+        />
+      );
+    }
+    return null;
+  };
+
+  const renderOptions = (uid: string) => {
+    if (uid === profile?.uid || !friendUids.has(uid)) return null;
+    const open = activeLeagues.filter((l) => !l.memberIds.includes(uid));
+    return (
+      <>
+        {open.length > 0 && (
+          <View style={{ gap: 8 }}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 0 }]}>Invite to a league</Text>
+            {open.map((l) => {
+              const k = `${l.id}:${uid}`;
+              const st = invited[k];
+              return (
+                <View key={l.id} style={styles.actionRow}>
+                  <Text style={[styles.userName, { color: colors.foreground, flex: 1 }]} numberOfLines={1}>
+                    {l.name}
+                  </Text>
+                  <Button
+                    size="sm"
+                    label={st === "sent" ? "Invited" : st === "error" ? "Retry" : "Invite"}
+                    variant={st === "sent" ? "secondary" : "league"}
+                    loading={st === "busy"}
+                    disabled={st === "sent"}
+                    onPress={async () => {
+                      setInvited((p) => ({ ...p, [k]: "busy" }));
+                      const e = await inviteFriend(l.id, uid);
+                      setInvited((p) => ({ ...p, [k]: e ? "error" : "sent" }));
+                    }}
+                  />
+                </View>
+              );
+            })}
+          </View>
+        )}
+        {open.length > 0 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
+        <Pressable
+          style={({ pressed }) => [styles.removeBtn, { backgroundColor: colors.destructive, opacity: pressed || busy === uid ? 0.75 : 1 }]}
+          disabled={busy === uid}
+          onPress={() => setConfirmRemove(uid)}
+        >
+          {busy === uid ? (
+            <ActivityIndicator color={colors.destructiveForeground} />
+          ) : (
+            <Text style={[styles.removeText, { color: colors.destructiveForeground }]}>Remove friend</Text>
+          )}
+        </Pressable>
+        <ConfirmDialog
+          visible={confirmRemove === uid}
+          title="Remove friend?"
+          body={`${known.get(uid)?.displayName ?? "This player"} will be removed from your friends. You can send a new request later.`}
+          confirmLabel="Remove"
+          destructive
+          busy={busy === uid}
+          onCancel={() => setConfirmRemove(null)}
+          onConfirm={async () => {
+            await act(uid, () => remove(uid));
+            setConfirmRemove(null);
+            setSelectedUid(null);
+          }}
+        />
+      </>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -158,7 +277,7 @@ export default function FriendsScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
-          searching_ui ? null : (
+          searching_ui ? undefined : (
             <>
               {incoming.length > 0 && (
                 <View style={styles.section}>
@@ -166,8 +285,11 @@ export default function FriendsScreen() {
                     Requests ({incoming.length})
                   </Text>
                   {incoming.map((r) => (
-                    <View
+                    <Pressable
                       key={r.id}
+                      onPress={() => setSelectedUid(r.from)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${senders[r.from]?.displayName ?? "player"}'s profile`}
                       style={[styles.reqRow, { backgroundColor: colors.card, borderColor: colors.border }]}
                     >
                       <View
@@ -202,13 +324,13 @@ export default function FriendsScreen() {
                         </Text>
                       </Pressable>
                       <Pressable
-                        style={[styles.declineBtn, { borderColor: colors.border }]}
+                        style={[styles.declineBtn, { borderColor: colors.alpha(colors.foreground, 0.25), backgroundColor: colors.secondary }]}
                         disabled={busy === r.id}
                         onPress={() => act(r.id, () => respond(r.from, false))}
                       >
-                        <MaterialCommunityIcons name="close" size={16} color={colors.mutedForeground} />
+                        <MaterialCommunityIcons name="close" size={18} color={colors.foreground} />
                       </Pressable>
-                    </View>
+                    </Pressable>
                   ))}
                 </View>
               )}
@@ -226,7 +348,9 @@ export default function FriendsScreen() {
           return (
             <Pressable
               style={[styles.userRow, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => setSelected(item)}
+              onPress={() => setSelectedUid(item.uid)}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${item.displayName}'s profile`}
             >
               <View style={[styles.thumb, { backgroundColor: colors.secondary }]}>
                 <AvatarDisplay avatar={item.avatar} equipped={item.equipped} catalog={byId} size="xs" />
@@ -243,6 +367,7 @@ export default function FriendsScreen() {
                     {item.stats.betsWon}W · {item.stats.betsLost}L
                   </Text>
                 )}
+                <TeamChips teams={item.favoriteTeams} compact max={3} style={{ marginTop: 3 }} />
               </View>
 
               {isFriend ? (
@@ -286,124 +411,14 @@ export default function FriendsScreen() {
         }
       />
 
-      {/* Friend profile (§21) */}
-      <Modal visible={!!selected} transparent animationType="slide" onRequestClose={() => setSelected(null)}>
-        <Pressable style={styles.overlay} onPress={() => setSelected(null)} />
-        {selected && (
-          <View style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={[styles.handle, { backgroundColor: colors.border }]} />
-
-            <View style={styles.vsRow}>
-              <View style={styles.vsSide}>
-                <View style={[styles.vsStage, { backgroundColor: colors.secondary }]}>
-                  {profile && (
-                    <AvatarDisplay
-                      avatar={profile.avatar}
-                      equipped={profile.equipped}
-                      catalog={byId}
-                      size="sm"
-                    />
-                  )}
-                </View>
-                <Text style={[styles.vsName, { color: colors.foreground }]} numberOfLines={1}>
-                  You
-                </Text>
-                <Text style={[styles.vsCredits, { color: colors.primary }]}>
-                  {(profile?.balance ?? 0).toLocaleString()}
-                </Text>
-              </View>
-
-              <Text style={[styles.vs, { color: colors.mutedForeground }]}>VS</Text>
-
-              <View style={styles.vsSide}>
-                <View style={[styles.vsStage, { backgroundColor: colors.secondary }]}>
-                  <AvatarDisplay
-                    avatar={selected.avatar}
-                    equipped={selected.equipped}
-                    catalog={byId}
-                    size="sm"
-                  />
-                </View>
-                <Text style={[styles.vsName, { color: colors.foreground }]} numberOfLines={1}>
-                  {selected.displayName}
-                </Text>
-                <Text style={[styles.vsCredits, { color: colors.primary }]}>
-                  {(selected.balance ?? 0).toLocaleString()}
-                </Text>
-              </View>
-            </View>
-
-            {selected.stats && (
-              <View style={[styles.statsBox, { borderColor: colors.border }]}>
-                <StatCell label="Bets" value={selected.stats.betsPlaced} colors={colors} />
-                <StatCell label="Won" value={selected.stats.betsWon} colors={colors} />
-                <StatCell label="Lost" value={selected.stats.betsLost} colors={colors} />
-              </View>
-            )}
-
-            {friendUids.has(selected.uid) && activeLeagues.some((l) => !l.memberIds.includes(selected.uid)) && (
-              <View style={{ gap: 8 }}>
-                <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 0 }]}>Invite to a league</Text>
-                {activeLeagues
-                  .filter((l) => !l.memberIds.includes(selected.uid))
-                  .map((l) => {
-                    const k = `${l.id}:${selected.uid}`;
-                    const st = invited[k];
-                    return (
-                      <View key={l.id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                        <Text style={[styles.userName, { color: colors.foreground, flex: 1 }]} numberOfLines={1}>
-                          {l.name}
-                        </Text>
-                        <Button
-                          size="sm"
-                          label={st === "sent" ? "Invited" : st === "error" ? "Retry" : "Invite"}
-                          variant={st === "sent" ? "secondary" : "league"}
-                          loading={st === "busy"}
-                          disabled={st === "sent"}
-                          onPress={async () => {
-                            setInvited((p) => ({ ...p, [k]: "busy" }));
-                            const e = await inviteFriend(l.id, selected.uid);
-                            setInvited((p) => ({ ...p, [k]: e ? "error" : "sent" }));
-                          }}
-                        />
-                      </View>
-                    );
-                  })}
-              </View>
-            )}
-
-            {friendUids.has(selected.uid) && (
-              <Pressable
-                style={[styles.removeBtn, { borderColor: colors.destructive }]}
-                disabled={busy === selected.uid}
-                onPress={async () => {
-                  await act(selected.uid, () => remove(selected.uid));
-                  setSelected(null);
-                }}
-              >
-                <Text style={[styles.removeText, { color: colors.destructive }]}>Remove friend</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
-      </Modal>
-    </View>
-  );
-}
-
-function StatCell({
-  label,
-  value,
-  colors,
-}: {
-  label: string;
-  value: number;
-  colors: ReturnType<typeof useColors>;
-}) {
-  return (
-    <View style={{ flex: 1, alignItems: "center", gap: 2 }}>
-      <Text style={[styles.statValue, { color: colors.foreground }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{label}</Text>
+      {/* Player profile: stats, favourite teams, active + settled bets (§21) */}
+      <PlayerProfileSheet
+        uid={selectedUid}
+        onClose={() => setSelectedUid(null)}
+        seed={selected ? { displayName: selected.displayName, username: selected.username, avatar: selected.avatar, equipped: selected.equipped, favoriteTeams: selected.favoriteTeams } : undefined}
+        footer={selectedUid ? renderActions(selectedUid) : null}
+        options={selectedUid ? renderOptions(selectedUid) : null}
+      />
     </View>
   );
 }
@@ -412,7 +427,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { borderBottomWidth: 1, paddingHorizontal: 16, paddingBottom: 12, gap: 10 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { fontSize: 24, fontFamily: "Inter_700Bold" },
+  title: { fontSize: 24, fontFamily: "Inter_900Black" },
   leagueBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -456,9 +471,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   reqText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
-  acceptBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 9 },
-  acceptText: { fontSize: 12, fontFamily: "Inter_700Bold" },
-  declineBtn: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  acceptBtn: { paddingHorizontal: 16, minHeight: 36, justifyContent: "center", borderRadius: 10 },
+  acceptText: { fontSize: 14, fontFamily: "Inter_800ExtraBold" },
+  declineBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   userRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -473,8 +488,8 @@ const styles = StyleSheet.create({
   userName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   userHandle: { fontSize: 12, fontFamily: "Inter_400Regular" },
   userRecord: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 2 },
-  addBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10 },
-  addText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  addBtn: { paddingHorizontal: 16, minHeight: 36, justifyContent: "center", borderRadius: 10 },
+  addText: { fontSize: 14, fontFamily: "Inter_800ExtraBold" },
   pendingPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1 },
   pendingText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   empty: { alignItems: "center", gap: 8, padding: 32, borderRadius: 16, borderWidth: 1, marginTop: 24 },
@@ -506,6 +521,8 @@ const styles = StyleSheet.create({
   statsBox: { flexDirection: "row", borderWidth: 1, borderRadius: 14, paddingVertical: 12 },
   statValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
   statLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  removeBtn: { borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: "center" },
-  removeText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  divider: { height: StyleSheet.hairlineWidth },
+  removeBtn: { borderRadius: 14, paddingVertical: 16, minHeight: 52, alignItems: "center", justifyContent: "center" },
+  removeText: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  actionRow: { flexDirection: "row", alignItems: "center", gap: 10 },
 });

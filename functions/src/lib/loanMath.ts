@@ -1,29 +1,28 @@
 /**
- * League loan math: simple (non-compounding) interest, balance sheets and
- * standings. Pure functions, no imports — the server uses this to move tokens
- * and the client uses the identical file to display what is owed.
+ * League loan math: flat, one-time interest, balance sheets and standings.
+ * Pure functions, no imports — the server uses this to move tokens and the
+ * client uses the identical file to display what is owed.
  *
  * KEEP IN SYNC: functions/src/lib/loanMath.ts and
  * artifacts/mobile/lib/loanMath.ts must be byte-identical. A test enforces it.
  *
  * Model
  * -----
- * A loan charges `ratePct` percent of its *outstanding principal* once per
- * `intervalHours`. Interest is never charged on interest: `interestAccrued` is
- * tracked separately from `principalOutstanding` and is not part of the base.
+ * A loan carries a fixed return: `ratePct` percent of the original principal,
+ * charged once. Borrow 100 at 10% and the lender gets back exactly 110 — no
+ * matter how long it takes, and never more. Nothing accrues over time and
+ * interest is never charged on interest.
  *
- * Interest is not written on a timer. It is a pure function of the loan and
- * the clock: `accruedThrough` marks how far interest has been folded into
- * `interestAccrued`, always advanced by whole periods. Reading a loan, opening
- * a screen, or re-running a job therefore cannot charge interest twice — the
- * same inputs always give the same number.
+ * Because the fee is a pure function of `principal` and `ratePct`, reading a
+ * loan, opening a screen or re-running a job can never change what is owed.
+ * Repayments settle the fee first, then principal; the total is the same
+ * either way.
  *
- * Interest is only materialised when the principal changes (a repayment),
- * because that is the only time the base for future periods changes.
- * Repayments settle accrued interest first, then principal.
+ * `accruedThrough` and `intervalHours` are kept on stored loans for backward
+ * compatibility only; they no longer affect any amount.
  *
- * Money is integer tokens. Each constant-principal segment is rounded once,
- * half-up, so the display and the server agree to the token.
+ * Money is integer tokens. The fee is rounded once, half-up, so the display
+ * and the server agree to the token.
  */
 
 export const HOUR_MS = 3_600_000;
@@ -34,17 +33,17 @@ export type LoanStatus = "requested" | "countered" | "active" | "repaid" | "reje
 export interface LoanTerms {
   /** Amount originally borrowed. Never changes. */
   principal: number;
-  /** Principal not yet repaid. Interest accrues on this. */
+  /** Principal not yet repaid. */
   principalOutstanding: number;
-  /** Interest folded in up to `accruedThrough`. */
+  /** The flat fee: `flatInterest(principal, ratePct)`. */
   interestAccrued: number;
   /** Interest already repaid. */
   interestPaid: number;
-  /** Epoch ms. Interest is settled up to here, in whole periods. */
+  /** Legacy. Unused. */
   accruedThrough: number;
-  /** Percent of outstanding principal charged per period. */
+  /** Flat percent of the original principal, charged once. */
   ratePct: number;
-  /** Hours per period. */
+  /** Legacy. Unused. */
   intervalHours: number;
 }
 
@@ -52,68 +51,53 @@ export interface LoanSnapshot {
   principal: number;
   principalOutstanding: number;
   principalRepaid: number;
-  /** All interest charged so far, including periods not yet materialised. */
+  /** The flat fee for the whole loan. */
   interestCharged: number;
   interestPaid: number;
   interestOutstanding: number;
   /** principalOutstanding + interestOutstanding. */
   totalOwed: number;
-  /** Interest the next period will add at the current principal. */
-  nextPeriodInterest: number;
-  /** Epoch ms of the next charge, or null when nothing is outstanding. */
-  nextAccrualAt: number | null;
+  /** principal + interestCharged — the most this loan can ever cost. */
+  totalRepayable: number;
+  /** principalRepaid + interestPaid. */
+  totalRepaid: number;
 }
 
-/** Whole periods between two instants. Never negative. */
-export function periodsBetween(from: number, to: number, intervalHours: number): number {
-  if (!(intervalHours > 0) || !(to > from)) return 0;
-  return Math.floor((to - from) / (intervalHours * HOUR_MS));
-}
-
-/** Simple interest on a fixed principal, rounded half-up to whole tokens. */
-export function simpleInterest(principal: number, ratePct: number, periods: number): number {
-  if (!(principal > 0) || !(ratePct > 0) || !(periods > 0)) return 0;
-  // Integer arithmetic where possible: rate is at most two decimals.
+/** The fixed return on a loan: ratePct of principal, once, rounded half-up. */
+export function flatInterest(principal: number, ratePct: number): number {
+  if (!(principal > 0) || !(ratePct > 0)) return 0;
+  // Integer arithmetic: rate is at most two decimals.
   const rateHundredths = Math.round(ratePct * 100);
-  return Math.floor((principal * rateHundredths * periods + 5000) / 10000);
+  return Math.floor((principal * rateHundredths + 5000) / 10000);
 }
 
-/** Interest accrued since `accruedThrough` but not yet folded in. */
-export function pendingInterest(loan: LoanTerms, now: number): number {
-  const periods = periodsBetween(loan.accruedThrough, now, loan.intervalHours);
-  return simpleInterest(loan.principalOutstanding, loan.ratePct, periods);
+/** principal + flat fee. */
+export function totalRepayable(principal: number, ratePct: number): number {
+  return Math.max(0, Math.floor(principal)) + flatInterest(principal, ratePct);
 }
 
-/**
- * Folds every whole elapsed period into `interestAccrued`. Idempotent:
- * materialising twice at the same instant is the same as once.
- */
-export function materialize(loan: LoanTerms, now: number): LoanTerms {
-  const periods = periodsBetween(loan.accruedThrough, now, loan.intervalHours);
-  if (periods <= 0) return loan;
-  return {
-    ...loan,
-    interestAccrued: loan.interestAccrued + simpleInterest(loan.principalOutstanding, loan.ratePct, periods),
-    accruedThrough: loan.accruedThrough + periods * loan.intervalHours * HOUR_MS,
-  };
+/** Normalises a stored loan to the flat model. Idempotent. */
+export function materialize(loan: LoanTerms, _now?: number): LoanTerms {
+  const fee = flatInterest(loan.principal, loan.ratePct);
+  return loan.interestAccrued === fee ? loan : { ...loan, interestAccrued: fee };
 }
 
-export function loanSnapshot(loan: LoanTerms, now: number): LoanSnapshot {
-  const m = materialize(loan, now);
-  const interestOutstanding = Math.max(0, m.interestAccrued - m.interestPaid);
+export function loanSnapshot(loan: LoanTerms, _now?: number): LoanSnapshot {
+  const m = materialize(loan);
   const principalOutstanding = Math.max(0, m.principalOutstanding);
-  const totalOwed = principalOutstanding + interestOutstanding;
-  const live = principalOutstanding > 0;
+  const interestPaid = Math.min(m.interestPaid, m.interestAccrued);
+  const interestOutstanding = Math.max(0, m.interestAccrued - m.interestPaid);
+  const principalRepaid = Math.max(0, m.principal - principalOutstanding);
   return {
     principal: m.principal,
     principalOutstanding,
-    principalRepaid: Math.max(0, m.principal - principalOutstanding),
+    principalRepaid,
     interestCharged: m.interestAccrued,
-    interestPaid: m.interestPaid,
+    interestPaid,
     interestOutstanding,
-    totalOwed,
-    nextPeriodInterest: live ? simpleInterest(principalOutstanding, m.ratePct, 1) : 0,
-    nextAccrualAt: live ? m.accruedThrough + m.intervalHours * HOUR_MS : null,
+    totalOwed: principalOutstanding + interestOutstanding,
+    totalRepayable: m.principal + m.interestAccrued,
+    totalRepaid: principalRepaid + interestPaid,
   };
 }
 
@@ -127,9 +111,9 @@ export interface RepaymentResult {
   settled: boolean;
 }
 
-/** Applies a repayment: accrued interest first, then principal. */
-export function applyRepayment(loan: LoanTerms, amount: number, now: number): RepaymentResult {
-  const m = materialize(loan, now);
+/** Applies a repayment: the flat fee first, then principal. */
+export function applyRepayment(loan: LoanTerms, amount: number, _now?: number): RepaymentResult {
+  const m = materialize(loan);
   const pay = Math.max(0, Math.floor(amount));
   const interestDue = Math.max(0, m.interestAccrued - m.interestPaid);
   const toInterest = Math.min(pay, interestDue);
@@ -143,12 +127,12 @@ export function applyRepayment(loan: LoanTerms, amount: number, now: number): Re
   return { loan: next, applied: toInterest + toPrincipal, toInterest, toPrincipal, settled };
 }
 
-/** A fresh, unaccrued loan. */
+/** A fresh loan with its flat fee already set. */
 export function newLoanTerms(principal: number, ratePct: number, intervalHours: number, now: number): LoanTerms {
   return {
     principal,
     principalOutstanding: principal,
-    interestAccrued: 0,
+    interestAccrued: flatInterest(principal, ratePct),
     interestPaid: 0,
     accruedThrough: now,
     ratePct,

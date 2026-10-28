@@ -297,6 +297,13 @@ export function outfitConflicts(equipped: Equipped, lookup: (id: string) => Item
 
 const inList = (v: unknown, list: string[]) =>
   typeof v === "string" ? list.find((c) => c.toLowerCase() === v.toLowerCase()) : undefined;
+/**
+ * Skin, hair and eye colours: one of the preset swatches (canonical casing), or
+ * any custom #RRGGBB from the colour wheel, upper-cased so equal colours compare equal.
+ */
+const HEX6 = /^#[0-9a-f]{6}$/i;
+export const isHexColor = (v: unknown): v is string => typeof v === "string" && HEX6.test(v);
+const colorIn = (v: unknown, list: string[]) => inList(v, list) ?? (isHexColor(v) ? v.toUpperCase() : undefined);
 const unit = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : undefined);
 
 /**
@@ -309,11 +316,11 @@ export function appearanceErrors(a: unknown): string[] {
   const errs: string[] = [];
   if (unit(x.height) === undefined || x.height !== unit(x.height)) errs.push("height");
   if (unit(x.bodyType) === undefined || x.bodyType !== unit(x.bodyType)) errs.push("bodyType");
-  if (!inList(x.skinTone, SKIN_TONES)) errs.push("skinTone");
+  if (!colorIn(x.skinTone, SKIN_TONES)) errs.push("skinTone");
   if (!inList(x.hairStyle, HAIR_STYLE_IDS)) errs.push("hairStyle");
-  if (!inList(x.hairColor, HAIR_COLORS)) errs.push("hairColor");
+  if (!colorIn(x.hairColor, HAIR_COLORS)) errs.push("hairColor");
   if (x.faceShape !== undefined && !inList(x.faceShape, FACE_SHAPE_IDS)) errs.push("faceShape");
-  if (x.eyeColor !== undefined && !inList(x.eyeColor, EYE_COLORS)) errs.push("eyeColor");
+  if (x.eyeColor !== undefined && !colorIn(x.eyeColor, EYE_COLORS)) errs.push("eyeColor");
   if (x.eyeShape !== undefined && !inList(x.eyeShape, EYE_SHAPE_IDS)) errs.push("eyeShape");
   if (x.eyebrows !== undefined && !inList(x.eyebrows, EYEBROW_IDS)) errs.push("eyebrows");
   if (x.facialHair !== undefined && !inList(x.facialHair, FACIAL_HAIR_IDS)) errs.push("facialHair");
@@ -337,11 +344,11 @@ export function sanitizeAppearance(a: unknown): AvatarConfig {
   return {
     height: unit(x.height) ?? d.height,
     bodyType: unit(x.bodyType) ?? d.bodyType,
-    skinTone: inList(x.skinTone, SKIN_TONES) ?? d.skinTone,
+    skinTone: colorIn(x.skinTone, SKIN_TONES) ?? d.skinTone,
     hairStyle: inList(x.hairStyle, HAIR_STYLE_IDS) ?? d.hairStyle,
-    hairColor: inList(x.hairColor, HAIR_COLORS) ?? d.hairColor,
+    hairColor: colorIn(x.hairColor, HAIR_COLORS) ?? d.hairColor,
     faceShape: inList(x.faceShape, FACE_SHAPE_IDS) ?? d.faceShape,
-    eyeColor: inList(x.eyeColor, EYE_COLORS) ?? d.eyeColor,
+    eyeColor: colorIn(x.eyeColor, EYE_COLORS) ?? d.eyeColor,
     eyeShape: inList(x.eyeShape, EYE_SHAPE_IDS) ?? d.eyeShape,
     eyebrows: inList(x.eyebrows, EYEBROW_IDS) ?? d.eyebrows,
     facialHair: inList(x.facialHair, FACIAL_HAIR_IDS) ?? d.facialHair,

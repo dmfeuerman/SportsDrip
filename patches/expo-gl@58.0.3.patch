@@ -1,0 +1,37 @@
+diff --git a/ios/EXGLContext.mm b/ios/EXGLContext.mm
+index dfadf52..31befdc 100644
+--- a/ios/EXGLContext.mm
++++ b/ios/EXGLContext.mm
+@@ -74,14 +74,18 @@
+   self->_contextId = EXGLContextCreate();
+   [[EXGLObjectManager shared] saveContext:self];
+ 
+-  // listen for foreground/background transitions
++  // listen for foreground/background transitions. Only a real background
++  // transition stops GL work: an app that is merely inactive (a system alert
++  // such as the ATT prompt, Control Center, a banner) may still use the GPU,
++  // and pausing there left any JS call that waits on the GL thread stuck
++  // until the app became active again.
+   [[NSNotificationCenter defaultCenter] addObserver:self
+                                         selector:@selector(onApplicationDidBecomeActive:)
+-                                        name:UIApplicationDidBecomeActiveNotification
++                                        name:UIApplicationWillEnterForegroundNotification
+                                         object:nil];
+   [[NSNotificationCenter defaultCenter] addObserver:self
+                                         selector:@selector(onApplicationWillResignActive:)
+-                                        name:UIApplicationWillResignActiveNotification
++                                        name:UIApplicationDidEnterBackgroundNotification
+                                         object:nil];
+ }
+ 
+@@ -142,8 +146,8 @@
+ 
+ - (void)destroy
+ {
+-  [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationDidBecomeActiveNotification object:nil];
+-  [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationWillResignActiveNotification object:nil];
++  [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationWillEnterForegroundNotification object:nil];
++  [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationDidEnterBackgroundNotification object:nil];
+ 
+   __weak EXGLContext *weakSelf = self;
+ 

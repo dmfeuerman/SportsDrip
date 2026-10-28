@@ -11,7 +11,7 @@
  *    nulls and `undefined` silently dropped the field
  *  - `id` is namespaced `SPORT:eventId` so two providers can never collide
  */
-export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "Soccer";
+export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "NCAAF" | "NCAAB" | "Soccer";
 export type GameStatus = "upcoming" | "live" | "final";
 export type Side = "home" | "away";
 
@@ -39,6 +39,19 @@ export interface TeamSide {
   pointsAgainst?: number | null;
 }
 
+/** Live state from the scoreboard. Football fills the first three, baseball the rest. */
+export interface LiveSituation {
+  downDistance: string | null;
+  possession: Side | null;
+  redZone: boolean;
+  balls: number | null;
+  strikes: number | null;
+  outs: number | null;
+  onFirst: boolean;
+  onSecond: boolean;
+  onThird: boolean;
+}
+
 export interface GameLine {
   /** "DET -3.5" exactly as the book words it. */
   spread?: string | null;
@@ -56,6 +69,8 @@ export interface Game {
   status: GameStatus;
   startsAt: number;
   startTimeLabel: string;
+  /** Set by the server when the provider stopped reporting a game that never finished. */
+  expired?: boolean;
   homeScore: number | null;
   awayScore: number | null;
   homeTeam: TeamSide;
@@ -77,9 +92,13 @@ export interface Game {
   /** Competition or round: "Week 12", "Matchday 14", "Conference Semifinal". */
   seasonLabel?: string | null;
   line?: GameLine | null;
+  /** Points per period, once the game has started. */
+  linescore?: { home: Array<number | null>; away: Array<number | null> } | null;
+  live?: LiveSituation | null;
+  providerPath?: string;
 }
 
-export const SPORTS: Sport[] = ["NFL", "NBA", "MLB", "NHL", "Soccer"];
+export const SPORTS: Sport[] = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"];
 
 /** Games whose start time has passed but which the provider still calls upcoming. */
 export function isStale(game: Game, now = Date.now()): boolean {

@@ -46,6 +46,10 @@ export const demoProfile: Profile = {
   avatar: avatar("#C68642", "fade", "#2B1B12"),
   equipped: { top: "top_mvp_jersey", bottom: "bottom_court_shorts", shoes: "shoes_fresh_kicks", hat: "hat_champion_snapback" },
   stats: { betsPlaced: 31, betsWon: 17, betsLost: 12, betsPush: 1, creditsWon: 2210, creditsStaked: 5400 },
+  favoriteTeams: [
+    { sport: "NBA", abbr: "BOS", name: "Boston Celtics", color: "#007A33" },
+    { sport: "NFL", abbr: "NE", name: "New England Patriots", color: "#002244" },
+  ],
   onboarded: true,
 };
 
@@ -83,36 +87,36 @@ export const demoCatalog: CatalogItem[] = [
   item("tee_basic_white", "Basic Tee", "top", "top_tee", 0, "common", "#F5F5F5", "#D9D9D9"),
   item("shorts_basic_navy", "Basic Shorts", "bottom", "bottom_shorts", 0, "common", "#1A237E", "#FFFFFF"),
   item("shoes_basic_white", "Basic Trainers", "shoes", "shoes_sneaker", 0, "common", "#FAFAFA", "#BDBDBD"),
-  item("hat_champion_snapback", "Champion Snapback", "hat", "hat_cap", 150, "common", "#CC0000", "#FFFFFF"),
-  item("hat_courtside_beanie", "Courtside Beanie", "hat", "hat_beanie", 140, "common", "#C62828", "#FFFFFF"),
-  item("hat_sand_bucket", "Sand Bucket Hat", "hat", "hat_bucket", 160, "uncommon", "#C8B68E", "#8D7B55"),
-  item("hat_game_helmet", "Game Helmet", "hat", "hat_helmet", 420, "rare", "#0D47A1", "#FFFFFF"),
-  item("hat_gold_crown", "Champion's Crown", "hat", "hat_crown", 1500, "legendary", "#FFD54F", "#D32F2F"),
-  item("top_mvp_jersey", "MVP Jersey", "top", "top_jersey", 300, "uncommon", "#1565C0", "#FFFFFF"),
-  item("top_stealth_hoodie", "Stealth Hoodie", "top", "top_hoodie", 400, "rare", "#212121", "#424242"),
-  item("top_warmup_longsleeve", "Warm-up Long Sleeve", "top", "top_longsleeve", 220, "common", "#37474F", "#FF6F00"),
-  item("bottom_court_shorts", "Court Shorts", "bottom", "bottom_shorts", 200, "common", "#1A237E", "#FFFFFF"),
-  item("bottom_track_joggers", "Track Joggers", "bottom", "bottom_joggers", 260, "uncommon", "#263238", "#FFFFFF"),
-  item("bottom_cargo_pants", "Cargo Pants", "bottom", "bottom_pants", 280, "uncommon", "#5D4037", "#3E2723"),
-  item("shoes_fresh_kicks", "Fresh Kicks", "shoes", "shoes_sneaker", 450, "rare", "#00E676", "#FFFFFF"),
-  item("shoes_fire_reds", "Fire Reds", "shoes", "shoes_hightop", 500, "rare", "#D50000", "#FFFFFF"),
-  item("outerwear_bomber", "Bomber Jacket", "outerwear", "outerwear_bomber", 550, "rare", "#558B2F", "#33691E"),
-  item("outerwear_letterman", "Letterman Jacket", "outerwear", "outerwear_varsity", 600, "epic", "#4A148C", "#FFD700"),
-  item("outerwear_ice_puffer", "Ice Puffer", "outerwear", "outerwear_puffer", 650, "epic", "#E3F2FD", "#90CAF9"),
-  item("eyewear_shades_black", "Blackout Shades", "eyewear", "eyewear_shades", 220, "uncommon", "#0A0A0A"),
-  item("accessory_gold_chain", "Gold Chain", "accessory", "acc_chain", 900, "legendary", "#FFD700", "#FFC107"),
-  item("accessory_sport_watch", "Sport Watch", "accessory", "acc_watch", 300, "uncommon", "#212121", "#9E9E9E"),
-  item("accessory_studio_headphones", "Studio Headphones", "accessory", "acc_headphones", 520, "rare", "#FAFAFA", "#212121"),
+  item("hat_champion_snapback", "Champion Snapback", "hat", "hat_cap", 1500, "common", "#CC0000", "#FFFFFF"),
+  item("hat_courtside_beanie", "Courtside Beanie", "hat", "hat_beanie", 1400, "common", "#C62828", "#FFFFFF"),
+  item("hat_sand_bucket", "Sand Bucket Hat", "hat", "hat_bucket", 2900, "uncommon", "#C8B68E", "#8D7B55"),
+  item("hat_game_helmet", "Game Helmet", "hat", "hat_helmet", 7500, "rare", "#0D47A1", "#FFFFFF"),
+  item("hat_gold_crown", "Champion's Crown", "hat", "hat_crown", 50000, "legendary", "#FFD54F", "#D32F2F"),
+  item("top_mvp_jersey", "MVP Jersey", "top", "top_jersey", 3800, "uncommon", "#1565C0", "#FFFFFF"),
+  item("top_stealth_hoodie", "Stealth Hoodie", "top", "top_hoodie", 7000, "rare", "#212121", "#424242"),
+  item("top_warmup_longsleeve", "Warm-up Long Sleeve", "top", "top_longsleeve", 1800, "common", "#37474F", "#FF6F00"),
+  item("bottom_court_shorts", "Court Shorts", "bottom", "bottom_shorts", 1600, "common", "#1A237E", "#FFFFFF"),
+  item("bottom_track_joggers", "Track Joggers", "bottom", "bottom_joggers", 3500, "uncommon", "#263238", "#FFFFFF"),
+  item("bottom_cargo_pants", "Cargo Pants", "bottom", "bottom_pants", 3800, "uncommon", "#5D4037", "#3E2723"),
+  item("shoes_fresh_kicks", "Fresh Kicks", "shoes", "shoes_sneaker", 8000, "rare", "#00E676", "#FFFFFF"),
+  item("shoes_fire_reds", "Fire Reds", "shoes", "shoes_hightop", 9000, "rare", "#D50000", "#FFFFFF"),
+  item("outerwear_bomber", "Bomber Jacket", "outerwear", "outerwear_bomber", 8500, "rare", "#558B2F", "#33691E"),
+  item("outerwear_letterman", "Letterman Jacket", "outerwear", "outerwear_varsity", 16000, "epic", "#4A148C", "#FFD700"),
+  item("outerwear_ice_puffer", "Ice Puffer", "outerwear", "outerwear_puffer", 18000, "epic", "#E3F2FD", "#90CAF9"),
+  item("eyewear_shades_black", "Blackout Shades", "eyewear", "eyewear_shades", 3000, "uncommon", "#0A0A0A"),
+  item("accessory_gold_chain", "Gold Chain", "accessory", "acc_chain", 40000, "legendary", "#FFD700", "#FFC107"),
+  item("accessory_sport_watch", "Sport Watch", "accessory", "acc_watch", 3800, "uncommon", "#212121", "#9E9E9E"),
+  item("accessory_studio_headphones", "Studio Headphones", "accessory", "acc_headphones", 9000, "rare", "#FAFAFA", "#212121"),
 ];
 
 export const demoFriends: PublicUser[] = [
-  { uid: "maya", username: "maya", displayName: "Maya R", avatar: avatar("#8D5524", "braids", "#0F0A08"), equipped: { top: "top_stealth_hoodie", bottom: "bottom_track_joggers", shoes: "shoes_fresh_kicks", accessory: "accessory_studio_headphones" }, balance: 4120, stats: { betsPlaced: 40, betsWon: 24, betsLost: 15, betsPush: 1, creditsWon: 3900, creditsStaked: 7000 } },
-  { uid: "theo", username: "theo_k", displayName: "Theo K", avatar: avatar("#F5D9C4", "curls", "#A9662E", { height: 0.7, faceShape: "heart", eyeColor: "#2E5FA3" }), equipped: { top: "tee_basic_white", outerwear: "outerwear_letterman", bottom: "bottom_cargo_pants", shoes: "shoes_fire_reds" }, balance: 1650, stats: { betsPlaced: 22, betsWon: 9, betsLost: 13, betsPush: 0, creditsWon: 700, creditsStaked: 3100 } },
+  { uid: "maya", username: "maya", displayName: "Maya R", avatar: avatar("#8D5524", "braids", "#0F0A08"), equipped: { top: "top_stealth_hoodie", bottom: "bottom_track_joggers", shoes: "shoes_fresh_kicks", accessory: "accessory_studio_headphones" }, balance: 4120, stats: { betsPlaced: 40, betsWon: 24, betsLost: 15, betsPush: 1, creditsWon: 3900, creditsStaked: 7000 }, favoriteTeams: [{ sport: "NFL", abbr: "KC", name: "Kansas City Chiefs", color: "#E31837" }, { sport: "NBA", abbr: "GS", name: "Golden State Warriors", color: "#1D428A" }, { sport: "Soccer", abbr: "ARS", name: "Arsenal", color: "#EF0107" }] },
+  { uid: "theo", username: "theo_k", displayName: "Theo K", avatar: avatar("#F5D9C4", "curls", "#A9662E", { height: 0.7, faceShape: "heart", eyeColor: "#2E5FA3" }), equipped: { top: "tee_basic_white", outerwear: "outerwear_letterman", bottom: "bottom_cargo_pants", shoes: "shoes_fire_reds" }, balance: 1650, stats: { betsPlaced: 22, betsWon: 9, betsLost: 13, betsPush: 0, creditsWon: 700, creditsStaked: 3100 }, favoriteTeams: [{ sport: "NBA", abbr: "LAL", name: "Los Angeles Lakers", color: "#552583" }] },
   { uid: "sam", username: "samj", displayName: "Sam J", avatar: avatar("#8D5524", "buzz", "#2B1B12", { bodyType: 0.85, faceShape: "square" }), equipped: { top: "top_mvp_jersey", hat: "hat_champion_snapback" }, balance: 980, stats: { betsPlaced: 12, betsWon: 5, betsLost: 7, betsPush: 0, creditsWon: 300, creditsStaked: 1500 } },
 ];
 
 export const demoPublicProfiles: Record<string, PublicUser> = Object.fromEntries(
-  [...demoFriends, { uid: demoUid, username: "dylan", displayName: "Dylan F", avatar: demoProfile.avatar, equipped: demoProfile.equipped }].map((u) => [u.uid, u])
+  [...demoFriends, { uid: demoUid, username: "dylan", displayName: "Dylan F", avatar: demoProfile.avatar, equipped: demoProfile.equipped, stats: demoProfile.stats, favoriteTeams: demoProfile.favoriteTeams }].map((u) => [u.uid, u])
 );
 
 const member = (uid: string, displayName: string, avatarColor: string, leagueTokens: number, joinedAt: number, w: number, l: number) => ({
@@ -151,7 +155,7 @@ const loan = (over: Partial<LeagueLoan> & Pick<LeagueLoan, "id" | "kind" | "borr
 });
 export const demoLoans: Record<string, LeagueLoan[]> = {
   lg_office: [
-    loan({ id: "bank_me_1", kind: "bank", borrowerId: demoUid, borrowerName: "Dylan F", principal: 4_000, principalOutstanding: 3_000, interestAccrued: 400, interestPaid: 400, accruedThrough: now - D - 2 * H }),
+    loan({ id: "bank_me_1", kind: "bank", borrowerId: demoUid, borrowerName: "Dylan F", principal: 4_000, principalOutstanding: 3_000, interestAccrued: 200, interestPaid: 200 }),
     loan({ id: "peer_theo_1", kind: "peer", borrowerId: "theo", borrowerName: "Theo K", lenderId: "maya", lenderName: "Maya R", principal: 2_000, ratePct: 4 }),
     loan({ id: "peer_sam_req", kind: "peer", status: "requested", borrowerId: "sam", borrowerName: "Sam J", principal: 1_500, ratePct: 6, proposedRate: 6, message: "Bills are a lock, trust me", declinedBy: [] }),
   ],

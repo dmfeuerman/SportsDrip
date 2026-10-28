@@ -35,7 +35,7 @@ export function usePublicProfiles(uids: string[]): Record<string, PublicUser> {
           cache.set(uid, {
             at: Date.now(),
             user: d
-              ? { uid, username: d.username ?? "", displayName: d.displayName ?? "", avatar: d.avatar!, equipped: d.equipped ?? {}, stats: d.stats }
+              ? { uid, username: d.username ?? "", displayName: d.displayName ?? "", avatar: d.avatar!, equipped: d.equipped ?? {}, stats: d.stats, favoriteTeams: d.favoriteTeams ?? [] }
               : null,
           });
         } catch {
