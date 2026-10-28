@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   EMPTY_QUEUE,
   STALE_POPUP_MS,
+  OPEN_WINDOW_MS,
+  coldStart,
   current,
   dismiss,
   dismissAll,
@@ -53,4 +55,18 @@ test("dismiss all clears the queue and remembers everything", () => {
   s = dismissAll(s);
   assert.equal(current(s), null);
   assert.deepEqual(enqueue(s, [n("a", NOW), n("b", NOW)], NOW).queue, []);
+});
+
+test("on open, a couple of results missed overnight still pop up one by one", () => {
+  const { state, recap } = coldStart(EMPTY_QUEUE, [n("b", NOW - 10 * 3_600_000), n("a", NOW - 20 * 3_600_000)], NOW);
+  assert.deepEqual(recap, []);
+  assert.deepEqual(state.queue, ["a", "b"]);
+});
+
+test("on open, three or more missed results become one recap, never individual popups", () => {
+  const items = [n("a", NOW - 3), n("b", NOW - 2), n("c", NOW - 1), n("read", NOW, { read: true }), n("ancient", NOW - OPEN_WINDOW_MS - 1)];
+  const { state, recap } = coldStart(EMPTY_QUEUE, items, NOW);
+  assert.deepEqual(recap, ["a", "b", "c"]);
+  assert.deepEqual(state.queue, []);
+  assert.deepEqual(enqueue(state, items, NOW).queue, [], "recapped results are done");
 });

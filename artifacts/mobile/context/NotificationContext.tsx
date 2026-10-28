@@ -16,6 +16,7 @@ import { firebaseConfigured, getDb } from "@/lib/firebase";
 import { DEMO, demoNotifications } from "@/lib/demo";
 import {
   EMPTY_QUEUE,
+  coldStart,
   current,
   dismiss as dismissOne,
   dismissAll as dismissEvery,
@@ -109,6 +110,9 @@ interface NotificationContextType {
   popup: AppNotification | null;
   /** Popups still waiting behind the current one. */
   waiting: number;
+  /** Results that settled while the app was closed, shown together as one recap (3+ of them). */
+  recap: AppNotification[];
+  dismissRecap: () => void;
   dismissPopup: () => void;
   dismissAllPopups: () => void;
   /** Newest unseen invite / friend event for the banner, if any. */
@@ -125,7 +129,12 @@ const NONE: AppNotification[] = [];
 
 export function NotificationProvider({ uid, children }: { uid: string | null; children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>(DEMO ? demoNotifications : NONE);
-  const [queue, setQueue] = useState<QueueState>(() => (DEMO ? enqueue(EMPTY_QUEUE, demoNotifications.filter((n) => !isSocial(n)), Date.now()) : EMPTY_QUEUE));
+  const [boot] = useState(() => (DEMO ? coldStart(EMPTY_QUEUE, demoNotifications.filter((n) => !isSocial(n)), Date.now()) : null));
+  const [queue, setQueue] = useState<QueueState>(boot?.state ?? EMPTY_QUEUE);
+  const [recapIds, setRecapIds] = useState<string[]>(boot?.recap ?? []);
+  // The first snapshot after opening the app catches up on everything missed (coldStart);
+  // later ones only queue what's new.
+  const opened = useRef(!!boot);
   const [toastQueue, setToastQueue] = useState<QueueState>(EMPTY_QUEUE);
   // Bumped to re-attach the listener after it errors. Firestore never retries a
   // listener that has failed, so before this one permission blip at sign-in
@@ -145,7 +154,16 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
     const results = list.filter((n) => !isSocial(n));
     const social = list.filter(isSocial).map((n) => ({ ...n, popup: true }));
     setNotifications(list);
-    setQueue((q) => enqueue(prune(q, results), results, now));
+    if (!opened.current) {
+      opened.current = true;
+      setQueue((q) => {
+        const r = coldStart(prune(q, results), results, now);
+        if (r.recap.length) setRecapIds(r.recap);
+        return r.state;
+      });
+    } else {
+      setQueue((q) => enqueue(prune(q, results), results, now));
+    }
     setToastQueue((q) => enqueue(prune(q, social), social, now));
   }, []);
 
@@ -233,6 +251,16 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
     setToastQueue((q) => dismissOne(q, toastId));
   }, [toastId]);
 
+  const recap = useMemo(() => {
+    if (!recapIds.length) return NONE;
+    const byId = new Map(notifications.map((n) => [n.id, n]));
+    return recapIds.map((id) => byId.get(id)).filter((n): n is AppNotification => !!n && !n.read);
+  }, [recapIds, notifications]);
+  const dismissRecap = useCallback(() => {
+    markRead(recapIds);
+    setRecapIds([]);
+  }, [recapIds, markRead]);
+
   const markAllRead = useCallback(() => {
     markRead(notifications.filter((n) => !n.read).map((n) => n.id));
   }, [notifications, markRead]);
@@ -243,6 +271,8 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
       unreadCount: notifications.filter((n) => !n.read).length,
       popup,
       waiting: Math.max(0, queue.queue.length - 1),
+      recap,
+      dismissRecap,
       dismissPopup,
       dismissAllPopups,
       toast,
@@ -251,7 +281,7 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
       markRead,
       markAllRead,
     }),
-    [notifications, popup, queue.queue.length, dismissPopup, dismissAllPopups, toast, dismissToast, refresh, markRead, markAllRead]
+    [notifications, popup, queue.queue.length, recap, dismissRecap, dismissPopup, dismissAllPopups, toast, dismissToast, refresh, markRead, markAllRead]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

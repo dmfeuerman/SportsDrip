@@ -55,3 +55,24 @@ export function dismissAll(state: QueueState): QueueState {
 export function current(state: QueueState): string | null {
   return state.queue[0] ?? null;
 }
+
+/** On opening the app, results this recent that you haven't seen still pop up. */
+export const OPEN_WINDOW_MS = 7 * 24 * 3_600_000;
+/** This many or more unseen results on open become one "while you were away" recap instead of a popup each. */
+export const RECAP_MIN = 3;
+
+/**
+ * The first snapshot after the app opens. Results that settled while it was
+ * closed (up to a week back, not just the last few hours) are shown: one by
+ * one if there are only a couple, or as a single recap if there are more.
+ * Recapped ids count as done so they never also pop up individually.
+ */
+export function coldStart(state: QueueState, items: QueueItem[], now: number, { window = OPEN_WINDOW_MS, recapMin = RECAP_MIN } = {}): { state: QueueState; recap: string[] } {
+  const known = new Set([...state.queue, ...state.done]);
+  const unseen = items
+    .filter((n) => n.popup && !n.read && !known.has(n.id) && now - n.createdAtMs <= window)
+    .sort((a, b) => a.createdAtMs - b.createdAtMs);
+  const ids = [...new Set(unseen.map((n) => n.id))];
+  if (ids.length >= recapMin) return { state: { ...state, done: [...state.done, ...ids] }, recap: ids };
+  return { state: ids.length ? { ...state, queue: [...state.queue, ...ids] } : state, recap: [] };
+}

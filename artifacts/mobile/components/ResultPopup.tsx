@@ -6,6 +6,7 @@ import { AccessibilityInfo, Modal, Platform, Pressable, StyleSheet, Text, View }
 import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import Burst from "@/components/fx/Burst";
+import ResultRecap from "@/components/ResultRecap";
 import { ActionChip, Amount, Button, Pill } from "@/components/ui";
 import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
@@ -14,6 +15,7 @@ import { useNotifications, type AppNotification } from "@/context/NotificationCo
 import { useColors } from "@/hooks/useColors";
 import { trace } from "@/lib/devtrace";
 import { REWARD_RARITY } from "@/lib/motion";
+import { useShake } from "@/hooks/useMotion";
 
 /**
  * Win / loss popups.
@@ -25,20 +27,33 @@ import { REWARD_RARITY } from "@/lib/motion";
  * a settlement committed.
  */
 export default function ResultPopupHost() {
-  const { popup, waiting, dismissPopup, dismissAllPopups } = useNotifications();
+  const { popup, waiting, dismissPopup, dismissAllPopups, recap, dismissRecap } = useNotifications();
   const { breakpoint } = useAds();
   // Native: hold results until launch has settled; a modal (and its 3D
   // stage) presenting during launch is one more thing competing for the main thread.
   const [armed, setArmed] = useState(Platform.OS === "web");
   useEffect(() => {
     if (armed) return;
-    const t = setTimeout(() => setArmed(true), 5000);
+    const t = setTimeout(() => setArmed(true), 2500);
     return () => clearTimeout(t);
   }, [armed]);
   useEffect(() => {
     if (armed && popup) trace("popup", `showing ${popup.type} (${waiting} more waiting)`);
   }, [armed, popup?.id]);
-  if (!popup || !armed) return null;
+  if (!armed) return null;
+  // Bets that settled while the app was closed: one recap first, then anything newer one by one.
+  if (recap.length) {
+    return (
+      <ResultRecap
+        items={recap}
+        onDismiss={() => {
+          dismissRecap();
+          if (!popup) breakpoint("results_seen");
+        }}
+      />
+    );
+  }
+  if (!popup) return null;
   return (
     <ResultPopup
       key={popup.id}
@@ -93,6 +108,7 @@ function ResultPopup({
   const big = won && bet ? bet.payout >= bet.stake * 3 || profit >= 1000 : n.type === "league_payout";
   const shown = useCountUp(Math.abs(won && bet ? profit : n.delta));
   const fired = useRef(false);
+  const { style: shakeStyle, shake } = useShake();
   const { profile } = useApp();
   const { byId } = useCatalog();
   // A stable id per popup, so the reaction plays once when it opens.
@@ -117,6 +133,13 @@ function ResultPopup({
     AccessibilityInfo.announceForAccessibility(`${n.title}. ${n.body}`);
   }, [won, lost, n.title, n.body]);
 
+  // A jolt for a loss, a rattle for a big win, once the card has landed.
+  useEffect(() => {
+    if (!lost && !big) return;
+    const t = setTimeout(() => shake(big ? 1.6 : 1), 380);
+    return () => clearTimeout(t);
+  }, [lost, big, shake]);
+
   const my = bet ? (bet.side === "home" ? bet.finalHomeScore : bet.finalAwayScore) : null;
   const their = bet ? (bet.side === "home" ? bet.finalAwayScore : bet.finalHomeScore) : null;
 
@@ -126,6 +149,7 @@ function ResultPopup({
         <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} accessibilityLabel="Dismiss" />
         {/* Confetti for a win — gold for a big one. */}
         {won ? <Burst colors={big ? REWARD_RARITY.epic.confetti : [c.positive, "#FFFFFF", c.accent, c.positive]} count={big ? 64 : 36} power={big ? 1.5 : 1.05} originY={0.42} /> : null}
+        <Animated.View style={[styles.shell, shakeStyle]}>
         <Animated.View
           entering={ZoomIn.springify().damping(14).stiffness(160)}
           accessibilityViewIsModal
@@ -225,6 +249,7 @@ function ResultPopup({
             </View>
           )}
         </Animated.View>
+        </Animated.View>
       </Animated.View>
     </Modal>
   );
@@ -244,6 +269,7 @@ function Row({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
+  shell: { width: "100%", maxWidth: 380, alignItems: "center" },
   card: {
     width: "100%",
     maxWidth: 380,
