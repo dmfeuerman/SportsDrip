@@ -14,7 +14,7 @@
  *  - what equipping an item takes off
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.HAIR_MODE_PRIORITY = exports.TEMPLATE_INFO = exports.DEFAULT_AVATAR = exports.FACE_STYLE_IDS = exports.MOUTH_SHAPE_IDS = exports.NOSE_SHAPE_IDS = exports.FACIAL_HAIR_IDS = exports.EYEBROW_IDS = exports.EYE_SHAPE_IDS = exports.FACE_SHAPE_IDS = exports.HAIR_STYLE_IDS = exports.EYE_COLORS = exports.HAIR_COLORS = exports.SKIN_TONES = exports.LEGACY_BASE = exports.DEFAULT_BASE = exports.BASE_MODELS = exports.SLOT_LAYER = exports.BODY_REGIONS = exports.HAIR_MODES = exports.SLOTS = void 0;
+exports.isHexColor = exports.HAIR_MODE_PRIORITY = exports.TEMPLATE_INFO = exports.DEFAULT_AVATAR = exports.FACE_STYLE_IDS = exports.MOUTH_SHAPE_IDS = exports.NOSE_SHAPE_IDS = exports.FACIAL_HAIR_IDS = exports.EYEBROW_IDS = exports.EYE_SHAPE_IDS = exports.FACE_SHAPE_IDS = exports.HAIR_STYLE_IDS = exports.EYE_COLORS = exports.HAIR_COLORS = exports.SKIN_TONES = exports.LEGACY_BASE = exports.DEFAULT_BASE = exports.BASE_MODELS = exports.SLOT_LAYER = exports.BODY_REGIONS = exports.HAIR_MODES = exports.SLOTS = void 0;
 exports.templateFor = templateFor;
 exports.hairModeOf = hairModeOf;
 exports.hidesOf = hidesOf;
@@ -225,6 +225,14 @@ function outfitConflicts(equipped, lookup) {
     return out;
 }
 const inList = (v, list) => typeof v === "string" ? list.find((c) => c.toLowerCase() === v.toLowerCase()) : undefined;
+/**
+ * Skin, hair and eye colours: one of the preset swatches (canonical casing), or
+ * any custom #RRGGBB from the colour wheel, upper-cased so equal colours compare equal.
+ */
+const HEX6 = /^#[0-9a-f]{6}$/i;
+const isHexColor = (v) => typeof v === "string" && HEX6.test(v);
+exports.isHexColor = isHexColor;
+const colorIn = (v, list) => inList(v, list) ?? ((0, exports.isHexColor)(v) ? v.toUpperCase() : undefined);
 const unit = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : undefined);
 /**
  * Problems with an appearance, as field names. Empty means valid. Used by the
@@ -239,15 +247,15 @@ function appearanceErrors(a) {
         errs.push("height");
     if (unit(x.bodyType) === undefined || x.bodyType !== unit(x.bodyType))
         errs.push("bodyType");
-    if (!inList(x.skinTone, exports.SKIN_TONES))
+    if (!colorIn(x.skinTone, exports.SKIN_TONES))
         errs.push("skinTone");
     if (!inList(x.hairStyle, exports.HAIR_STYLE_IDS))
         errs.push("hairStyle");
-    if (!inList(x.hairColor, exports.HAIR_COLORS))
+    if (!colorIn(x.hairColor, exports.HAIR_COLORS))
         errs.push("hairColor");
     if (x.faceShape !== undefined && !inList(x.faceShape, exports.FACE_SHAPE_IDS))
         errs.push("faceShape");
-    if (x.eyeColor !== undefined && !inList(x.eyeColor, exports.EYE_COLORS))
+    if (x.eyeColor !== undefined && !colorIn(x.eyeColor, exports.EYE_COLORS))
         errs.push("eyeColor");
     if (x.eyeShape !== undefined && !inList(x.eyeShape, exports.EYE_SHAPE_IDS))
         errs.push("eyeShape");
@@ -280,11 +288,11 @@ function sanitizeAppearance(a) {
     return {
         height: unit(x.height) ?? d.height,
         bodyType: unit(x.bodyType) ?? d.bodyType,
-        skinTone: inList(x.skinTone, exports.SKIN_TONES) ?? d.skinTone,
+        skinTone: colorIn(x.skinTone, exports.SKIN_TONES) ?? d.skinTone,
         hairStyle: inList(x.hairStyle, exports.HAIR_STYLE_IDS) ?? d.hairStyle,
-        hairColor: inList(x.hairColor, exports.HAIR_COLORS) ?? d.hairColor,
+        hairColor: colorIn(x.hairColor, exports.HAIR_COLORS) ?? d.hairColor,
         faceShape: inList(x.faceShape, exports.FACE_SHAPE_IDS) ?? d.faceShape,
-        eyeColor: inList(x.eyeColor, exports.EYE_COLORS) ?? d.eyeColor,
+        eyeColor: colorIn(x.eyeColor, exports.EYE_COLORS) ?? d.eyeColor,
         eyeShape: inList(x.eyeShape, exports.EYE_SHAPE_IDS) ?? d.eyeShape,
         eyebrows: inList(x.eyebrows, exports.EYEBROW_IDS) ?? d.eyebrows,
         facialHair: inList(x.facialHair, exports.FACIAL_HAIR_IDS) ?? d.facialHair,

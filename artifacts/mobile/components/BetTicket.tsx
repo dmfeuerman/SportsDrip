@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { Bet } from "@/context/AppContext";
+import { useNow } from "@/hooks/useNow";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { formatPercent, impliedProbability, livePosition, untilKickoff } from "@/lib/odds";
 import type { Game } from "@/types/game";
@@ -53,6 +54,8 @@ interface Props {
  */
 function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen }: Props) {
   const c = useColors();
+  // Re-check every 15 s so the cancel button disappears at kickoff, not at the next sync.
+  const now = useNow(15_000);
 
   const meta = STATUS[bet.status];
   const tone =
@@ -81,7 +84,10 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen 
         : `${bet.finalAwayScore}–${bet.finalHomeScore}`
       : null;
 
-  const canCancel = bet.status === "pending" && (!game || game.status === "upcoming");
+  // Only before kickoff: the game must be known, still upcoming, and its start time not yet
+  // passed (status can lag the real start by a sync or two). The server enforces the same.
+  const beforeStart = !!game && game.status === "upcoming" && game.startsAt > now;
+  const canCancel = bet.status === "pending" && beforeStart;
   const walletTint = walletLabel ? c.league : c.primary;
   const press = onOpen ?? (game && onOpenGame ? () => onOpenGame(game) : undefined);
 

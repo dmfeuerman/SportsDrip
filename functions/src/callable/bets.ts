@@ -140,8 +140,12 @@ export const cancelBet = onCall({ region: "us-central1" }, async (req) => {
       throw new HttpsError("failed-precondition", "That bet is already settled.");
     }
 
+    // Cancellable only before kickoff. The game's status lags the real start (the
+    // sync runs every couple of minutes), so the scheduled start time decides too;
+    // and a game we can't find is treated as started, never as cancellable.
     const game = await tx.get(db.collection("games").doc(bet.get("gameId") as string));
-    if (game.exists && game.get("status") !== "upcoming") {
+    const startsAt = game.exists ? ((game.get("startsAt") as number | undefined) ?? 0) : 0;
+    if (!game.exists || game.get("status") !== "upcoming" || !startsAt || startsAt <= Date.now()) {
       throw new HttpsError("failed-precondition", "The game has started — this bet is locked in.");
     }
 

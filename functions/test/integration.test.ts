@@ -101,6 +101,17 @@ test("double-tapped bets are one bet; cancelled bets refund once", async () => {
   assert.equal(balance("dan"), 1000);
 });
 
+test("a bet can't be cancelled once its game's start time has passed, even before the status sync", async () => {
+  seedUser("finn", 1000);
+  seedGame("g9");
+  const k = key();
+  await call(placeBet, "finn", { gameId: "g9", side: "home", stake: 100, idempotencyKey: k });
+  // Kickoff was a minute ago; the provider sync hasn't flipped the status to live yet.
+  seedGame("g9", { startsAt: Date.now() - 60_000 });
+  await rejects(call(cancelBet, "finn", { betId: `finn_${k}` }), /locked in/);
+  assert.equal(balance("finn"), 900);
+});
+
 test("balances can't go negative and odds come from the server", async () => {
   seedUser("eve", 50);
   seedGame("g4");

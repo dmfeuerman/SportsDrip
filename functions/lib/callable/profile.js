@@ -51,11 +51,9 @@ exports.createProfile = (0, https_1.onCall)({ region: "us-central1" }, async (re
             displayName: input.displayName,
             balance: economy_1.STARTING_BALANCE,
             avatar: input.avatar ?? avatarRules_1.DEFAULT_AVATAR,
-            equipped: {
-                top: "tee_basic_white",
-                bottom: "shorts_basic_navy",
-                shoes: "shoes_basic_white",
-            },
+            // Nothing worn at signup: the starter kit lands in the inventory to put on
+            // (or not) from the wardrobe.
+            equipped: {},
             stats: { betsPlaced: 0, betsWon: 0, betsLost: 0, betsPush: 0, creditsWon: 0, creditsStaked: 0 },
             onboarded: true,
             createdAt: economy_1.FieldValue.serverTimestamp(),
