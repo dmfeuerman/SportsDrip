@@ -8,6 +8,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+import { haptic } from "@/lib/motion";
 
 interface Particle {
   angle: number;
@@ -31,6 +32,7 @@ export default function Burst({
   power = 1,
   duration = 1500,
   originY = 0.5,
+  haptics = true,
 }: {
   colors: string[];
   trigger?: number | string;
@@ -40,6 +42,8 @@ export default function Burst({
   duration?: number;
   /** Vertical origin as a fraction of the container's height. */
   originY?: number;
+  /** Pop-pop-pop under the finger as the confetti flies. */
+  haptics?: boolean;
 }) {
   const reduced = useReducedMotion();
   const p = useSharedValue(0);
@@ -58,6 +62,10 @@ export default function Burst({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [count, power, colors.join(","), trigger]
   );
+  useEffect(() => {
+    if (haptics) haptic.crackle(Math.max(3, Math.round(count / 8)), 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trigger]);
   useEffect(() => {
     if (reduced) return;
     p.value = 0;

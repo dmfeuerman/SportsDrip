@@ -1,12 +1,13 @@
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import Svg, { Circle, Path } from "react-native-svg";
 import ColorWheelSheet, { hsvToHex } from "@/components/avatar/ColorWheel";
 import { useColors } from "@/hooks/useColors";
 
-const tick = () => Haptics.selectionAsync().catch(() => {});
+const tick = () => buzz.tick();
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   const c = useColors();

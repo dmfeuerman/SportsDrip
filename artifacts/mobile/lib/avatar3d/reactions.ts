@@ -13,34 +13,43 @@ import * as THREE from "three";
 
 export type ReactionKind = "win" | "loss";
 
-type Rest = Map<string, THREE.Vector3>; // bone → local rest position
-type Parents = Map<string, string | null>;
+export type Rest = Map<string, THREE.Vector3>; // bone → local rest position
+export type Parents = Map<string, string | null>;
 
-const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
-const Q = () => new THREE.Quaternion();
-const qe = (x: number, y = 0, z = 0) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, "XYZ"));
-const smooth = (t: number, a: number, b: number) => {
+export const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+export const Q = () => new THREE.Quaternion();
+export const qe = (x: number, y = 0, z = 0) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, "XYZ"));
+export const smooth = (t: number, a: number, b: number) => {
   const x = Math.min(1, Math.max(0, (t - a) / (b - a)));
   return x * x * (3 - 2 * x);
 };
 /** 0 → 1 over [a, b], held, then 1 → 0 over [c, d]. */
-const env = (t: number, a: number, b: number, c: number, d: number) => smooth(t, a, b) * (1 - smooth(t, c, d));
+export const env = (t: number, a: number, b: number, c: number, d: number) => smooth(t, a, b) * (1 - smooth(t, c, d));
 
-const CHAIN = ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head"] as const;
-const SIDES = [
+export const CHAIN = ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head"] as const;
+export const SIDES = [
   { s: "Left", g: 1 },
   { s: "Right", g: -1 },
 ] as const;
 
-interface Pose {
+export interface Pose {
   local: Map<string, THREE.Quaternion>;
   hips: THREE.Vector3;
   /** World-space wrist targets (and elbow pole hints) per side. */
-  hands: Partial<Record<"Left" | "Right", { target: THREE.Vector3; pole: THREE.Vector3 }>>;
+  /** `palm`: world direction the palm should face, applied by `palmW` (0…1). */
+  hands: Partial<Record<"Left" | "Right", { target: THREE.Vector3; pole: THREE.Vector3; palm?: THREE.Vector3; palmW?: number }>>;
+  /**
+   * World-space ankle targets (knee pole hints, and the foot's world rotation —
+   * flat when omitted) per side. Planted feet stay put however the hips move.
+   */
+  feet?: Partial<Record<"Left" | "Right", { target: THREE.Vector3; pole: THREE.Vector3; rot?: THREE.Quaternion }>>;
 }
 
-class Skeleton {
+export class Skeleton {
   restWorld = new Map<string, THREE.Vector3>();
+  /** Elbow direction solved on the previous frame, per side (see solveArm). Cleared per clip. */
+  lastBend: Partial<Record<"Left" | "Right", THREE.Vector3>> = {};
+  lastTwist: Partial<Record<"Left" | "Right", number>> = {};
   constructor(
     private rest: Rest,
     private parents: Parents
@@ -64,8 +73,12 @@ class Skeleton {
     const offset = this.rest.get(name)!.clone().applyQuaternion(parent.q);
     return { q: parent.q.clone().multiply(lq), p: parent.p.clone().add(offset) };
   }
-  /** Sets Arm and ForeArm local rotations so the wrist reaches `target` (world), elbow toward `pole`. */
-  solveArm(side: "Left" | "Right", target: THREE.Vector3, pole: THREE.Vector3, pose: Pose) {
+  /**
+   * Sets Arm and ForeArm local rotations so the wrist reaches `target` (world), elbow toward `pole`.
+   * With `palm` (world direction), the forearm also turns (pronation / supination, within a
+   * human range) so the palm faces that way.
+   */
+  solveArm(side: "Left" | "Right", target: THREE.Vector3, pole: THREE.Vector3, pose: Pose, palm?: THREE.Vector3, palmW = 1) {
     const arm = `${side}Arm`, fore = `${side}ForeArm`, hand = `${side}Hand`;
     const S = this.world(arm, pose.local, pose.hips);
     const a = this.rest.get(fore)!.length();
@@ -75,39 +88,119 @@ class Skeleton {
     const dir = toT.normalize();
     const along = (a * a - b * b + d * d) / (2 * d);
     const h = Math.sqrt(Math.max(0, a * a - along * along));
-    const bend = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir)));
+    const bend = pole.clone().normalize().sub(dir.clone().multiplyScalar(pole.clone().normalize().dot(dir)));
+    // Where the pole lines up with the reach, "which way the elbow points" is undefined and would
+    // spin from one frame to the next: lean on the previous frame's elbow direction there.
+    const prev = this.lastBend[side];
+    if (prev) bend.add(prev.clone().sub(dir.clone().multiplyScalar(prev.dot(dir))).multiplyScalar(0.2));
     if (bend.lengthSq() < 1e-8) bend.set(0, -1, 0);
     bend.normalize();
-    const E = S.p.clone().add(dir.clone().multiplyScalar(along)).add(bend.multiplyScalar(h));
+    this.lastBend[side] = bend.clone();
+    const E = S.p.clone().add(dir.clone().multiplyScalar(along)).add(bend.clone().multiplyScalar(h));
     const T = S.p.clone().add(dir.clone().multiplyScalar(d));
     // Rest segment directions (rest rotations are identity, so local = world at rest).
     const restArm = this.rest.get(fore)!.clone().normalize();
     const restFore = this.rest.get(hand)!.clone().normalize();
     const parentQ = this.world(`${side}Shoulder`, pose.local, pose.hips).q;
-    const armW = Q().setFromUnitVectors(restArm, E.clone().sub(S.p).normalize());
-    // Keep the arm's twist close to the rest pose: minimal rotation from rest, in world.
+    // Each segment is oriented by its axis plus the way the elbow points (back, at rest), so the
+    // elbow hinges in the arm's own plane and the twist never flips when an arm goes overhead
+    // (a minimal rotation from the hanging rest direction is unstable near 180°).
+    // The hinge normal (square to the plane of the arm) is well defined however far the elbow bends.
+    const hinge0 = restArm.clone().cross(RELAXED_POLE).normalize();
+    const hinge = dir.clone().cross(bend).normalize();
+    const armW = alignFrame(restArm, hinge0, E.clone().sub(S.p).normalize(), hinge);
     pose.local.set(arm, parentQ.clone().invert().multiply(armW));
-    const foreW = Q().setFromUnitVectors(restFore, T.clone().sub(E).normalize());
+    const axis = T.clone().sub(E).normalize();
+    const foreW = alignFrame(restFore, hinge0, axis, hinge);
+    if (palm) {
+      // At rest the palms face the thighs: inward, square to the forearm.
+      const restPalm = V(side === "Left" ? -1 : 1, 0, 0);
+      restPalm.sub(restFore.clone().multiplyScalar(restPalm.dot(restFore))).normalize();
+      const now = restPalm.applyQuaternion(foreW);
+      const p = palm.clone().normalize();
+      const want = p.clone().sub(axis.clone().multiplyScalar(p.dot(axis)));
+      // A palm direction along the forearm says nothing about the twist: fade it out there.
+      const defined = THREE.MathUtils.smoothstep(want.length(), 0.15, 0.45);
+      if (defined > 0) {
+        want.normalize();
+        let ang = Math.atan2(now.clone().cross(want).dot(axis), now.dot(want));
+        // Stay on the same side of ±180° as last frame rather than flipping the forearm round.
+        const last = this.lastTwist[side];
+        if (last !== undefined) ang += Math.round((last - ang) / (Math.PI * 2)) * Math.PI * 2;
+        ang = THREE.MathUtils.clamp(ang, -1.8, 1.8) * defined * palmW;
+        this.lastTwist[side] = ang;
+        foreW.premultiply(Q().setFromAxisAngle(axis, ang));
+      }
+    }
     pose.local.set(fore, armW.clone().invert().multiply(foreW));
+  }
+  /** Sets UpLeg, Leg and Foot so the ankle reaches `target` (world), knee toward `pole`, foot at world `rot`. */
+  solveLeg(side: "Left" | "Right", target: THREE.Vector3, pole: THREE.Vector3, rot: THREE.Quaternion | undefined, pose: Pose) {
+    const up = `${side}UpLeg`, leg = `${side}Leg`, foot = `${side}Foot`;
+    const S = this.world(up, pose.local, pose.hips);
+    const a = this.rest.get(leg)!.length();
+    const b = this.rest.get(foot)!.length();
+    const toT = target.clone().sub(S.p);
+    const d = THREE.MathUtils.clamp(toT.length(), Math.abs(a - b) + 1e-3, a + b - 1e-3);
+    const dir = toT.normalize();
+    const along = (a * a - b * b + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, a * a - along * along));
+    const bend = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir)));
+    if (bend.lengthSq() < 1e-8) bend.set(0, 0, 1);
+    bend.normalize();
+    const K = S.p.clone().add(dir.clone().multiplyScalar(along)).add(bend.multiplyScalar(h));
+    const T = S.p.clone().add(dir.clone().multiplyScalar(d));
+    // The leg turns with the foot (knee over toes): rest directions are pre-turned by the foot's heading.
+    const fwd = V(0, 0, 1).applyQuaternion(rot ?? Q());
+    const heading = Q().setFromAxisAngle(V(0, 1, 0), Math.atan2(fwd.x, fwd.z));
+    const turned = (v: THREE.Vector3) => v.clone().normalize().applyQuaternion(heading);
+    const thighW = Q().setFromUnitVectors(turned(this.rest.get(leg)!), K.clone().sub(S.p).normalize()).multiply(heading);
+    const parentQ = this.world(this.parents.get(up)!, pose.local, pose.hips).q;
+    pose.local.set(up, parentQ.invert().multiply(thighW));
+    const shinW = Q().setFromUnitVectors(turned(this.rest.get(foot)!), T.clone().sub(K).normalize()).multiply(heading);
+    pose.local.set(leg, thighW.clone().invert().multiply(shinW));
+    pose.local.set(foot, shinW.clone().invert().multiply(rot ?? Q()));
   }
 }
 
+/**
+ * Rotation taking the frame (axis `a0`, reference `r0`) onto (axis `a1`, reference `r1`).
+ * References are projected square to their axes, so only their direction round the axis counts.
+ */
+function alignFrame(a0: THREE.Vector3, r0: THREE.Vector3, a1: THREE.Vector3, r1: THREE.Vector3) {
+  const basis = (a: THREE.Vector3, r: THREE.Vector3) => {
+    const x = a.clone().normalize();
+    let y = r.clone().sub(x.clone().multiplyScalar(r.dot(x)));
+    if (y.lengthSq() < 1e-8) y = Math.abs(x.y) < 0.9 ? V(0, 1, 0) : V(0, 0, 1);
+    y.normalize();
+    const z = x.clone().cross(y);
+    return Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+  };
+  return basis(a1, r1).multiply(basis(a0, r0).invert());
+}
+
 /** World position of a point given in the head's rest frame (world rest coordinates). */
-function onHead(sk: Skeleton, pose: Pose, restPoint: THREE.Vector3) {
+export function onHead(sk: Skeleton, pose: Pose, restPoint: THREE.Vector3) {
   const head = sk.world("Head", pose.local, pose.hips);
   return restPoint.clone().sub(sk.restWorld.get("Head")!).applyQuaternion(head.q).add(head.p);
 }
 
-function sample(sk: Skeleton, name: string, dur: number, fps: number, poseAt: (t: number) => Pose) {
+export function sample(sk: Skeleton, name: string, dur: number, fps: number, poseAt: (t: number) => Pose) {
   const times: number[] = [];
   const poses: Pose[] = [];
   const n = Math.round(dur * fps);
+  sk.lastBend = {};
+  sk.lastTwist = {};
   for (let i = 0; i <= n; i++) {
     const t = (i / n) * dur;
     const pose = poseAt(t);
     for (const sd of ["Left", "Right"] as const) {
+      const f = pose.feet?.[sd];
+      if (f && sk.has(`${sd}UpLeg`)) sk.solveLeg(sd, f.target, f.pole, f.rot, pose);
+    }
+    for (const sd of ["Left", "Right"] as const) {
       const h = pose.hands[sd];
-      if (h && sk.has(`${sd}Arm`)) sk.solveArm(sd, h.target, h.pole, pose);
+      if (h && sk.has(`${sd}Arm`)) sk.solveArm(sd, h.target, h.pole, pose, h.palm, h.palmW);
     }
     times.push(t);
     poses.push(pose);
@@ -134,8 +227,8 @@ function sample(sk: Skeleton, name: string, dur: number, fps: number, poseAt: (t
  * Relaxed arm (close to the idle): hanging from the shoulder along its rest
  * line, almost straight, a touch forward. Pole: elbow back.
  */
-const RELAXED_POLE = V(0, 0.2, -1);
-function restHand(sk: Skeleton, side: "Left" | "Right", pose: Pose) {
+export const RELAXED_POLE = V(0, 0.2, -1);
+export function restHand(sk: Skeleton, side: "Left" | "Right", pose: Pose) {
   const sh = sk.world(`${side}Arm`, pose.local, pose.hips).p;
   const restSh = sk.restWorld.get(`${side}Arm`)!;
   const dir = sk.restWorld.get(`${side}Hand`)!.clone().sub(restSh).add(V(side === "Left" ? -0.03 : 0.03, 0, 0.04)).normalize();

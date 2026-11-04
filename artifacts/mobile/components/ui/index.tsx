@@ -1,12 +1,12 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import { router } from "expo-router";
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
   Platform,
-  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -14,6 +14,9 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from "react-native-reanimated";
+import { SPRING } from "@/lib/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import PressableScale from "@/components/fx/PressableScale";
 import RollingNumber from "@/components/fx/RollingNumber";
@@ -31,7 +34,7 @@ import { useColors, type Colors } from "@/hooks/useColors";
  * accessibility role.
  */
 
-type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+export type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
 export type Tone = "neutral" | "money" | "positive" | "negative" | "league" | "debt" | "warning" | "accent";
 
@@ -122,7 +125,7 @@ export function Button({
       disabled={off}
       scaleTo={0.96}
       dimTo={0.88}
-      haptic={haptic ? "tick" : false}
+      haptic={haptic ? (filled ? "medium" : "light") : false}
       onPress={onPress}
       style={[
         styles.btn,
@@ -318,15 +321,17 @@ export function StatTile({
 }) {
   const c = useColors();
   return (
-    <View style={[styles.stat, { backgroundColor: c.secondary, borderColor: c.border }, style]}>
-      <Text style={[styles.statLabel, { color: c.mutedForeground }]} numberOfLines={1}>
-        {label.toUpperCase()}
-      </Text>
+    <View style={[styles.stat, { backgroundColor: c.alpha(c.foreground, 0.045) }, style]}>
       {typeof children === "string" || typeof children === "number" ? (
-        <Text style={[styles.statValue, { color: c.foreground }]}>{children}</Text>
+        <Text style={[styles.statValue, { color: c.foreground }]} numberOfLines={1} adjustsFontSizeToFit>
+          {children}
+        </Text>
       ) : (
         children
       )}
+      <Text style={[styles.statLabel, { color: c.mutedForeground }]} numberOfLines={1}>
+        {label.toUpperCase()}
+      </Text>
       {hint ? (
         <Text style={[styles.statHint, { color: c.subtleForeground }]} numberOfLines={1}>
           {hint}
@@ -432,7 +437,7 @@ export function ActionChip({
       accessibilityState={{ disabled: !!disabled }}
       disabled={disabled}
       onPress={() => {
-        Haptics.selectionAsync().catch(() => {});
+        buzz.tick();
         onPress();
       }}
       hitSlop={8}
@@ -457,27 +462,33 @@ export function SectionHeader({
   onAction,
   prominent,
   actionIcon,
+  icon,
 }: {
   title: string;
   action?: string;
   onAction?: () => void;
-  /** Renders the action as a filled pill button instead of a tinted chip. */
+  /** Renders the action as a filled pill button instead of a text link. */
   prominent?: boolean;
   actionIcon?: IconName;
+  /** Leading glyph, like the trophy beside "FEATURED GAME". */
+  icon?: IconName;
 }) {
   const c = useColors();
   return (
     <View style={styles.sectionRow}>
-      <Text accessibilityRole="header" style={[styles.section, { color: c.foreground }]}>
-        {title}
-      </Text>
+      <View style={styles.sectionTitleRow}>
+        {icon ? <MaterialCommunityIcons name={icon} size={18} color={c.foreground} /> : null}
+        <Text accessibilityRole="header" style={[styles.section, { color: c.foreground }]} numberOfLines={1}>
+          {title.toUpperCase()}
+        </Text>
+      </View>
       {action && onAction ? (
         prominent ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={action}
             onPress={() => {
-              Haptics.selectionAsync().catch(() => {});
+              buzz.tick();
               onAction();
             }}
             hitSlop={8}
@@ -490,7 +501,21 @@ export function SectionHeader({
             <MaterialCommunityIcons name="chevron-right" size={18} color={c.primaryForeground} />
           </Pressable>
         ) : (
-          <ActionChip label={action} onPress={onAction} icon={actionIcon} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={action}
+            onPress={() => {
+              buzz.tick();
+              onAction();
+            }}
+            hitSlop={12}
+            style={({ pressed }) => [styles.sectionLink, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            {actionIcon ? <MaterialCommunityIcons name={actionIcon} size={15} color={c.accent} /> : null}
+            <Text style={[styles.sectionLinkText, { color: c.accent }]} numberOfLines={1}>
+              {action}
+            </Text>
+          </Pressable>
         )
       ) : null}
     </View>
@@ -510,7 +535,7 @@ export function SegmentedControl<T extends string>({
 }) {
   const c = useColors();
   return (
-    <View accessibilityRole="tablist" style={[styles.segment, { backgroundColor: c.secondary, borderColor: c.border }, style]}>
+    <View accessibilityRole="tablist" style={[styles.segment, { backgroundColor: c.secondary, borderColor: c.alpha(c.foreground, 0.08) }, style]}>
       {options.map((o) => {
         const on = o.value === value;
         return (
@@ -519,18 +544,214 @@ export function SegmentedControl<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}
             onPress={() => {
-              Haptics.selectionAsync().catch(() => {});
+              buzz.tick();
               onChange(o.value);
             }}
-            style={[styles.segmentItem, on && { backgroundColor: c.card }]}
+            style={[styles.segmentItem, on && { backgroundColor: c.foreground }]}
           >
-            <Text style={[styles.segmentText, { color: on ? c.foreground : c.mutedForeground }]} numberOfLines={1}>
+            <Text style={[styles.segmentText, { color: on ? c.background : c.mutedForeground }]} numberOfLines={1}>
               {o.label}
-              {o.badge ? ` · ${o.badge}` : ""}
             </Text>
+            {o.badge ? (
+              <View style={[styles.segmentBadge, { backgroundColor: on ? c.alpha(c.background, 0.16) : c.alpha(c.foreground, 0.1) }]}>
+                <Text style={[styles.segmentBadgeText, { color: on ? c.background : c.mutedForeground }]}>{o.badge > 99 ? "99+" : o.badge}</Text>
+              </View>
+            ) : null}
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/**
+ * Page-level tabs (ROSTER · MATCHUP · PLAYERS · LEAGUE): uppercase labels on
+ * one hairline, a bar under the active label that springs between tabs, and a
+ * red count for anything waiting. For switching a whole view; small in-content
+ * toggles use `SegmentedControl`.
+ *
+ * Inside a `ScreenHeader` it bleeds to the screen edges and sits on the
+ * header's bottom rule; pass `bleed={false}` anywhere else.
+ */
+export function TabStrip<T extends string>({
+  options,
+  value,
+  onChange,
+  bleed = true,
+  scroll,
+  style,
+}: {
+  options: Array<{ value: T; label: string; badge?: number }>;
+  value: T;
+  onChange: (v: T) => void;
+  bleed?: boolean;
+  /** Natural-width tabs that scroll sideways (for many or long labels). */
+  scroll?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const c = useColors();
+  const reduced = useReducedMotion();
+  const tabs = useRef<Record<string, { x: number; w: number }>>({});
+  const labels = useRef<Record<string, { x: number; w: number }>>({});
+  const [measured, setMeasured] = useState(0);
+  const x = useSharedValue(0);
+  const w = useSharedValue(0);
+  const placed = useRef(false);
+
+  useEffect(() => {
+    const t = tabs.current[value];
+    const l = labels.current[value];
+    if (!t || !l) return;
+    const nx = t.x + l.x - 4;
+    const nw = l.w + 8;
+    if (!placed.current || reduced) {
+      x.value = nx;
+      w.value = nw;
+      placed.current = true;
+    } else {
+      x.value = withSpring(nx, SPRING.snappy);
+      w.value = withSpring(nw, SPRING.snappy);
+    }
+  }, [value, measured, reduced, x, w]);
+  const bar = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }], width: w.value }));
+
+  const row = (
+    <View accessibilityRole="tablist" style={[styles.tabRow, !scroll && { flex: 1 }]}>
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={o.badge ? `${o.label}, ${o.badge} new` : o.label}
+            haptic="tick"
+            onPress={() => onChange(o.value)}
+            onLayout={(e) => {
+              tabs.current[o.value] = { x: e.nativeEvent.layout.x, w: e.nativeEvent.layout.width };
+              setMeasured((n) => n + 1);
+            }}
+            style={[styles.tab, scroll ? styles.tabScroll : { flex: 1 }]}
+          >
+            <View
+              style={styles.tabLabel}
+              onLayout={(e) => {
+                labels.current[o.value] = { x: e.nativeEvent.layout.x, w: e.nativeEvent.layout.width };
+                setMeasured((n) => n + 1);
+              }}
+            >
+              <Text style={[styles.tabText, { color: on ? c.foreground : c.mutedForeground }]} numberOfLines={1}>
+                {o.label.toUpperCase()}
+              </Text>
+              {o.badge ? (
+                <View style={[styles.tabBadge, { backgroundColor: c.negative }]}>
+                  <Text style={styles.tabBadgeText}>{o.badge > 99 ? "99+" : o.badge}</Text>
+                </View>
+              ) : null}
+            </View>
+          </Pressable>
+        );
+      })}
+      <Animated.View pointerEvents="none" style={[styles.tabBar, { backgroundColor: c.foreground }, bar]} />
+    </View>
+  );
+
+  return (
+    <View style={[styles.tabStrip, { borderBottomColor: c.border }, bleed && styles.tabBleed, style]}>
+      {scroll ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: bleed ? 8 : 0 }}>
+          {row}
+        </ScrollView>
+      ) : (
+        row
+      )}
+    </View>
+  );
+}
+
+/**
+ * A row of filter pills (Football · M. Basketball · Games): icon + label,
+ * the selected one filled with the action colour. Scrolls sideways.
+ */
+export function FilterPills<T extends string>({
+  options,
+  value,
+  onChange,
+  inset = 16,
+  style,
+}: {
+  options: Array<{ value: T; label: string; icon?: IconName; color?: string; badge?: number }>;
+  value: T;
+  onChange: (v: T) => void;
+  /** Horizontal padding at the ends of the row. */
+  inset?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const c = useColors();
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={style}
+      contentContainerStyle={[styles.pillsRow, { paddingHorizontal: inset }]}
+    >
+      {options.map((o) => {
+        const on = o.value === value;
+        const fg = on ? c.primaryForeground : c.foreground;
+        return (
+          <Pressable
+            key={o.value}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={o.label}
+            haptic="tick"
+            onPress={() => onChange(o.value)}
+            style={({ pressed }) => [
+              styles.filterPill,
+              !o.icon && { paddingLeft: 14 },
+              {
+                backgroundColor: on ? c.primary : c.secondary,
+                borderColor: on ? c.primary : c.alpha(c.foreground, 0.12),
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+              },
+            ]}
+          >
+            {o.icon ? (
+              <View style={[styles.filterIcon, { backgroundColor: on ? c.alpha(c.primaryForeground, 0.12) : c.alpha(o.color ?? c.foreground, 0.16) }]}>
+                <MaterialCommunityIcons name={o.icon} size={13} color={on ? c.primaryForeground : (o.color ?? c.mutedForeground)} />
+              </View>
+            ) : null}
+            <Text style={[styles.filterText, { color: fg }]} numberOfLines={1}>
+              {o.label}
+            </Text>
+            {o.badge ? <View style={[styles.dot, { backgroundColor: c.negative }]} /> : null}
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+/** Round outlined marker — roster position (C · 1B · OF), standings rank, market (ML · O/U). */
+export function RoundBadge({ label, color, size = 30, filled }: { label: string | number; color?: string; size?: number; filled?: boolean }) {
+  const c = useColors();
+  const col = color ?? c.accent;
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 1.5,
+        borderColor: col,
+        backgroundColor: filled ? c.alpha(col, 0.18) : "transparent",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Text style={{ color: col, fontFamily: "Inter_800ExtraBold", fontSize: size * (String(label).length > 2 ? 0.32 : 0.4), fontVariant: ["tabular-nums"] }} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -701,35 +922,55 @@ export function Initial({ name, color, size = 36 }: { name: string; color: strin
 }
 
 const styles = StyleSheet.create({
-  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, minHeight: 44 },
+  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, borderWidth: 1.5, minHeight: 44 },
   btnText: { fontFamily: "Inter_800ExtraBold" },
   iconBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   closeBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
   badgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_800ExtraBold" },
-  card: { borderRadius: 16, borderWidth: 1, padding: 14 },
+  card: { borderRadius: 14, borderWidth: 1, padding: 14 },
   pill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" },
   pillText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   amountRow: { flexDirection: "row", alignItems: "center", gap: 3 },
-  stat: { flex: 1, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 3, minWidth: 0 },
-  statLabel: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
-  statValue: { fontSize: 18, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
-  statHint: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  stat: { flex: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 10, gap: 2, minWidth: 0, alignItems: "center" },
+  statLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.9, marginTop: 2 },
+  statValue: { fontSize: 20, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
+  statHint: { fontSize: 10, fontFamily: "Inter_400Regular", textAlign: "center" },
   header: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingBottom: 12, gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 40 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   backBtn: { marginLeft: -8, marginRight: -4 },
-  title: { fontSize: 26, lineHeight: 30, fontFamily: "Inter_900Black", letterSpacing: -0.8 },
+  title: { fontSize: 22, lineHeight: 27, fontFamily: "Inter_900Black", letterSpacing: -0.5 },
   subtitle: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 1 },
-  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 8 },
-  section: { fontSize: 18, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.4 },
+  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, marginBottom: 8 },
+  sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  section: { fontSize: 14, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.7, flexShrink: 1 },
+  sectionLink: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },
+  sectionLinkText: { fontSize: 14, fontFamily: "Inter_700Bold" },
   chip: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 34, paddingLeft: 12, paddingRight: 8, borderRadius: 999, borderWidth: 1.5 },
   chipText: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.1 },
   sectionPill: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 36, paddingLeft: 14, paddingRight: 8, borderRadius: 999, borderWidth: 1 },
   sectionPillText: { fontSize: 14, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.1 },
-  segment: { flexDirection: "row", borderRadius: 12, borderWidth: 1, padding: 3 },
-  segmentItem: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: "center" },
-  segmentText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  segment: { flexDirection: "row", borderRadius: 999, borderWidth: 1, padding: 3 },
+  segmentItem: { flex: 1, flexDirection: "row", gap: 6, paddingVertical: 8, borderRadius: 999, alignItems: "center", justifyContent: "center" },
+  segmentText: { fontSize: 13, fontFamily: "Inter_700Bold", flexShrink: 1 },
+  segmentBadge: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
+  segmentBadgeText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
+  tabStrip: { borderBottomWidth: StyleSheet.hairlineWidth },
+  tabBleed: { marginHorizontal: -16, marginBottom: -12, borderBottomWidth: 0 },
+  tabRow: { flexDirection: "row" },
+  tab: { alignItems: "center", justifyContent: "center", paddingTop: 10, paddingBottom: 12, minHeight: 44 },
+  tabScroll: { paddingHorizontal: 14 },
+  tabLabel: { flexDirection: "row", alignItems: "center", gap: 5 },
+  tabText: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
+  tabBadge: { minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" },
+  tabBadgeText: { color: "#fff", fontSize: 9, fontFamily: "Inter_800ExtraBold" },
+  tabBar: { position: "absolute", left: 0, bottom: 0, height: 3, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
+  pillsRow: { gap: 8, alignItems: "center" },
+  filterPill: { flexDirection: "row", alignItems: "center", gap: 7, minHeight: 36, paddingLeft: 6, paddingRight: 14, borderRadius: 999, borderWidth: 1 },
+  filterIcon: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  filterText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  dot: { width: 7, height: 7, borderRadius: 4, marginLeft: -2 },
   empty: { alignItems: "center", gap: 8, padding: 28, borderRadius: 16, borderWidth: 1 },
   emptyIcon: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },

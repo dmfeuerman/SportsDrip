@@ -5,11 +5,6 @@
  * previous version of syncGames still parse, and a card renders the same as
  * before until the enriched sync has run at least once — no migration, no
  * empty-state flash.
- *
- * Two deliberate carry-overs from the earlier rewrite:
- *  - scores are `number | null`, never `undefined`; Firestore stores explicit
- *    nulls and `undefined` silently dropped the field
- *  - `id` is namespaced `SPORT:eventId` so two providers can never collide
  */
 export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "NCAAF" | "NCAAB" | "Soccer";
 export type GameStatus = "upcoming" | "live" | "final";
@@ -19,7 +14,8 @@ export interface TeamSide {
   name: string;
   abbreviation: string;
   color: string;
-  odds: number;
+  /** Decimal moneyline. Null when the feed has no line (see `priced`). */
+  odds: number | null;
 
   /** Secondary/alternate kit colour, for two-tone team chips. */
   altColor?: string | null;
@@ -71,15 +67,23 @@ export interface Game {
   startTimeLabel: string;
   /** Set by the server when the provider stopped reporting a game that never finished. */
   expired?: boolean;
+  /** Postponed or cancelled by the league: never bettable, open bets are voided. */
+  disrupted?: "postponed" | "canceled" | null;
   homeScore: number | null;
   awayScore: number | null;
   homeTeam: TeamSide;
   awayTeam: TeamSide;
+  /** True only when the feed carried a real moneyline. The server refuses bets otherwise. */
+  priced?: boolean;
+  /** Book the moneyline came from. */
+  oddsProvider?: string | null;
   updatedAt: number;
 
   /** "Q3 · 4:12", "Top 7", "78'". Present while live. */
   period?: number | null;
   clock?: string | null;
+  /** Seconds left in the period (elapsed for soccer) while live. */
+  clockSec?: number | null;
   /** Provider's own one-liner: "Bottom 9th, 2 out". */
   situation?: string | null;
   lastPlay?: string | null;
@@ -99,6 +103,20 @@ export interface Game {
 }
 
 export const SPORTS: Sport[] = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"];
+
+const validOdds = (x: number | null | undefined): x is number => typeof x === "number" && Number.isFinite(x) && x > 1;
+
+/** Mirrors the server gate (functions/src/lib/pricing.ts): explicit flag and both prices present. */
+export function isPriced(game: Pick<Game, "priced" | "homeTeam" | "awayTeam" | "disrupted">): boolean {
+  if (game.disrupted) return false;
+  return game.priced === true && validOdds(game.homeTeam.odds) && validOdds(game.awayTeam.odds);
+}
+
+/** The price for one side, or null when the game has no line. */
+export function sideOdds(game: Pick<Game, "priced" | "homeTeam" | "awayTeam" | "disrupted">, side: Side): number | null {
+  if (!isPriced(game)) return null;
+  return side === "home" ? game.homeTeam.odds : game.awayTeam.odds;
+}
 
 /** Games whose start time has passed but which the provider still calls upcoming. */
 export function isStale(game: Game, now = Date.now()): boolean {

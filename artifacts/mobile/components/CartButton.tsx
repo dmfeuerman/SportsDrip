@@ -1,17 +1,19 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useRef } from "react";
-import { Animated, Platform, Pressable, StyleSheet, Text } from "react-native";
-import { useCart } from "@/context/CartContext";
+import { Animated, Platform, StyleSheet, Text } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
+import type { CartOrigin } from "@/context/CartContext";
+import { useCartItems } from "@/hooks/useCartItems";
 import { useColors } from "@/hooks/useColors";
 
 /**
  * Cart icon with a live count of selected (not yet owned) items. Opens
  * checkout. The badge pops when the count goes up so a new pick registers.
  */
-export default function CartButton({ onPress }: { onPress?: () => void }) {
+export default function CartButton({ from, onPress }: { from: CartOrigin; onPress?: () => void }) {
   const c = useColors();
-  const { count } = useCart();
+  const { count } = useCartItems();
   const pop = useRef(new Animated.Value(1)).current;
   const prev = useRef(count);
 
@@ -28,7 +30,7 @@ export default function CartButton({ onPress }: { onPress?: () => void }) {
       accessibilityRole="button"
       accessibilityLabel={count ? `Cart, ${count} ${count === 1 ? "item" : "items"}` : "Cart, empty"}
       hitSlop={8}
-      onPress={onPress ?? (() => router.push("/checkout"))}
+      onPress={onPress ?? (() => router.push({ pathname: "/checkout", params: { from } }))}
       style={({ pressed }) => [
         styles.btn,
         {

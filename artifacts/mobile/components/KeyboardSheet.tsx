@@ -7,12 +7,12 @@ import {
   Modal,
   PanResponder,
   Platform,
-  Pressable,
   StyleSheet,
   View,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CloseButton } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";

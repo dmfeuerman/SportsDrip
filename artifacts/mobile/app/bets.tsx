@@ -1,24 +1,21 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { FlatList, StyleSheet, Text, View } from "react-native";
+import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import GameQuickView from "@/components/GameQuickView";
-import { Amount, EmptyState, ScreenHeader, SegmentedControl, StatTile, useBottomPad } from "@/components/ui";
+import { ActionChip, Amount, EmptyState, FilterPills, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
+import { useChallenges } from "@/context/ChallengeContext";
 import { useLeague } from "@/context/LeagueContext";
 import { useColors } from "@/hooks/useColors";
 import { useGames } from "@/hooks/useGames";
 
 type Tab = "open" | "settled";
-type Row = { bet: TicketBet; key: string; placed: number; wallet: string | null; cancellable: boolean };
+type Row = { bet: TicketBet; key: string; placed: number; wallet: string | null; leagueId?: string; cancellable: boolean };
 
 /**
  * Every bet you have, in both wallets.
- *
- * Previously credits-only, and it subscribed to *every* final game in the
- * database to show settled scores — an unbounded read that grew with the
- * season. Settled bets carry their own final score, so only the live board is
- * joined now.
  */
 export default function MyBetsScreen() {
   const c = useColors();
@@ -33,6 +30,9 @@ export default function MyBetsScreen() {
   const [wallet, setWallet] = useState<string>(params.wallet ?? "all");
   const [busy, setBusy] = useState<string | null>(null);
   const [quickGame, setQuickGame] = useState<string | null>(null);
+  const [breakdown, setBreakdown] = useState<BetBreakdownItem | null>(null);
+  const { incoming: chIn, outgoing: chOut, live: chLive, escrowed } = useChallenges();
+  const openChallenges = chIn.length + chOut.length + chLive.length;
 
   const rows: Row[] = useMemo(() => {
     const out: Row[] = [];
@@ -41,7 +41,7 @@ export default function MyBetsScreen() {
     }
     for (const lg of leagues) {
       if (wallet !== "all" && wallet !== lg.id) continue;
-      for (const b of myLeagueBets[lg.id] ?? []) out.push({ bet: b, key: `${lg.id}:${b.id}`, placed: b.placedAt, wallet: lg.name, cancellable: false });
+      for (const b of myLeagueBets[lg.id] ?? []) out.push({ bet: b, key: `${lg.id}:${b.id}`, placed: b.placedAt, wallet: lg.name, leagueId: lg.id, cancellable: false });
     }
     return out.sort((a, b) => b.placed - a.placed);
   }, [bets, leagues, myLeagueBets, wallet]);
@@ -76,27 +76,23 @@ export default function MyBetsScreen() {
             <Amount value={totalWon} size="sm" tone={totalWon > 0 ? "positive" : "neutral"} signed />
           </StatTile>
         </View>
-        {leagues.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-            {wallets.map((w) => {
-              const on = wallet === w.id;
-              return (
-                <Pressable
-                  key={w.id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  onPress={() => setWallet(w.id)}
-                  style={[styles.chip, { backgroundColor: on ? c.foreground : c.secondary, borderColor: on ? c.foreground : c.border }]}
-                >
-                  <Text style={[styles.chipText, { color: on ? c.background : c.mutedForeground }]} numberOfLines={1}>
-                    {w.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+        {openChallenges > 0 && (
+          <ActionChip
+            icon="sword-cross"
+            label={`${openChallenges} friend challenge${openChallenges > 1 ? "s" : ""}${escrowed ? ` · ${escrowed.toLocaleString()} in pots` : ""}${chIn.length ? ` · ${chIn.length} need an answer` : ""}`}
+            onPress={() => router.push("/challenges")}
+            style={{ alignSelf: "flex-start" }}
+          />
         )}
-        <SegmentedControl
+        {leagues.length > 0 && (
+          <FilterPills
+            value={wallet}
+            onChange={setWallet}
+            inset={0}
+            options={wallets.map((w) => ({ value: w.id, label: w.label, icon: (w.id === "credits" ? "lightning-bolt" : "shield-star") as never }))}
+          />
+        )}
+        <TabStrip
           value={tab}
           onChange={setTab}
           options={[
@@ -119,7 +115,37 @@ export default function MyBetsScreen() {
             walletLabel={item.wallet ?? undefined}
             game={gameById.get(item.bet.gameId) ?? null}
             busy={busy === item.key}
-            onOpen={() => setQuickGame(item.bet.gameId)}
+            onOpen={() => {
+              if (item.bet.status !== "pending") {
+                setBreakdown({
+                  id: item.bet.id,
+                  gameId: item.bet.gameId,
+                  sport: item.bet.sport,
+                  teamName: item.bet.teamName,
+                  teamAbbr: item.bet.teamAbbr,
+                  teamColor: item.bet.teamColor,
+                  opponentAbbr: item.bet.opponentAbbr,
+                  side: item.bet.side,
+                  market: item.bet.market ?? "ml",
+                  selection: item.bet.selection ?? null,
+                  line: item.bet.line ?? null,
+                  label: item.bet.label ?? null,
+                  lock: Boolean(item.bet.lockWeek),
+                  odds: item.bet.odds,
+                  stake: item.bet.stake,
+                  payout: item.bet.potentialPayout,
+                  status: item.bet.status,
+                  finalHomeScore: item.bet.finalHomeScore ?? null,
+                  finalAwayScore: item.bet.finalAwayScore ?? null,
+                  wallet: item.wallet ? "league" : "credits",
+                  leagueId: item.leagueId ?? null,
+                  leagueName: item.wallet,
+                  placedAtMs: item.placed || null,
+                });
+              } else {
+                setQuickGame(item.bet.gameId);
+              }
+            }}
             onCancel={
               item.cancellable
                 ? async () => {
@@ -144,6 +170,11 @@ export default function MyBetsScreen() {
             onAction={() => router.navigate("/(tabs)/games")}
           />
         }
+      />
+      <BetBreakdownModal
+        item={breakdown}
+        onClose={() => setBreakdown(null)}
+        onOpenGame={(gId) => setQuickGame(gId)}
       />
       <GameQuickView gameId={quickGame} onClose={() => setQuickGame(null)} />
     </View>

@@ -1,12 +1,13 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 import { FormStrip, formLine, h2hTally, injuryTone, teamOf } from "@/components/insights";
 import { useColors } from "@/hooks/useColors";
 import { useGameInsights } from "@/hooks/useGameInsights";
 import { fairProbabilities, formatPercent } from "@/lib/odds";
-import type { Game, Side } from "@/types/game";
+import { isPriced, type Game, type Side } from "@/types/game";
 
 /**
  * The bet slip's "before you lock it in" panel: what you'd want to know about
@@ -30,7 +31,7 @@ export default function TeamEdge({ game, side }: { game: Game; side: Side }) {
   const tally = h2hTally(game, h2h);
   const leaders = data?.leaders[side] ?? [];
   const injuries = data?.injuries[side] ?? [];
-  const market = fairProbabilities(game.homeTeam.odds, game.awayTeam.odds)[side];
+  const market = isPriced(game) ? fairProbabilities(game.homeTeam.odds, game.awayTeam.odds)[side] : null;
   const model = data?.predictor ? data.predictor[side] : null;
 
   return (
@@ -67,10 +68,13 @@ export default function TeamEdge({ game, side }: { game: Game; side: Side }) {
       {open ? (
         <Animated.View entering={FadeIn.duration(180)}>
           <ScrollView style={{ maxHeight: 210 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={styles.more}>
-            <Line icon="scale-balance" c={c}>
-              Margin removed, the market gives {t.abbreviation} {formatPercent(market)}
-              {model !== null ? `; ESPN's model says ${formatPercent(model)}` : ""}.
-            </Line>
+            {market !== null || model !== null ? (
+              <Line icon="scale-balance" c={c}>
+                {market !== null
+                  ? `Margin removed, the market gives ${t.abbreviation} ${formatPercent(market)}${model !== null ? `; ESPN's model says ${formatPercent(model)}` : ""}.`
+                  : `No line yet; ESPN's model gives ${t.abbreviation} ${formatPercent(model ?? 0)}.`}
+              </Line>
+            ) : null}
             {t.pointsFor != null && t.pointsAgainst != null ? (
               <Line icon="scoreboard-outline" c={c}>
                 Scores {t.pointsFor.toFixed(1)} and allows {t.pointsAgainst.toFixed(1)} a game

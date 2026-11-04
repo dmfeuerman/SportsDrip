@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.leagueSweep = exports.refundStaleBets = exports.settleBetsSweep = exports.onGameFinal = exports.pruneGames = exports.syncGames = exports.peerLoanAction = exports.requestPeerLoan = exports.repayLoan = exports.takeBankLoan = exports.placeLeagueBet = exports.endLeague = exports.inviteToLeague = exports.updateLeagueSettings = exports.leaveLeague = exports.joinLeague = exports.createLeague = exports.claimAdReward = exports.admobReward = exports.resetPrizeBox = exports.claimPrizeBox = exports.openPrizeBox = exports.equipItem = exports.purchaseItem = exports.cancelBet = exports.placeBet = exports.listFriends = exports.removeFriend = exports.respondFriendRequest = exports.sendFriendRequest = exports.getGameInsights = exports.updateFavoriteTeams = exports.getPlayerProfile = exports.saveAppearance = exports.searchUsers = exports.updateAvatar = exports.checkUsername = exports.createProfile = void 0;
+exports.createGroupParlay = exports.makePick = exports.reactToItem = exports.leagueStimulus = exports.voidLeagueBet = exports.reportResult = exports.voteEndLeague = exports.peerLoanAction = exports.requestPeerLoan = exports.repayLoan = exports.takeBankLoan = exports.placeLeagueBet = exports.endLeague = exports.inviteToLeague = exports.updateLeagueSettings = exports.leaveLeague = exports.joinLeague = exports.createLeague = exports.claimAdReward = exports.admobReward = exports.resetPrizeBox = exports.claimPrizeBox = exports.openPrizeBox = exports.syncProgression = exports.checkReferralCode = exports.getReferralCode = exports.setBackground = exports.purchaseBackground = exports.setMoveLoadout = exports.purchaseMove = exports.equipItem = exports.purchaseItem = exports.cancelChallenge = exports.respondChallenge = exports.createChallenge = exports.cancelBet = exports.placeBet = exports.listFriends = exports.removeFriend = exports.respondFriendRequest = exports.sendFriendRequest = exports.registerPushToken = exports.getGameInsights = exports.updateFavoriteTeams = exports.getPlayerProfile = exports.saveAppearance = exports.searchUsers = exports.updateAvatar = exports.checkUsername = exports.createProfile = void 0;
+exports.devTools = exports.xpOnFriendship = exports.xpOnLeagueBet = exports.xpOnLedger = exports.pushOnLeagueMessage = exports.pushOnDirectMessage = exports.pushOnNotification = exports.leagueMatchupJobs = exports.mondayLeagueJobs = exports.tuesdayLeagueReport = exports.lockReminders = exports.leagueSweep = exports.refundStaleBets = exports.settleBetsSweep = exports.onGameFinal = exports.pruneGames = exports.syncGames = exports.rideParlay = exports.lockParlay = exports.addParlayLeg = void 0;
 const v2_1 = require("firebase-functions/v2");
 (0, v2_1.setGlobalOptions)({ region: "us-central1", maxInstances: 20 });
 // Profile / identity
@@ -16,6 +17,8 @@ Object.defineProperty(exports, "getPlayerProfile", { enumerable: true, get: func
 Object.defineProperty(exports, "updateFavoriteTeams", { enumerable: true, get: function () { return players_1.updateFavoriteTeams; } });
 var insights_1 = require("./callable/insights");
 Object.defineProperty(exports, "getGameInsights", { enumerable: true, get: function () { return insights_1.getGameInsights; } });
+var push_1 = require("./callable/push");
+Object.defineProperty(exports, "registerPushToken", { enumerable: true, get: function () { return push_1.registerPushToken; } });
 // Social graph
 var friends_1 = require("./callable/friends");
 Object.defineProperty(exports, "sendFriendRequest", { enumerable: true, get: function () { return friends_1.sendFriendRequest; } });
@@ -26,9 +29,23 @@ Object.defineProperty(exports, "listFriends", { enumerable: true, get: function 
 var bets_1 = require("./callable/bets");
 Object.defineProperty(exports, "placeBet", { enumerable: true, get: function () { return bets_1.placeBet; } });
 Object.defineProperty(exports, "cancelBet", { enumerable: true, get: function () { return bets_1.cancelBet; } });
+var challenges_1 = require("./callable/challenges");
+Object.defineProperty(exports, "createChallenge", { enumerable: true, get: function () { return challenges_1.createChallenge; } });
+Object.defineProperty(exports, "respondChallenge", { enumerable: true, get: function () { return challenges_1.respondChallenge; } });
+Object.defineProperty(exports, "cancelChallenge", { enumerable: true, get: function () { return challenges_1.cancelChallenge; } });
 var shop_1 = require("./callable/shop");
 Object.defineProperty(exports, "purchaseItem", { enumerable: true, get: function () { return shop_1.purchaseItem; } });
 Object.defineProperty(exports, "equipItem", { enumerable: true, get: function () { return shop_1.equipItem; } });
+var moves_1 = require("./callable/moves");
+Object.defineProperty(exports, "purchaseMove", { enumerable: true, get: function () { return moves_1.purchaseMove; } });
+Object.defineProperty(exports, "setMoveLoadout", { enumerable: true, get: function () { return moves_1.setMoveLoadout; } });
+var backgrounds_1 = require("./callable/backgrounds");
+Object.defineProperty(exports, "purchaseBackground", { enumerable: true, get: function () { return backgrounds_1.purchaseBackground; } });
+Object.defineProperty(exports, "setBackground", { enumerable: true, get: function () { return backgrounds_1.setBackground; } });
+var referrals_1 = require("./callable/referrals");
+Object.defineProperty(exports, "getReferralCode", { enumerable: true, get: function () { return referrals_1.getReferralCode; } });
+Object.defineProperty(exports, "checkReferralCode", { enumerable: true, get: function () { return referrals_1.checkReferralCode; } });
+Object.defineProperty(exports, "syncProgression", { enumerable: true, get: function () { return referrals_1.syncProgression; } });
 var prizes_1 = require("./callable/prizes");
 Object.defineProperty(exports, "openPrizeBox", { enumerable: true, get: function () { return prizes_1.openPrizeBox; } });
 Object.defineProperty(exports, "claimPrizeBox", { enumerable: true, get: function () { return prizes_1.claimPrizeBox; } });
@@ -49,6 +66,19 @@ Object.defineProperty(exports, "takeBankLoan", { enumerable: true, get: function
 Object.defineProperty(exports, "repayLoan", { enumerable: true, get: function () { return leagues_1.repayLoan; } });
 Object.defineProperty(exports, "requestPeerLoan", { enumerable: true, get: function () { return leagues_1.requestPeerLoan; } });
 Object.defineProperty(exports, "peerLoanAction", { enumerable: true, get: function () { return leagues_1.peerLoanAction; } });
+Object.defineProperty(exports, "voteEndLeague", { enumerable: true, get: function () { return leagues_1.voteEndLeague; } });
+Object.defineProperty(exports, "reportResult", { enumerable: true, get: function () { return leagues_1.reportResult; } });
+Object.defineProperty(exports, "voidLeagueBet", { enumerable: true, get: function () { return leagues_1.voidLeagueBet; } });
+Object.defineProperty(exports, "leagueStimulus", { enumerable: true, get: function () { return leagues_1.leagueStimulus; } });
+var social_1 = require("./callable/social");
+Object.defineProperty(exports, "reactToItem", { enumerable: true, get: function () { return social_1.reactToItem; } });
+var picks_1 = require("./callable/picks");
+Object.defineProperty(exports, "makePick", { enumerable: true, get: function () { return picks_1.makePick; } });
+var parlays_1 = require("./callable/parlays");
+Object.defineProperty(exports, "createGroupParlay", { enumerable: true, get: function () { return parlays_1.createGroupParlay; } });
+Object.defineProperty(exports, "addParlayLeg", { enumerable: true, get: function () { return parlays_1.addParlayLeg; } });
+Object.defineProperty(exports, "lockParlay", { enumerable: true, get: function () { return parlays_1.lockParlay; } });
+Object.defineProperty(exports, "rideParlay", { enumerable: true, get: function () { return parlays_1.rideParlay; } });
 // Background jobs
 var syncGames_1 = require("./scheduled/syncGames");
 Object.defineProperty(exports, "syncGames", { enumerable: true, get: function () { return syncGames_1.syncGames; } });
@@ -59,4 +89,23 @@ Object.defineProperty(exports, "settleBetsSweep", { enumerable: true, get: funct
 Object.defineProperty(exports, "refundStaleBets", { enumerable: true, get: function () { return settleBets_1.refundStaleBets; } });
 var leagues_2 = require("./scheduled/leagues");
 Object.defineProperty(exports, "leagueSweep", { enumerable: true, get: function () { return leagues_2.leagueSweep; } });
+var reminders_1 = require("./scheduled/reminders");
+Object.defineProperty(exports, "lockReminders", { enumerable: true, get: function () { return reminders_1.lockReminders; } });
+var weekly_1 = require("./scheduled/weekly");
+Object.defineProperty(exports, "tuesdayLeagueReport", { enumerable: true, get: function () { return weekly_1.tuesdayLeagueReport; } });
+Object.defineProperty(exports, "mondayLeagueJobs", { enumerable: true, get: function () { return weekly_1.mondayLeagueJobs; } });
+Object.defineProperty(exports, "leagueMatchupJobs", { enumerable: true, get: function () { return weekly_1.leagueMatchupJobs; } });
+// Side effects of committed writes (never inside a money transaction)
+var push_2 = require("./triggers/push");
+Object.defineProperty(exports, "pushOnNotification", { enumerable: true, get: function () { return push_2.pushOnNotification; } });
+var chatPush_1 = require("./triggers/chatPush");
+Object.defineProperty(exports, "pushOnDirectMessage", { enumerable: true, get: function () { return chatPush_1.pushOnDirectMessage; } });
+Object.defineProperty(exports, "pushOnLeagueMessage", { enumerable: true, get: function () { return chatPush_1.pushOnLeagueMessage; } });
+var xp_1 = require("./triggers/xp");
+Object.defineProperty(exports, "xpOnLedger", { enumerable: true, get: function () { return xp_1.xpOnLedger; } });
+Object.defineProperty(exports, "xpOnLeagueBet", { enumerable: true, get: function () { return xp_1.xpOnLeagueBet; } });
+Object.defineProperty(exports, "xpOnFriendship", { enumerable: true, get: function () { return xp_1.xpOnFriendship; } });
+// Test data for the app's dev launch flags. Off unless DEV_TOOLS=1 or the emulator.
+var dev_1 = require("./callable/dev");
+Object.defineProperty(exports, "devTools", { enumerable: true, get: function () { return dev_1.devTools; } });
 //# sourceMappingURL=index.js.map

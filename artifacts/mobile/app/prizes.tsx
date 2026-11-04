@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import PrizeBox, { CHARGE_MS } from "@/components/PrizeBox";
 import BonusVideoCard from "@/components/ads/BonusVideoCard";
 import SpinWheel from "@/components/SpinWheel";
+import { BOX_ODDS, BOX_PITY_AFTER } from "@/constants/prizeTypes";
 import TokenBalance from "@/components/TokenBalance";
 import { BOX_DISPLAY, BOX_TIERS } from "@/constants/prizeTypes";
 import { useAds } from "@/context/AdsContext";
@@ -16,7 +17,7 @@ import { useColors } from "@/hooks/useColors";
 export default function PrizesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { balance, prizeBoxes, openBox, claimBox, resetBox, error, clearError } = useApp();
+  const { profile, balance, prizeBoxes, openBox, claimBox, resetBox, error, clearError } = useApp();
   const { breakpoint } = useAds();
 
   const [spinning, setSpinning] = useState<BoxTier | null>(null);
@@ -100,6 +101,9 @@ export default function PrizesScreen() {
     [prizeBoxes, now]
   );
 
+  const streakCount = profile?.streak?.count ?? 0;
+  const streakBonusPct = Math.min(5, streakCount) * 10;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View
@@ -129,6 +133,12 @@ export default function PrizesScreen() {
               tint={colors.accent}
             />
           )}
+          <Pill
+            colors={colors}
+            icon="fire"
+            text={streakCount > 0 ? `${streakCount}d pick streak (+${streakBonusPct}% on 2h box)` : "Place a daily pick for +10%/day on 2h box"}
+            tint={streakCount > 0 ? colors.primary : undefined}
+          />
         </View>
       </View>
 
@@ -170,6 +180,7 @@ export default function PrizesScreen() {
             { icon: "gift-outline", text: "Tap a box to start its timer." },
             { icon: "cloud-check-outline", text: "The timer runs on our servers — it keeps counting with the app closed, and it's the same on every device you sign in to." },
             { icon: "circle-slice-8", text: "When it's ready, crack it open and spin for your credits." },
+            { icon: "fire", text: "Daily pick streaks boost your 2h Quick Box by +10% per consecutive day (up to +50% at 5 days)." },
             { icon: "refresh", text: "Reset the box to start the next one." },
           ].map(({ icon, text }, i) => (
             <View key={i} style={styles.row}>
@@ -202,6 +213,21 @@ export default function PrizesScreen() {
               </View>
             );
           })}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Odds</Text>
+          {BOX_TIERS.map((tier) => (
+            <View key={tier} style={[styles.tableRow, { borderTopColor: colors.border, flexWrap: "wrap" }]}>
+              <Text style={[styles.tableLabel, { color: colors.foreground }]}>{BOX_DISPLAY[tier].label}</Text>
+              <Text style={[styles.rowText, { color: colors.mutedForeground, flexBasis: "100%" }]}>
+                {BOX_ODDS[tier].map((o) => `${o.credits}: ${o.pct.toFixed(1)}%`).join("  ·  ")}
+              </Text>
+            </View>
+          ))}
+          <Text style={[styles.rowText, { color: colors.mutedForeground }]}>
+            The top prize is guaranteed if you go {BOX_PITY_AFTER - 1} boxes of a tier without it. The wheel animation is for show; the result is decided before it spins.
+          </Text>
         </View>
       </ScrollView>
 

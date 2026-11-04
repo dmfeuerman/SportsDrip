@@ -48,6 +48,11 @@ export interface BetLockedInput {
   payout: number;
   currency: Currency;
   walletLabel?: string;
+  /** League wallet bets: offer "Post to league" after the stamp. */
+  leagueId?: string;
+  gameId?: string;
+  /** Hide-until-kickoff picks are never offered for posting. */
+  hidden?: boolean;
 }
 
 interface ToastContextType {

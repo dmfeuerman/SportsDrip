@@ -194,14 +194,44 @@ export interface Standing extends BalanceSheet {
 
 /**
  * Ranks on net worth, not on raw tokens — otherwise borrowing would be a free
- * climb up the table. Ties break on earlier join, then uid, so every device
- * and the server produce the same order.
+ * climb up the table. Ties break on fewer tokens owed (`debt`), then earlier
+ * join, then uid, so every device and the server produce the same order.
  */
 export function rankMembers(members: StandingMember[], loans: LeagueLoanLike[], now: number): Standing[] {
   return members
     .map((m) => ({ uid: m.uid, joinedAt: m.joinedAt, ...balanceSheet(m.uid, m.leagueTokens, loans, now) }))
-    .sort((a, b) => b.netWorth - a.netWorth || a.joinedAt - b.joinedAt || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0))
+    .sort(
+      (a, b) =>
+        b.netWorth - a.netWorth ||
+        a.debt - b.debt ||
+        a.joinedAt - b.joinedAt ||
+        (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0)
+    )
     .map(({ joinedAt: _j, ...s }, i) => ({ ...s, rank: i + 1 }));
+}
+
+/**
+ * H2H leagues (mode "matchups") rank on head-to-head record — 2 points a win,
+ * 1 a tie — with net worth breaking ties. Matches the server's season end.
+ * Other modes keep the net-worth order.
+ */
+export function rankByMode(
+  standings: Standing[],
+  mode: string | undefined,
+  h2h: (uid: string) => { w?: number; l?: number; t?: number } | undefined
+): Standing[] {
+  if (mode !== "matchups") return standings;
+  const pts = (uid: string) => {
+    const h = h2h(uid);
+    return (h?.w ?? 0) * 2 + (h?.t ?? 0);
+  };
+  const sorted = [...standings].sort((a, b) => pts(b.uid) - pts(a.uid) || b.netWorth - a.netWorth || (a.uid < b.uid ? -1 : 1));
+  let rank = 1;
+  return sorted.map((s, i) => {
+    const prev = sorted[i - 1];
+    if (prev && (pts(prev.uid) !== pts(s.uid) || prev.netWorth !== s.netWorth)) rank = i + 1;
+    return { ...s, rank };
+  });
 }
 
 export interface PrizeShares {
@@ -214,15 +244,38 @@ export interface PrizeShares {
  * Splits a pot across ranked places. Percentages for places nobody occupies
  * roll up to first, and the rounding remainder goes to first, so the payouts
  * always sum to exactly the pot.
+ *
+ * When `netWorths` (ordered by standing) is supplied, members tied on net worth
+ * pool the prizes of the places they span and split them equally.
  */
-export function prizeSplit(pot: number, shares: PrizeShares, memberCount: number): number[] {
-  const n = Math.max(0, Math.min(3, memberCount));
+export function prizeSplit(pot: number, shares: PrizeShares, memberCount: number, netWorths?: number[]): number[] {
+  const totalMembers = netWorths ? netWorths.length : memberCount;
+  const n = Math.max(0, Math.min(3, totalMembers));
   if (pot <= 0 || n === 0) return [];
   const pcts = [shares.firstPct, shares.secondPct, shares.thirdPct].map((p) => Math.max(0, p));
   const totalPct = pcts.reduce((s, p) => s + p, 0) || 100;
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) out.push(Math.floor((pot * pcts[i]!) / totalPct));
-  const paid = out.reduce((s, x) => s + x, 0);
-  out[0] = out[0]! + (pot - paid);
+  const base: number[] = [];
+  for (let i = 0; i < n; i++) base.push(Math.floor((pot * pcts[i]!) / totalPct));
+  const paid = base.reduce((s, x) => s + x, 0);
+  base[0] = base[0]! + (pot - paid);
+
+  if (!netWorths || netWorths.length === 0) return base;
+
+  const slotPrizes = Array.from({ length: netWorths.length }, (_, i) => base[i] ?? 0);
+  const out = new Array<number>(netWorths.length).fill(0);
+  let i = 0;
+  while (i < netWorths.length) {
+    let j = i + 1;
+    while (j < netWorths.length && netWorths[j] === netWorths[i]) j++;
+    const count = j - i;
+    let pool = 0;
+    for (let k = i; k < j; k++) pool += slotPrizes[k]!;
+    const each = Math.floor(pool / count);
+    const rem = pool - each * count;
+    for (let k = i; k < j; k++) {
+      out[k] = each + (k - i < rem ? 1 : 0);
+    }
+    i = j;
+  }
   return out;
 }

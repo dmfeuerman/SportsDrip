@@ -87,3 +87,24 @@ export const BOX_DISPLAY: Record<BoxTier, BoxDisplay> = {
 };
 
 export const BOX_TIERS: BoxTier[] = ["bronze", "silver", "gold"];
+
+/**
+ * Published odds, mirroring functions/src/lib/economy.ts PRIZE_BOXES weights
+ * (the server is authoritative). Shown on the Prizes screen.
+ */
+export const BOX_ODDS: Record<BoxTier, Array<{ credits: number; pct: number }>> = (() => {
+  const w: Record<BoxTier, Array<[number, number]>> = {
+    bronze: [[50, 9], [75, 4], [100, 2], [125, 1], [200, 1]],
+    silver: [[150, 9], [200, 4], [250, 2], [350, 1], [500, 1]],
+    gold: [[400, 9], [600, 4], [800, 2], [1200, 1], [2000, 1]],
+  };
+  const out = {} as Record<BoxTier, Array<{ credits: number; pct: number }>>;
+  for (const t of Object.keys(w) as BoxTier[]) {
+    const total = w[t].reduce((s, [, x]) => s + x, 0);
+    out[t] = w[t].map(([credits, x]) => ({ credits, pct: (x / total) * 100 }));
+  }
+  return out;
+})();
+
+/** Mirrors functions/src/callable/prizes.ts PITY_AFTER. */
+export const BOX_PITY_AFTER = 15;

@@ -1,5 +1,5 @@
 /**
- * Seeds catalog/{itemId}.
+ * Seeds catalog/{itemId}, moves/{moveId} and backgrounds/{backgroundId}.
  *
  * The shop was a hardcoded 15-item array in constants/shopItems.ts, so adding a
  * hat meant a code change and an app release (AUDIT A4, requirement §14). After
@@ -17,6 +17,8 @@
 import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { CATALOG } from "./catalog-data.mjs";
+import { MOVES } from "./move-data.mjs";
+import { BACKGROUNDS } from "./background-data.mjs";
 
 initializeApp({ credential: applicationDefault() });
 const db = getFirestore();
@@ -30,8 +32,14 @@ const run = async () => {
       { merge: true }
     );
   }
+  for (const m of MOVES) {
+    batch.set(db.collection("moves").doc(m.id), { ...m, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  }
+  for (const b of BACKGROUNDS) {
+    batch.set(db.collection("backgrounds").doc(b.id), { ...b, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  }
   await batch.commit();
-  console.log(`Seeded ${CATALOG.length} catalog items.`);
+  console.log(`Seeded ${CATALOG.length} catalog items, ${MOVES.length} moves and ${BACKGROUNDS.length} backgrounds.`);
 };
 
 run().catch((err) => {

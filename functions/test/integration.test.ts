@@ -16,6 +16,7 @@ import {
   takeBankLoan,
   updateLeagueSettings,
   inviteToLeague,
+  voteEndLeague,
 } from "../src/callable/leagues";
 import { refundStale, settleBetsForGame, settleLeagueBetsForGame } from "../src/scheduled/settleBets";
 import { sweepLeagues } from "../src/scheduled/leagues";
@@ -149,7 +150,7 @@ async function makeLeague(owner: string, over: Record<string, unknown> = {}) {
     idempotencyKey: key(),
     name: "Office",
     startingLeagueTokens: 1000,
-    duration: "1 Week",
+    duration: "1 Month",
     sports: ["NBA", "NFL"],
     buyIn: 100,
     prizePreset: "top-2",
@@ -306,6 +307,7 @@ test("a closed league rejects every mutation", async () => {
   seedUser("ben", 1000);
   const { leagueId, code } = await makeLeague("ann");
   await call(joinLeague, "ben", { code });
+  await call(voteEndLeague, "ben", { leagueId, vote: true });
   await call(endLeague, "ann", { leagueId });
   const closed = /ended|season is over/;
   await rejects(call(leaveLeague, "ben", { leagueId }), closed);
@@ -384,6 +386,7 @@ test("ending a league ranks on net worth, voids open bets, and pays the pot exac
   await settleLeagueBetsForGame("w");
 
   clock.advanceHours(24);
+  await call(voteEndLeague, "ben", { leagueId, vote: true });
   // Run the creator's button and the scheduler at the same time.
   await Promise.all([call(endLeague, "ann", { leagueId }), sweepLeagues(clock.get() + 8 * 86_400_000)]);
   await sweepLeagues(clock.get() + 8 * 86_400_000);

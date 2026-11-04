@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -14,7 +15,7 @@ import Animated, {
 import { ActionChip } from "@/components/ui";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { fairProbabilities, formatPercent } from "@/lib/odds";
-import type { Game, Side, TeamSide } from "@/types/game";
+import { isPriced, type Game, type Side, type TeamSide } from "@/types/game";
 import type { GameInsights, H2HGame, Injury, PlayerLeader, RecentGame } from "@/types/insights";
 
 /**
@@ -336,14 +337,19 @@ export function ScoringTimeline({ game, insights }: { game: Game; insights: Game
 export function Favoured({ game, insights }: { game: Game; insights: GameInsights | null }) {
   const c = useColors();
   if (game.status !== "upcoming") return null;
-  const market = fairProbabilities(game.homeTeam.odds, game.awayTeam.odds);
+  const priced = isPriced(game);
+  const market = priced ? fairProbabilities(game.homeTeam.odds, game.awayTeam.odds) : null;
   const model = insights?.predictor;
+  if (!market && !model) return null;
   return (
-    <Block title="Who's favoured" caption={model ? "The odds you're offered, and an independent model" : "From the odds you're offered, margin removed"}>
+    <Block
+      title="Who's favoured"
+      caption={market && model ? "The odds you're offered, and an independent model" : market ? "From the odds you're offered, margin removed" : "No line yet — an independent model only"}
+    >
       <View style={{ gap: 14, paddingVertical: 10 }}>
-        <SplitBar game={game} away={market.away} home={market.home} label="Market" />
+        {market ? <SplitBar game={game} away={market.away} home={market.home} label="Market" /> : null}
         {model ? <SplitBar game={game} away={model.away} home={model.home} label="ESPN model" /> : null}
-        {model && Math.abs(model.home - market.home) >= 0.08 ? (
+        {market && model && Math.abs(model.home - market.home) >= 0.08 ? (
           <Text style={[styles.caption, { color: c.mutedForeground }]}>
             The model rates {model.home > market.home ? game.homeTeam.abbreviation : game.awayTeam.abbreviation} higher than the market by{" "}
             {formatPercent(Math.abs(model.home - market.home))}. Disagreement isn't a guarantee either way.

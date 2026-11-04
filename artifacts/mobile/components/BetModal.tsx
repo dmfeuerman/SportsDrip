@@ -1,16 +1,23 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Keyboard, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, Switch } from "@/components/fx/Tap";
 import Animated, { ZoomIn } from "react-native-reanimated";
 import PressableScale from "@/components/fx/PressableScale";
 import RollingNumber from "@/components/fx/RollingNumber";
 import KeyboardSheet from "@/components/KeyboardSheet";
 import NumericInput from "@/components/NumericInput";
+import { ChallengeSetup, ChallengeSummary, clampOdds } from "@/components/ChallengeComposer";
 import TeamEdge from "@/components/insights/TeamEdge";
-import { ActionChip, Amount, Button } from "@/components/ui";
+import { ActionChip, Amount, Button, SegmentedControl } from "@/components/ui";
+import { useChallenges } from "@/context/ChallengeContext";
 import { useColors } from "@/hooks/useColors";
-import { formatPercent, impliedProbability } from "@/lib/odds";
+import { useNow } from "@/hooks/useNow";
+import { newIdempotencyKey } from "@/lib/api";
+import { challengeTerms, type ChallengeMode } from "@/lib/challengeMath";
+import { formatOdds, formatPercent, impliedProbability, NO_LINE, untilKickoff } from "@/lib/odds";
+import { lastStakeFor, rememberStake, useOddsFormat } from "@/lib/settings";
 import type { Game, Side } from "@/types/game";
 
 export interface BetWallet {
@@ -21,26 +28,62 @@ export interface BetWallet {
   kind: "credits" | "league";
 }
 
+/** League-only options on a slip. */
+export interface SlipExtras {
+  /** Lock of the Week (one per member per week, per league). */
+  lock: boolean;
+  /** Keep it off chat and hidden from the league until kickoff. */
+  hidden: boolean;
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onConfirm: (amount: number, walletId: string) => void | Promise<void>;
+  onConfirm: (amount: number, walletId: string, extras: SlipExtras) => void | Promise<void>;
   teamName: string;
   teamAbbr: string;
   teamColor: string;
-  odds: number;
+  /** The pick as a sentence ("Detroit Lions -3.5", "Over 45.5 total points"). Defaults to "<team> to win". */
+  pickTitle?: string;
+  /** Leagues where this week's Lock of the Week is already spent. */
+  lockUsed?: Record<string, boolean>;
+  /** Decimal price on this pick. Null when the book has no line: book bets are disabled, challenges still work. */
+  odds: number | null;
   gameSummary: string;
   /** Where the stake can come from. Credits first, then eligible leagues. */
   wallets: BetWallet[];
   defaultWallet?: string;
+  /** Prefilled stake (a tail copies the original stake), capped to the wallet. */
+  defaultStake?: number;
+  /**
+   * A line above the pick explaining where the slip came from ("Tailing Jake
+   * on DET"). Shown only while paying from `leagueId`, the league it refers to.
+   */
+  context?: { icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"]; text: string; leagueId: string };
   /** True while the callable is in flight. */
   submitting?: boolean;
   /** Server rejection, shown in the sheet so the user can fix and retry. */
   error?: string | null;
   /** The fixture and pick, for the pre-commit insights panel. */
   game?: Game;
-  side?: Side;
+  side?: Side | null;
+  /**
+   * Lets the slip switch to a head-to-head with a friend on the same pick.
+   * Challenges are credits-only and both stakes are escrowed by the server.
+   */
+  challenge?: {
+    /** Open in friend mode with this friend already picked. */
+    friendUid?: string;
+    /** Open in friend mode. */
+    initial?: boolean;
+    /** The challenge was created; the host closes the slip and confirms it. */
+    onSent: (sent: { friendName: string; teamAbbr: string; teamColor: string; stake: number; pot: number }) => void;
+    /** Host navigates to the Friends tab (after closing the slip). */
+    onFindFriends?: () => void;
+  };
 }
+
+type Mode = "book" | "friend";
 
 const MIN_STAKE = 10;
 
@@ -48,28 +91,13 @@ function pickWallet(wallets: BetWallet[], preferred?: string): string {
   return preferred && wallets.some((w) => w.id === preferred) ? preferred : wallets[0]?.id ?? "credits";
 }
 
-/**
- * The bet slip.
- *
- *  - a wallet picker: credits, or any league you're in that allows this sport
- *    and is still running when the game starts.
- *  - quick stakes as a share of the chosen wallet, because 50/100/250/500 is
- *    meaningless against a 25,000-token league stack
- *  - everything that matters before committing: implied chance, return,
- *    profit, and the balance it leaves — plus a plain note when the stake is
- *    more than half the wallet. No urgency, no nudging.
- *  - the server's rejection stays in the sheet instead of closing it.
- *
- * Keyboard: the sheet body scrolls and the "Betting with" strip + Place bet
- * button are a fixed footer, so KeyboardSheet's avoiding view shrinks the body
- * and the action stays on screen above the keyboard.
- *
- * Wallet switching: every tap target in the sheet persists taps while the
- * keyboard is up (the old horizontal picker swallowed the first tap to dismiss
- * the keyboard), the stake is cleared because a number typed against one
- * wallet means nothing in another, and focus is handed back to the same input
- * instance so typing simply continues.
- */
+function prefillStakeFor(wallets: BetWallet[], walletId: string, explicitStake?: number): string {
+  const room = wallets.find((w) => w.id === walletId)?.balance ?? 0;
+  const candidate = explicitStake ?? lastStakeFor(walletId) ?? 0;
+  const clamped = candidate > 0 ? Math.min(Math.floor(candidate), room) : 0;
+  return clamped >= MIN_STAKE ? String(clamped) : "";
+}
+
 export default function BetModal({
   visible,
   onClose,
@@ -77,19 +105,40 @@ export default function BetModal({
   teamName,
   teamAbbr,
   teamColor,
+  pickTitle,
+  lockUsed,
   odds,
   gameSummary,
   wallets,
   defaultWallet,
+  defaultStake,
+  context,
   submitting = false,
   error,
   game,
   side,
+  challenge,
 }: Props) {
   const c = useColors();
+  const oddsFormat = useOddsFormat();
+  const now = useNow(15_000);
   const [amount, setAmount] = useState("");
   const [walletId, setWalletId] = useState(() => pickWallet(wallets, defaultWallet));
   const [focused, setFocused] = useState(false);
+  const [lockPick, setLockPick] = useState(false);
+  const [hidePick, setHidePick] = useState(false);
+
+  // Friend mode
+  const canChallenge = !!challenge && !!game && !!side;
+  const { friends, friendsLoading, loadFriends, create } = useChallenges();
+  const unpriced = !(typeof odds === "number" && Number.isFinite(odds) && odds > 1);
+  const [mode, setMode] = useState<Mode>(canChallenge && (challenge?.initial || unpriced) ? "friend" : "book");
+  const [friendUid, setFriendUid] = useState<string | null>(challenge?.friendUid ?? null);
+  const [format, setFormat] = useState<ChallengeMode>("pot");
+  const [chOdds, setChOdds] = useState(() => clampOdds(odds ?? 2));
+  const [sending, setSending] = useState(false);
+  const [chError, setChError] = useState<string | null>(null);
+  const chKey = useRef(newIdempotencyKey());
 
   const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -97,19 +146,35 @@ export default function BetModal({
 
   useEffect(() => {
     if (visible) {
-      setAmount("");
-      setWalletId(pickWallet(wallets, defaultWallet));
+      const initialWallet = pickWallet(wallets, defaultWallet);
+      setWalletId(initialWallet);
+      setAmount(prefillStakeFor(wallets, initialWallet, defaultStake));
+      setLockPick(false);
+      setHidePick(false);
+      setMode(canChallenge && (challenge?.initial || unpriced) ? "friend" : "book");
+      setFriendUid(challenge?.friendUid ?? null);
+      setFormat("pot");
+      setChOdds(clampOdds(odds ?? 2));
+      setChError(null);
+      chKey.current = newIdempotencyKey();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, defaultWallet]);
 
-  // The wallet list is rebuilt from live league snapshots; if the selected one
-  // drops out (league ended, membership changed) fall back instead of leaving
-  // the slip pointing at a wallet that no longer renders.
+  const friendMode = canChallenge && mode === "friend";
+  useEffect(() => {
+    if (visible && friendMode) void loadFriends();
+  }, [visible, friendMode, loadFriends]);
+
+  useEffect(() => {
+    if (friendMode && !friendUid && friends.length === 1) setFriendUid(friends[0]!.uid);
+  }, [friendMode, friendUid, friends]);
+
   useEffect(() => {
     if (!wallets.some((w) => w.id === walletId)) {
-      setWalletId(pickWallet(wallets));
-      setAmount("");
+      const fallback = pickWallet(wallets);
+      setWalletId(fallback);
+      setAmount(prefillStakeFor(wallets, fallback));
     }
   }, [wallets, walletId]);
 
@@ -117,8 +182,6 @@ export default function BetModal({
     scrollRef.current?.scrollTo({ y: Math.max(0, inputY.current - 12), animated: true });
   }, []);
 
-  // Once the keyboard has finished resizing the sheet, bring the stake box
-  // back into view; the Place bet footer is already pinned above the keyboard.
   useEffect(() => {
     if (!visible) return;
     const sub = Keyboard.addListener("keyboardDidShow", () => {
@@ -127,22 +190,36 @@ export default function BetModal({
     return () => sub.remove();
   }, [visible, revealInput]);
 
-  const wallet = wallets.find((w) => w.id === walletId) ?? wallets[0];
+  const selectedWallet = wallets.find((w) => w.id === walletId) ?? wallets[0];
+  const wallet = friendMode ? wallets.find((w) => w.kind === "credits") ?? selectedWallet : selectedWallet;
   const available = wallet?.balance ?? 0;
   const isLeague = wallet?.kind === "league";
   const currency = isLeague ? "league" : "credits";
   const tint = isLeague ? c.league : c.primary;
   const unit = isLeague ? "tokens" : "credits";
+  const lockAlreadyUsed = isLeague && !!wallet && !!lockUsed?.[wallet.id];
 
   const stake = Number.parseInt(amount, 10) || 0;
-  const payout = Math.round(stake * odds);
+  const priced = typeof odds === "number" && Number.isFinite(odds) && odds > 1;
+  const payout = priced ? Math.round(stake * odds) : 0;
   const profit = payout - stake;
   const chance = impliedProbability(odds);
 
   const tooSmall = stake > 0 && stake < MIN_STAKE;
   const tooBig = stake > available;
-  const canBet = stake >= MIN_STAKE && !tooBig && !submitting && !!wallet;
+  const canBet = priced && stake >= MIN_STAKE && !tooBig && !submitting && !!wallet;
   const heavy = stake > 0 && !tooBig && stake > available * 0.5;
+
+  const other = game && side ? (side === "home" ? game.awayTeam : game.homeTeam) : null;
+  const friend = friends.find((f) => f.uid === friendUid) ?? null;
+  const friendName = friend?.displayName ?? "Friend";
+  const quote = friendMode && stake > 0 ? challengeTerms(format, stake, format === "odds" ? chOdds : undefined) : null;
+  const terms = quote?.ok ? quote.terms : null;
+  const busy = submitting || sending;
+  const canSend = friendMode && !!friendUid && !!terms && !tooBig && !busy;
+
+  const minsToStart = game && game.status === "upcoming" && game.startsAt > now ? Math.ceil((game.startsAt - now) / 60_000) : null;
+  const lockingSoon = minsToStart !== null && minsToStart <= 60;
 
   const quick = useMemo(() => {
     const picks = [0.1, 0.25, 0.5].map((p) => Math.max(MIN_STAKE, Math.floor((available * p) / 10) * 10));
@@ -150,7 +227,7 @@ export default function BetModal({
   }, [available]);
 
   function focusInput() {
-    if (submitting) return;
+    if (busy) return;
     const input = inputRef.current;
     if (!input) return;
     if (input.isFocused()) revealInput();
@@ -158,30 +235,66 @@ export default function BetModal({
   }
 
   function selectWallet(id: string) {
-    if (id === walletId || submitting) return;
-    Haptics.selectionAsync().catch(() => {});
+    if (id === walletId || busy) return;
+    buzz.tick();
     const keepTyping = inputRef.current?.isFocused() ?? false;
     setWalletId(id);
-    setAmount("");
-    // Re-assert focus after the re-render so the same input keeps the keyboard.
+    setLockPick(false);
+    setAmount(prefillStakeFor(wallets, id));
     if (keepTyping) requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   async function handleConfirm() {
     if (!canBet || !wallet) return;
     Keyboard.dismiss();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    await onConfirm(stake, wallet.id);
+    buzz.medium();
+    rememberStake(wallet.id, stake);
+    await onConfirm(stake, wallet.id, {
+      lock: isLeague && !lockAlreadyUsed ? lockPick : false,
+      hidden: isLeague ? hidePick : false,
+    });
   }
 
   function handleClose() {
-    if (submitting) return;
+    if (busy) return;
     Keyboard.dismiss();
     onClose();
   }
 
+  function switchMode(next: Mode) {
+    if (next === mode || busy) return;
+    buzz.tick();
+    setMode(next);
+    setChError(null);
+  }
+
+  async function sendChallenge() {
+    if (!canSend || !game || !side || !friendUid || !terms) return;
+    Keyboard.dismiss();
+    buzz.medium();
+    setSending(true);
+    setChError(null);
+    const err = await create({
+      gameId: game.id,
+      opponentUid: friendUid,
+      side,
+      mode: format,
+      stake: terms.creatorStake,
+      odds: format === "odds" ? terms.odds : undefined,
+      idempotencyKey: chKey.current,
+    });
+    setSending(false);
+    if (err) {
+      buzz.error();
+      setChError(err);
+      return;
+    }
+    buzz.success();
+    challenge?.onSent({ friendName, teamAbbr, teamColor, stake: terms.creatorStake, pot: terms.pot });
+  }
+
   return (
-    <KeyboardSheet visible={visible} onClose={handleClose} dismissible={!submitting} style={styles.sheet}>
+    <KeyboardSheet visible={visible} onClose={handleClose} dismissible={!busy} style={styles.sheet}>
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -190,26 +303,84 @@ export default function BetModal({
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.gameLabel, { color: c.mutedForeground }]}>{gameSummary}</Text>
+        <View style={styles.topMetaRow}>
+          <Text style={[styles.gameLabel, { color: c.mutedForeground, flex: 1 }]} numberOfLines={1}>
+            {gameSummary}
+          </Text>
+          {lockingSoon && game ? (
+            <View style={[styles.lockSoonChip, { backgroundColor: c.alpha(c.live, 0.14), borderColor: c.alpha(c.live, 0.45) }]}>
+              <MaterialCommunityIcons name="timer-sand" size={12} color={c.live} />
+              <Text style={[styles.lockSoonText, { color: c.live }]}>
+                Locks {untilKickoff(game.startsAt, now)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
 
-        {/* The pick springs onto the slip. */}
+        {context && !friendMode && walletId === context.leagueId ? (
+          <View style={[styles.context, { backgroundColor: c.leagueSoft, borderColor: c.alpha(c.league, 0.45) }]}>
+            <MaterialCommunityIcons name={context.icon} size={16} color={c.league} />
+            <Text style={[styles.contextText, { color: c.foreground }]} numberOfLines={2}>
+              {context.text}
+            </Text>
+          </View>
+        ) : null}
+
         <Animated.View entering={ZoomIn.springify().damping(13).stiffness(220)} style={[styles.teamRow, { backgroundColor: c.alpha(teamColor, 0.14), borderColor: c.alpha(teamColor, 0.45) }]}>
           <View style={[styles.teamCircle, { backgroundColor: c.alpha(teamColor, 0.22), borderColor: teamColor }]}>
             <Text style={[styles.teamAbbr, { color: c.foreground }]}>{teamAbbr}</Text>
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={[styles.teamName, { color: c.foreground }]} numberOfLines={1}>
-              {teamName} to win
+              {pickTitle ?? `${teamName} to win`}
             </Text>
             <Text style={[styles.oddsLabel, { color: c.mutedForeground }]}>
-              {odds.toFixed(2)}x · market gives it {formatPercent(chance)}
+              {priced ? `${formatOdds(odds, oddsFormat)} · market gives it ${formatPercent(chance)}` : NO_LINE}
             </Text>
           </View>
         </Animated.View>
 
-        {game && side ? <TeamEdge game={game} side={side} /> : null}
+        {canChallenge ? (
+          <SegmentedControl<Mode>
+            value={mode}
+            onChange={switchMode}
+            options={[
+              { value: "book", label: "Bet the book" },
+              { value: "friend", label: "Challenge a friend" },
+            ]}
+          />
+        ) : null}
 
-        {wallets.length > 1 && (
+        {friendMode && other ? (
+          <ChallengeSetup
+            friends={friends}
+            loading={friendsLoading}
+            friendUid={friendUid}
+            onFriend={(uid) => {
+              setFriendUid(uid);
+              setChError(null);
+            }}
+            onFindFriends={() => challenge?.onFindFriends?.()}
+            format={format}
+            onFormat={(f) => {
+              setFormat(f);
+              setChError(null);
+            }}
+            odds={chOdds}
+            onOdds={(x) => {
+              setChOdds(clampOdds(x));
+              setChError(null);
+            }}
+            marketOdds={odds}
+            teamAbbr={teamAbbr}
+            otherAbbr={other.abbreviation}
+            disabled={busy}
+          />
+        ) : game && side ? (
+          <TeamEdge game={game} side={side} />
+        ) : null}
+
+        {!friendMode && wallets.length > 1 && (
           <View style={{ gap: 6 }}>
             <Text style={[styles.label, { color: c.mutedForeground }]}>PAY WITH</Text>
             <ScrollView
@@ -245,7 +416,6 @@ export default function BetModal({
           </View>
         )}
 
-        {/* The whole box is the tap target, not just the text glyphs inside it. */}
         <Pressable
           onPress={focusInput}
           onLayout={(e) => {
@@ -265,13 +435,13 @@ export default function BetModal({
             onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ""))}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
-            placeholder={`Stake (${unit})`}
+            placeholder={friendMode ? "Your stake (credits)" : `Stake (${unit})`}
             placeholderTextColor={c.subtleForeground}
             keyboardType="number-pad"
-            editable={!submitting}
+            editable={!busy}
             accessibilityLabel={`Stake amount in ${wallet?.label ?? "credits"} ${unit}`}
           />
-          <ActionChip label="MAX" accessibilityLabel="Bet maximum" chevron={false} onPress={() => setAmount(String(available))} disabled={submitting} />
+          <ActionChip label="MAX" accessibilityLabel="Bet maximum" chevron={false} onPress={() => setAmount(String(available))} disabled={busy} />
         </Pressable>
 
         <View style={styles.quickRow}>
@@ -283,13 +453,52 @@ export default function BetModal({
               scaleTo={0.92}
               haptic="tick"
               onPress={() => setAmount(String(q))}
-              disabled={submitting}
+              disabled={busy}
             >
               <Text style={[styles.quickText, { color: c.foreground }]}>{q.toLocaleString()}</Text>
             </PressableScale>
           ))}
         </View>
 
+        {!friendMode && isLeague && (
+          <View style={[styles.extrasBox, { backgroundColor: c.secondary, borderColor: c.border }]}>
+            <View style={styles.extraRow}>
+              <MaterialCommunityIcons name="lock-check-outline" size={16} color={lockPick ? c.league : c.mutedForeground} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.extraTitle, { color: c.foreground }]}>Lock of the Week</Text>
+                <Text style={[styles.extraSub, { color: c.mutedForeground }]}>
+                  {lockAlreadyUsed ? "Already used this week in this league" : "One per week · counts on the Lock leaderboard"}
+                </Text>
+              </View>
+              <Switch
+                value={lockPick && !lockAlreadyUsed}
+                onValueChange={setLockPick}
+                disabled={lockAlreadyUsed || busy}
+                trackColor={{ false: c.border, true: c.league }}
+              />
+            </View>
+            <View style={[styles.extraDivider, { backgroundColor: c.border }]} />
+            <View style={styles.extraRow}>
+              <MaterialCommunityIcons name="eye-off-outline" size={16} color={hidePick ? c.league : c.mutedForeground} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.extraTitle, { color: c.foreground }]}>Hide pick until kickoff</Text>
+                <Text style={[styles.extraSub, { color: c.mutedForeground }]}>
+                  Don't post a bet card in chat or show your side until lock
+                </Text>
+              </View>
+              <Switch
+                value={hidePick}
+                onValueChange={setHidePick}
+                disabled={busy}
+                trackColor={{ false: c.border, true: c.league }}
+              />
+            </View>
+          </View>
+        )}
+
+        {friendMode && other ? (
+          <ChallengeSummary terms={terms} friendName={friendName} teamAbbr={teamAbbr} otherAbbr={other.abbreviation} />
+        ) : (
         <View style={[styles.summary, { borderColor: c.border }]}>
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: c.mutedForeground }]} numberOfLines={1}>
@@ -301,19 +510,67 @@ export default function BetModal({
           <SummaryRow label="If it loses" value={stake ? `−${stake.toLocaleString()}` : "0"} color={stake ? c.negative : undefined} />
           <SummaryRow label={`${wallet?.label ?? "Balance"} after placing`} value={`${Math.max(0, available - stake).toLocaleString()} ${unit}`} />
         </View>
+        )}
 
+        {!priced && !friendMode ? (
+          <Text style={[styles.note, { color: c.warning }]}>
+            The book hasn't posted a line on this game yet, so it can't take bets.{canChallenge ? " You can still challenge a friend on it." : " Check back closer to kickoff."}
+          </Text>
+        ) : null}
         {tooSmall && <Text style={[styles.note, { color: c.mutedForeground }]}>Minimum stake is {MIN_STAKE}.</Text>}
         {tooBig && <Text style={[styles.note, { color: c.negative }]}>That's more than {wallet?.label ?? "this wallet"} holds.</Text>}
         {heavy && !tooBig && <Text style={[styles.note, { color: c.warning }]}>That's over half of this wallet on one game.</Text>}
-        {error ? (
+        {friendMode && quote && !quote.ok && !tooSmall ? <Text style={[styles.note, { color: c.warning }]}>{quote.reason}</Text> : null}
+        {friendMode && !friendUid && friends.length > 0 ? <Text style={[styles.note, { color: c.mutedForeground }]}>Pick who you're challenging.</Text> : null}
+        {friendMode ? (
+          <Text style={[styles.note, { color: c.mutedForeground }]}>
+            Your stake goes into the pot now. If {friend ? friend.displayName : "they"} don't accept before kickoff, it comes straight back. Once accepted, neither of you can pull out.
+          </Text>
+        ) : null}
+        {friendMode && chError ? (
+          <Text accessibilityRole="alert" style={[styles.note, { color: c.negative }]}>
+            {chError}
+          </Text>
+        ) : null}
+        {!friendMode && error ? (
           <Text accessibilityRole="alert" style={[styles.note, { color: c.negative }]}>
             {error}
           </Text>
         ) : null}
       </ScrollView>
 
-      {/* Pinned footer: always visible, keyboard up or down. */}
       <View style={[styles.footer, { borderTopColor: c.border }]}>
+        {friendMode ? (
+          <>
+            <View
+              accessible
+              accessibilityLabel={friend ? `Challenging ${friend.displayName}, paid from credits` : "No friend picked yet"}
+              style={[styles.payingWith, { backgroundColor: c.alpha(c.accent, 0.12), borderColor: c.alpha(c.accent, 0.5) }]}
+            >
+              <MaterialCommunityIcons name="sword-cross" size={18} color={c.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.payingLabel, { color: c.mutedForeground }]}>CHALLENGING</Text>
+                <Text style={[styles.payingName, { color: c.foreground }]} numberOfLines={1}>
+                  {friend ? `${friend.displayName} · they get ${other?.abbreviation ?? ""}` : "Pick a friend"}
+                </Text>
+              </View>
+              <View style={[styles.kindPill, { backgroundColor: c.alpha(c.accent, 0.2) }]}>
+                <Text style={[styles.kindText, { color: c.accent }]}>{format === "pot" ? "POT" : `${chOdds.toFixed(2)}X`}</Text>
+              </View>
+            </View>
+            <Button
+              label={terms ? `Send challenge · ${terms.creatorStake.toLocaleString()} credits` : "Send challenge"}
+              icon="sword-cross"
+              size="lg"
+              onPress={sendChallenge}
+              disabled={!canSend}
+              loading={sending}
+              haptic={false}
+              shimmer={canSend}
+            />
+          </>
+        ) : (
+        <>
         {wallet ? (
           <View
             accessible
@@ -333,7 +590,7 @@ export default function BetModal({
           </View>
         ) : null}
         <Button
-          label={stake >= MIN_STAKE ? `Place bet · ${stake.toLocaleString()} ${unit}` : "Place bet"}
+          label={!priced ? NO_LINE : stake >= MIN_STAKE ? `Place bet · ${stake.toLocaleString()} ${unit}` : "Place bet"}
           size="lg"
           onPress={handleConfirm}
           disabled={!canBet}
@@ -343,6 +600,8 @@ export default function BetModal({
           shimmer={canBet}
           accessibilityHint={wallet ? `Stakes from ${wallet.label}` : undefined}
         />
+        </>
+        )}
       </View>
     </KeyboardSheet>
   );
@@ -365,7 +624,12 @@ const styles = StyleSheet.create({
   scroll: { flexGrow: 0, flexShrink: 1 },
   body: { gap: 12, paddingBottom: 12 },
   footer: { gap: 10, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
+  topMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   gameLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  lockSoonChip: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  lockSoonText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  context: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  contextText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   teamRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1 },
   teamCircle: { width: 46, height: 46, borderRadius: 23, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   teamAbbr: { fontSize: 13, fontFamily: "Inter_700Bold" },
@@ -381,6 +645,11 @@ const styles = StyleSheet.create({
   quickRow: { flexDirection: "row", gap: 8 },
   quickBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 9, alignItems: "center" },
   quickText: { fontSize: 13, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
+  extrasBox: { borderWidth: 1, borderRadius: 12, padding: 10, gap: 8 },
+  extraRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  extraTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  extraSub: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  extraDivider: { height: StyleSheet.hairlineWidth },
   summary: { gap: 6, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   summaryLabel: { flexShrink: 1, fontSize: 13, fontFamily: "Inter_400Regular" },

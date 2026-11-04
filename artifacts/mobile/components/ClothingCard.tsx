@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { memo } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import ItemIcon from "@/components/avatar/ItemIcon";
 import { RARITY_COLORS, type CatalogItem } from "@/types/catalog";
 import { useColors } from "@/hooks/useColors";
@@ -10,8 +11,12 @@ interface Props {
   owned: boolean;
   equipped: boolean;
   canAfford: boolean;
+  inCart: boolean;
   busy: boolean;
-  onBuy: () => void;
+  /** The player's level, for level-gated and level-reward items. */
+  level?: number;
+  /** Adds it to / takes it out of the cart. */
+  onCart: () => void;
   onToggleEquip: () => void;
   onPreview: () => void;
 }
@@ -29,16 +34,21 @@ function ClothingCard({
   owned,
   equipped,
   canAfford,
+  inCart,
   busy,
-  onBuy,
+  level = 1,
+  onCart,
   onToggleEquip,
   onPreview,
 }: Props) {
   const colors = useColors();
   const rarity = RARITY_COLORS[item.rarity];
+  // Level rewards are never sold; level-gated items wait for the level.
+  const lockLevel = owned ? null : item.levelReward ? item.levelReward : item.levelRequired && item.levelRequired > level ? item.levelRequired : null;
 
-  const label = busy ? "" : equipped ? "Remove" : owned ? "Equip" : canAfford ? "Buy" : "Can't afford";
-  const disabled = busy || (!owned && !canAfford);
+  const label = busy ? "" : equipped ? "Remove" : owned ? "Equip" : lockLevel ? `Lv ${lockLevel}` : inCart ? "In cart" : "Add to cart";
+  const disabled = busy || !!lockLevel;
+  const cartOn = !owned && inCart;
 
   return (
     <Pressable
@@ -83,6 +93,11 @@ function ClothingCard({
             <View style={[styles.owned, { backgroundColor: colors.secondary }]}>
               <Text style={[styles.ownedText, { color: colors.mutedForeground }]}>OWNED</Text>
             </View>
+          ) : item.levelReward ? (
+            <View style={[styles.owned, styles.priceRow, { backgroundColor: colors.alpha(colors.warning, 0.14) }]}>
+              <MaterialCommunityIcons name="gift" size={11} color={colors.warning} />
+              <Text style={[styles.ownedText, { color: colors.warning }]}>LEVEL {item.levelReward} REWARD</Text>
+            </View>
           ) : (
             <View style={styles.priceRow}>
               <MaterialCommunityIcons name="lightning-bolt" size={13} color={colors.primary} />
@@ -96,31 +111,42 @@ function ClothingCard({
             style={({ pressed }) => [
               styles.action,
               {
-                backgroundColor: equipped ? colors.secondary : owned ? colors.primary : colors.primary + "22",
-                borderColor: equipped ? colors.border : owned ? "transparent" : colors.primary,
-                opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
+                backgroundColor: equipped || lockLevel ? colors.secondary : owned || cartOn ? colors.primary : colors.primary + "22",
+                borderColor: equipped || lockLevel ? colors.border : owned || cartOn ? "transparent" : colors.primary,
+                opacity: busy ? 0.5 : pressed ? 0.8 : 1,
               },
             ]}
-            onPress={owned ? onToggleEquip : onBuy}
+            onPress={owned ? onToggleEquip : onCart}
             disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={owned ? label : lockLevel ? `${item.name}, unlocks at level ${lockLevel}` : inCart ? `Remove ${item.name} from cart` : `Add ${item.name} to cart`}
           >
             {busy ? (
               <ActivityIndicator size="small" color={colors.primary} />
             ) : (
+              <View style={styles.actionRow}>
+              {lockLevel ? (
+                <MaterialCommunityIcons name="lock" size={13} color={colors.mutedForeground} />
+              ) : !owned ? (
+                <MaterialCommunityIcons name={inCart ? "cart-check" : "cart-plus"} size={14} color={inCart ? colors.primaryForeground : colors.primary} />
+              ) : null}
               <Text
                 style={[
                   styles.actionText,
                   {
-                    color: equipped
+                    color: equipped || lockLevel
                       ? colors.mutedForeground
                       : owned
                         ? colors.primaryForeground
-                        : colors.primary,
+                        : inCart
+                          ? colors.primaryForeground
+                          : colors.primary,
                   },
                 ]}
               >
                 {label}
               </Text>
+              </View>
             )}
           </Pressable>
         </View>
@@ -147,6 +173,7 @@ const styles = StyleSheet.create({
   price: { fontSize: 15, fontFamily: "Inter_700Bold" },
   owned: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   ownedText: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  actionRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   action: { minWidth: 78, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, borderWidth: 1, alignItems: "center" },
   actionText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 });

@@ -54,3 +54,7 @@ functions/node_modules
 
 # functions test build
 functions/build-test/
+
+# Functions env (DEV_TOOLS etc.)
+functions/.env
+functions/.env.local

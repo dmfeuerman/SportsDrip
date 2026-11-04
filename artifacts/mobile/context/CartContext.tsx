@@ -2,9 +2,12 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import type { AvatarConfig, Equipped } from "@/types/avatar";
 
 /**
- * The cart: store items picked in the character creator that the player
- * doesn't own yet, plus the look they were picked for, so checkout can buy
- * them and save that look in one go.
+ * The cart: store items the player doesn't own yet, added in the Drip Shop or
+ * tried on in the character creator, plus the look they were tried on for so
+ * checkout can buy them and save that look in one go.
+ *
+ * Items stay in the cart until they're bought or the player removes / clears
+ * them on the checkout screen — leaving the shop or the creator keeps them.
  *
  * In memory only. Buying goes through the server (`purchaseItem`), which owns
  * balances and inventory; the cart is just what's been selected.
@@ -14,42 +17,71 @@ export interface CartDraft {
   equipped: Equipped;
 }
 
+/** Where checkout was opened from — decides where "Continue shopping" goes. */
+export type CartOrigin = "shop" | "customize" | "locker";
+
 interface CartContextType {
   ids: string[];
-  count: number;
   has: (id: string) => boolean;
-  /** Replaces the cart (no-op when unchanged, so screens can mirror their selection into it). */
-  setIds: (ids: string[]) => void;
+  add: (id: string) => void;
+  /** Adds or removes; returns whether it's in the cart afterwards. */
+  toggle: (id: string) => boolean;
   remove: (id: string) => void;
+  /** Empties the cart (the checkout screen's Clear cart). */
   clear: () => void;
+  /** Empties the cart after a successful purchase, so screens being popped don't stop to ask. */
+  checkedOut: () => void;
+  /** True for a moment after `checkedOut`. */
+  justCheckedOut: () => boolean;
+  /** Live id count, including changes made this tick (before a re-render). */
+  peekCount: () => number;
   draft: CartDraft | null;
   setDraft: (d: CartDraft | null) => void;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
 
-const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
-
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [ids, setIdsState] = useState<string[]>([]);
+  const [ids, setIds] = useState<string[]>([]);
   const [draft, setDraftState] = useState<CartDraft | null>(null);
   const idsRef = useRef(ids);
   idsRef.current = ids;
+  const checkedOutAt = useRef(0);
 
-  const setIds = useCallback((next: string[]) => {
-    const unique = [...new Set(next)];
-    if (!sameIds(idsRef.current, unique)) setIdsState(unique);
+  const write = useCallback((next: string[]) => {
+    idsRef.current = next;
+    setIds(next);
   }, []);
-  const remove = useCallback((id: string) => setIdsState((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur)), []);
+  const add = useCallback((id: string) => {
+    if (!idsRef.current.includes(id)) write([...idsRef.current, id]);
+  }, [write]);
+  const remove = useCallback((id: string) => {
+    if (idsRef.current.includes(id)) write(idsRef.current.filter((x) => x !== id));
+  }, [write]);
+  const toggle = useCallback(
+    (id: string) => {
+      const inCart = idsRef.current.includes(id);
+      if (inCart) remove(id);
+      else add(id);
+      return !inCart;
+    },
+    [add, remove]
+  );
   const clear = useCallback(() => {
-    setIdsState((cur) => (cur.length ? [] : cur));
+    if (idsRef.current.length) write([]);
     setDraftState(null);
-  }, []);
+  }, [write]);
+  const checkedOut = useCallback(() => {
+    checkedOutAt.current = Date.now();
+    clear();
+  }, [clear]);
+  const justCheckedOut = useCallback(() => Date.now() - checkedOutAt.current < 3000, []);
+  const peekCount = useCallback(() => idsRef.current.length, []);
   const setDraft = useCallback((d: CartDraft | null) => setDraftState(d), []);
 
   const value = useMemo<CartContextType>(
-    () => ({ ids, count: ids.length, has: (id) => ids.includes(id), setIds, remove, clear, draft, setDraft }),
-    [ids, setIds, remove, clear, draft, setDraft]
+    () => ({ ids, has: (id) => ids.includes(id), add, toggle, remove, clear, checkedOut, justCheckedOut, peekCount, draft, setDraft }),
+    [ids, add, toggle, remove, clear, checkedOut, justCheckedOut, peekCount, draft, setDraft]
   );
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

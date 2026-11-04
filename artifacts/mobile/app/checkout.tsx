@@ -1,15 +1,20 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { haptic as buzz } from "@/lib/motion";
+import { router, useLocalSearchParams } from "expo-router";
+import React, { useMemo, useRef, useState } from "react";
+import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ItemIcon from "@/components/avatar/ItemIcon";
-import TokenBalance from "@/components/TokenBalance";
-import { ActionChip, Button, ErrorBanner } from "@/components/ui";
-import { useApp } from "@/context/AppContext";
-import { useCart } from "@/context/CartContext";
+import AvatarDisplay from "@/components/AvatarDisplay";
+import Burst from "@/components/fx/Burst";
 import { useCatalog } from "@/hooks/useCatalog";
+import { shareViewOrText } from "@/lib/shareCard";
+import TokenBalance from "@/components/TokenBalance";
+import { ActionChip, Button, ConfirmDialog, ErrorBanner } from "@/components/ui";
+import { useApp } from "@/context/AppContext";
+import { useCart, type CartOrigin } from "@/context/CartContext";
+import { useCartItems } from "@/hooks/useCartItems";
 import { useColors } from "@/hooks/useColors";
 import { RARITY_COLORS, SLOT_LABELS, type CatalogItem } from "@/types/catalog";
 
@@ -29,23 +34,34 @@ export default function CheckoutScreen() {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const cart = useCart();
-  const { balance, inventory, purchaseItem, saveLook, error, clearError } = useApp();
+  const { balance, inventory, purchaseItem, saveLook, error, clearError, profile } = useApp();
   const { byId } = useCatalog();
+  const showcaseRef = useRef<React.ComponentRef<typeof View>>(null);
+  const { from } = useLocalSearchParams<{ from?: CartOrigin }>();
   const [phase, setPhase] = useState<Phase>("review");
   const [failed, setFailed] = useState<string[]>([]);
   const [bought, setBought] = useState<CatalogItem[]>([]);
   const [lookSaved, setLookSaved] = useState(true);
 
+  const [clearAsk, setClearAsk] = useState(false);
   const owned = useMemo(() => new Set(inventory), [inventory]);
-  const items = useMemo(
-    () => cart.ids.map((id) => byId.get(id)).filter((i): i is CatalogItem => !!i && !owned.has(i.id)),
-    [cart.ids, byId, owned]
-  );
-  const total = items.reduce((s, i) => s + i.price, 0);
+  const { items, total } = useCartItems();
   const after = balance - total;
   const short = after < 0;
 
   const back = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/avatar"));
+  /** Back to where you were shopping: the creator or the Drip Shop (from the Locker's cart, that's the shop). */
+  const continueShopping = () => {
+    if ((from === "customize" || from === "shop") && router.canGoBack()) router.back();
+    else router.replace("/shop");
+  };
+  const continueLabel = from === "customize" ? "Keep customizing" : "Continue shopping";
+  const clearCart = () => {
+    setClearAsk(false);
+    setFailed([]);
+    cart.clear();
+    buzz.warning();
+  };
 
   const pay = async () => {
     if (!items.length || short) return;
@@ -64,18 +80,19 @@ export default function CheckoutScreen() {
     if (bad.length) {
       setFailed(bad);
       setPhase("review");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      buzz.error();
       return;
     }
     // Everything in the look is owned now: wear it.
-    const saved = cart.draft ? await saveLook(cart.draft.avatar, cart.draft.equipped) : true;
-    cart.clear();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    if (saved) {
-      router.dismissTo("/(tabs)");
-      return;
-    }
-    setLookSaved(false);
+    // The look the items were tried on for, minus anything removed from the cart since.
+    const mine = new Set([...owned, ...ok.map((i) => i.id)]);
+    const draft = cart.draft;
+    const equipped = draft ? Object.fromEntries(Object.entries(draft.equipped).filter(([, id]) => !!id && mine.has(id))) : null;
+    const saved = draft && equipped ? await saveLook(draft.avatar, equipped) : true;
+    cart.checkedOut();
+    buzz.success();
+    // Purchase showcase: the new fit on stage, then "Show the league".
+    setLookSaved(saved);
     setPhase("done");
   };
 
@@ -100,7 +117,7 @@ export default function CheckoutScreen() {
           </Text>
           {phase !== "done" ? (
             <Text style={[styles.subtitle, { color: c.mutedForeground }]}>
-              {items.length} {items.length === 1 ? "item" : "items"}
+              {items.length} {items.length === 1 ? "item" : "items"} in your cart
             </Text>
           ) : null}
         </View>
@@ -111,9 +128,16 @@ export default function CheckoutScreen() {
 
       {phase === "done" ? (
         <ScrollView contentContainerStyle={[styles.doneBody, { paddingBottom: insets.bottom + 24 }]}>
-          <View style={[styles.doneIcon, { backgroundColor: c.positiveSoft }]}>
-            <MaterialCommunityIcons name="check-bold" size={30} color={c.positive} />
-          </View>
+          {lookSaved ? (
+            <View ref={showcaseRef} collapsable={false} style={[styles.showcase, { backgroundColor: c.positiveSoft }]}>
+              <AvatarDisplay avatar={profile?.avatar} equipped={profile?.equipped} catalog={byId} size="lg" interactive={false} focus="reaction" reaction={{ kind: "win", id: 1 }} />
+              <Burst colors={[c.positive, c.accent, "#FFFFFF", "#FFC83D"]} trigger={1} count={40} originY={0.35} />
+            </View>
+          ) : (
+            <View style={[styles.doneIcon, { backgroundColor: c.positiveSoft }]}>
+              <MaterialCommunityIcons name="check-bold" size={30} color={c.positive} />
+            </View>
+          )}
           <Text style={[styles.doneTitle, { color: c.foreground }]}>{lookSaved ? "You're wearing it" : "Purchase complete"}</Text>
           <Text style={[styles.doneText, { color: c.mutedForeground }]}>
             {lookSaved
@@ -138,9 +162,23 @@ export default function CheckoutScreen() {
             </View>
           </View>
           {lookSaved ? (
-            <Button label="Back to Home" icon="home-variant-outline" onPress={() => router.dismissTo("/(tabs)")} style={styles.stretch} />
+            <>
+              <Button
+                label="Show the league"
+                icon="share-variant"
+                onPress={() =>
+                  void shareViewOrText({
+                    viewRef: showcaseRef,
+                    kind: "purchase",
+                    message: `New fit just dropped: ${bought.map((i) => i.name).join(", ")} — on SportDrip`,
+                  })
+                }
+                style={styles.stretch}
+              />
+              <Button label="Back to Home" icon="home-variant-outline" variant="secondary" onPress={() => router.dismissTo("/(tabs)")} style={styles.stretch} />
+            </>
           ) : null}
-          <Button label="Keep customizing" variant="secondary" onPress={back} style={styles.stretch} />
+          <Button label={continueLabel} variant="secondary" onPress={continueShopping} style={styles.stretch} />
         </ScrollView>
       ) : items.length === 0 ? (
         <View style={styles.empty}>
@@ -149,9 +187,9 @@ export default function CheckoutScreen() {
           </View>
           <Text style={[styles.doneTitle, { color: c.foreground }]}>Your cart is empty</Text>
           <Text style={[styles.doneText, { color: c.mutedForeground }]}>
-            Tap a locked item in Customize to try it on. It lands here, ready to buy.
+            Add items in the Drip Shop, or try one on in Customize. They land here, ready to buy.
           </Text>
-          <Button label="Continue shopping" icon="tshirt-crew-outline" onPress={back} style={styles.stretch} />
+          <Button label={continueLabel} icon="tshirt-crew-outline" onPress={continueShopping} style={styles.stretch} />
         </View>
       ) : (
         <>
@@ -163,13 +201,26 @@ export default function CheckoutScreen() {
                 failed={failed.includes(item.id)}
                 disabled={phase === "paying"}
                 onRemove={() => {
-                  Haptics.selectionAsync().catch(() => {});
+                  buzz.tick();
                   cart.remove(item.id);
                 }}
               />
             ))}
 
-            <ActionChip label="Continue shopping" icon="arrow-left" chevron={false} tone="money" onPress={back} style={{ alignSelf: "flex-start" }} />
+            <View style={styles.cartActions}>
+              <ActionChip label={continueLabel} icon="arrow-left" chevron={false} tone="money" onPress={continueShopping} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Clear cart"
+                hitSlop={8}
+                disabled={phase === "paying"}
+                onPress={() => setClearAsk(true)}
+                style={({ pressed }) => [styles.remove, { borderColor: c.alpha(c.negative, 0.5), opacity: phase === "paying" ? 0.4 : pressed ? 0.6 : 1 }]}
+              >
+                <MaterialCommunityIcons name="cart-remove" size={15} color={c.negative} />
+                <Text style={[styles.removeText, { color: c.negative }]}>Clear cart</Text>
+              </Pressable>
+            </View>
 
             {/* order summary */}
             <View style={[styles.summary, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -214,6 +265,15 @@ export default function CheckoutScreen() {
           </View>
         </>
       )}
+      <ConfirmDialog
+        visible={clearAsk}
+        title="Clear your cart?"
+        body={`Removes ${items.length === 1 ? "the 1 item" : `all ${items.length} items`} from your cart. Anything you were trying on in Customize comes off too.`}
+        confirmLabel="Clear cart"
+        destructive
+        onConfirm={clearCart}
+        onCancel={() => setClearAsk(false)}
+      />
     </View>
   );
 }
@@ -276,6 +336,7 @@ function Line({ label, value, strong, tone }: { label: string; value: string; st
 }
 
 const styles = StyleSheet.create({
+  showcase: { alignSelf: "stretch", height: 280, borderRadius: 22, overflow: "hidden" },
   fill: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
   round: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
@@ -297,6 +358,7 @@ const styles = StyleSheet.create({
   remove: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1 },
   removeText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
+  cartActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   continue: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 4 },
   continueText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 

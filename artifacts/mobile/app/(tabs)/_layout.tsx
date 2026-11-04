@@ -1,12 +1,38 @@
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { Tabs } from "expo-router";
+import { Tabs, useSegments } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
 import { SymbolView } from "expo-symbols";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { haptic } from "@/lib/motion";
+import { useChallenges } from "@/context/ChallengeContext";
+import { useChat } from "@/context/ChatContext";
+import { useNotifications } from "@/context/NotificationContext";
+
+const LEAGUE_ACTION = new Set(["loan_request", "loan_countered", "stimulus_request", "margin_call", "league_invite"]);
+const FRIEND_ACTION = new Set(["friend_request"]);
+
+/** Unread obligations per tab: league chat + money asks on Leagues, requests + challenges on Friends. */
+function useTabBadges(): Partial<Record<string, number>> {
+  const { notifications } = useNotifications();
+  const { unreadLeagueCount } = useChat();
+  const { incoming } = useChallenges();
+  return useMemo(() => {
+    let leagues = unreadLeagueCount;
+    let friends = incoming.length;
+    for (const n of notifications) {
+      if (n.read) continue;
+      if (LEAGUE_ACTION.has(n.type)) leagues++;
+      else if (FRIEND_ACTION.has(n.type)) friends++;
+    }
+    return { leagues, friends };
+  }, [notifications, unreadLeagueCount, incoming.length]);
+}
+
+const badgeText = (n?: number) => (n && n > 0 ? (n > 99 ? "99+" : String(n)) : undefined);
 
 /**
  * Five destinations, in the order a session actually goes:
@@ -32,12 +58,14 @@ const TABS = [
 ] as const;
 
 function NativeTabLayout() {
+  const badges = useTabBadges();
   return (
     <NativeTabs>
       {TABS.map((t) => (
         <NativeTabs.Trigger key={t.name} name={t.name}>
           <NativeTabs.Trigger.Icon sf={{ default: t.sf as never, selected: `${t.sf}.fill` as never }} />
           <NativeTabs.Trigger.Label>{t.title}</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Badge hidden={!badgeText(badges[t.name])}>{badgeText(badges[t.name])}</NativeTabs.Trigger.Badge>
         </NativeTabs.Trigger>
       ))}
     </NativeTabs>
@@ -48,6 +76,7 @@ function ClassicTabLayout() {
   const colors = useColors();
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
+  const badges = useTabBadges();
 
   return (
     <Tabs
@@ -81,7 +110,9 @@ function ClassicTabLayout() {
           name={t.name}
           options={{
             title: t.title,
-            tabBarAccessibilityLabel: t.title,
+            tabBarAccessibilityLabel: badges[t.name] ? `${t.title}, ${badges[t.name]} new` : t.title,
+            tabBarBadge: badgeText(badges[t.name]),
+            tabBarBadgeStyle: { backgroundColor: colors.accent, fontSize: 10, fontFamily: "Inter_700Bold" },
             tabBarIcon: ({ color }) =>
               isIOS ? (
                 <SymbolView name={t.sf as never} tintColor={color} size={22} />
@@ -96,6 +127,13 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
+  // A detent click whenever the tab changes (native and classic bars alike).
+  const tab = useSegments()[1] ?? "index";
+  const last = useRef(tab);
+  useEffect(() => {
+    if (last.current !== tab) haptic.tick();
+    last.current = tab;
+  }, [tab]);
   if (isLiquidGlassAvailable()) return <NativeTabLayout />;
   return <ClassicTabLayout />;
 }

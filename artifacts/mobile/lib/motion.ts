@@ -31,16 +31,73 @@ export const EASE = {
 const quiet = () => {};
 const native = Platform.OS !== "web";
 
+let enabled = true;
+let seq = 0;
+/** Master switch (e.g. a settings toggle). */
+export function setHapticsEnabled(on: boolean) {
+  enabled = on;
+}
+/** Increments on every haptic fired; lets a press wrapper tell whether its handler already buzzed. */
+export const hapticSeq = () => seq;
+
+function fire(run: () => Promise<void>) {
+  if (!native || !enabled) return undefined;
+  seq++;
+  return run().catch(quiet);
+}
+const after = (ms: number, fn: () => unknown) => setTimeout(fn, ms);
+let rollUntil = 0;
+
+const base = {
+  tick: () => fire(() => Haptics.selectionAsync()),
+  light: () => fire(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
+  medium: () => fire(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)),
+  heavy: () => fire(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)),
+  rigid: () => fire(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)),
+  success: () => fire(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)),
+  warning: () => fire(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)),
+  error: () => fire(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)),
+};
+
 /** Fire-and-forget haptics; no-ops on web and never throw. */
 export const haptic = {
-  tick: () => (native ? Haptics.selectionAsync().catch(quiet) : undefined),
-  light: () => (native ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(quiet) : undefined),
-  medium: () => (native ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(quiet) : undefined),
-  heavy: () => (native ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(quiet) : undefined),
-  rigid: () => (native ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(quiet) : undefined),
-  success: () => (native ? Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(quiet) : undefined),
-  warning: () => (native ? Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(quiet) : undefined),
-  error: () => (native ? Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(quiet) : undefined),
+  ...base,
+  /** A win: a rising thump-thump into a success, with an aftershock for big ones. */
+  celebrate: (big = false) => {
+    base.medium();
+    after(90, base.heavy);
+    after(220, base.success);
+    if (big) {
+      after(480, base.heavy);
+      after(580, base.rigid);
+      after(680, base.medium);
+      after(800, base.light);
+    }
+  },
+  /** A loss: one dull thud. */
+  thud: () => {
+    base.warning();
+    after(160, base.heavy);
+  },
+  /** Confetti popping: a scatter of light pops that fades out. */
+  crackle: (pops = 6, delay = 0) => {
+    for (let i = 0; i < pops; i++) {
+      const at = delay + i * 55 + Math.random() * 30;
+      after(at, i < pops / 2 ? base.light : base.tick);
+    }
+  },
+  /** A number counting up: ticks that slow down with the ease-out, then a click as it lands. */
+  roll: (durationMs = 750, delay = 0) => {
+    const now = Date.now();
+    if (now < rollUntil) return; // several on-screen counters animating together buzz once
+    rollUntil = now + delay + durationMs;
+    const steps = Math.max(4, Math.min(14, Math.round(durationMs / 70)));
+    for (let i = 0; i < steps; i++) {
+      const k = i / steps;
+      after(delay + durationMs * (1 - Math.pow(1 - k, 2)) * 0.9, base.tick);
+    }
+    after(delay + durationMs, base.light);
+  },
 };
 
 /* ── reward rarity ──────────────────────────────────────────────────────── */

@@ -29,6 +29,12 @@ const toItem = (id, data) => data
 function describe(a, b) {
     return `Your ${a} and ${b} can't be worn together.`;
 }
+function activePunishment(user) {
+    const p = user.get("punishment");
+    if (!p || !p.itemId || !p.slot || typeof p.expiresAt !== "number")
+        return null;
+    return p.expiresAt > Date.now() ? p : null;
+}
 /**
  * Saves a whole look — appearance and outfit — in one transaction. This is
  * what the character creator's Save button calls, so a look is never half
@@ -63,6 +69,10 @@ exports.saveAppearance = (0, https_1.onCall)({ region: "us-central1" }, async (r
         ]);
         if (!user.exists)
             throw new https_1.HttpsError("failed-precondition", "Create your profile first.");
+        const punishment = activePunishment(user);
+        if (punishment && equipped[punishment.slot] !== punishment.itemId) {
+            throw new https_1.HttpsError("failed-precondition", `Your last-place punishment (${punishment.leagueName ?? "league"}) is locked on for 7 days.`);
+        }
         const owned = rest.slice(0, ids.length);
         const catalog = rest.slice(ids.length);
         const items = new Map();
@@ -99,6 +109,10 @@ async function equipOne(uid, slot, itemId) {
         if (!user.exists)
             throw new https_1.HttpsError("failed-precondition", "Create your profile first.");
         const current = (user.get("equipped") ?? {});
+        const punishment = activePunishment(user);
+        if (punishment && punishment.slot === slot && itemId !== punishment.itemId) {
+            throw new https_1.HttpsError("failed-precondition", `Your last-place punishment (${punishment.leagueName ?? "league"}) is locked on for 7 days.`);
+        }
         if (itemId === null) {
             const next = (0, avatarRules_1.applyEquip)(current, slot, null, () => undefined).equipped;
             tx.update(userRef, { equipped: next, updatedAt: economy_1.FieldValue.serverTimestamp() });
@@ -124,6 +138,9 @@ async function equipOne(uid, slot, itemId) {
                 items.set(id, it);
         });
         const { equipped, removed } = (0, avatarRules_1.applyEquip)(current, slot, itemId, (id) => items.get(id));
+        if (punishment && removed.includes(punishment.slot)) {
+            throw new https_1.HttpsError("failed-precondition", `Can't equip that while your last-place punishment is active.`);
+        }
         tx.update(userRef, { equipped, updatedAt: economy_1.FieldValue.serverTimestamp() });
         return { ok: true, removed, equipped };
     });

@@ -6,6 +6,8 @@ const scheduler_1 = require("firebase-functions/v2/scheduler");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const leagueLifecycle_1 = require("../lib/leagueLifecycle");
+const awards_1 = require("../lib/awards");
+const weekly_1 = require("./weekly");
 /**
  * Ends leagues whose season is over and pays out anything still owed. Before
  * this a league only ended if someone pressed the button, and pressing it
@@ -20,6 +22,10 @@ async function sweepLeagues(now) {
     let paid = 0;
     for (const d of expired.docs) {
         try {
+            // The last week of head-to-head (the playoff) closes at the season end.
+            if (d.get("openMatchupWeek")) {
+                await (0, weekly_1.closeMatchups)(d.id, Math.min(now, d.get("endsAt")));
+            }
             await (0, leagueLifecycle_1.finalizeLeague)(d.id, now);
             ended++;
             paid += await (0, leagueLifecycle_1.payoutLeague)(d.id);
@@ -30,6 +36,7 @@ async function sweepLeagues(now) {
     }
     for (const d of unpaid.docs)
         paid += await (0, leagueLifecycle_1.payoutLeague)(d.id);
+    await (0, awards_1.expirePunishments)(now);
     return { ended, paid };
 }
 exports.leagueSweep = (0, scheduler_1.onSchedule)({ schedule: "every 60 minutes", region: "us-central1", timeoutSeconds: 540 }, async () => {

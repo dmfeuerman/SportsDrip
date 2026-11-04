@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
@@ -21,7 +21,7 @@ import { useLatestActivity } from "@/hooks/useLatestActivity";
 export default function LeaguesScreen() {
   const c = useColors();
   const bottom = useBottomPad();
-  const params = useLocalSearchParams<{ create?: string; join?: string; code?: string }>();
+  const params = useLocalSearchParams<{ create?: string; join?: string; code?: string; via?: string; t?: string }>();
   const { balance } = useApp();
   const { leagues, createLeague, joinLeague, error, clearError, ready } = useLeague();
   const { summaries } = useLeagueSummaries();
@@ -33,7 +33,7 @@ export default function LeaguesScreen() {
   useEffect(() => {
     if (params.create) setShowCreate(true);
     if (params.join || params.code) setShowJoin(true);
-  }, [params.create, params.join, params.code]);
+  }, [params.create, params.join, params.code, params.t]);
 
   const active = summaries.filter((s) => !s.closed);
   const closed = summaries.filter((s) => s.closed);
@@ -105,10 +105,10 @@ export default function LeaguesScreen() {
         visible={showCreate}
         onClose={() => setShowCreate(false)}
         yourTokens={balance}
-        onConfirm={async (name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours) => {
-          const res = await createLeague({ name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours });
+        onConfirm={async (name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled) => {
+          const res = await createLeague({ name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled });
           if ("error" in res) return res.error;
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          buzz.success();
           router.push({ pathname: "/league/[id]", params: { id: res.leagueId, created: "1" } });
           return null;
         }}
@@ -119,9 +119,9 @@ export default function LeaguesScreen() {
         balance={balance}
         onClose={() => setShowJoin(false)}
         onJoin={async (code) => {
-          const res = await joinLeague(code);
+          const res = await joinLeague(code, params.via === "link" ? "link" : params.via === "notification" ? "notification" : "code");
           if ("error" in res) return res.error;
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          buzz.success();
           setShowJoin(false);
           router.push({ pathname: "/league/[id]", params: { id: res.leagueId } });
           return null;
@@ -155,6 +155,9 @@ function LeagueCard({ s, latest }: { s: LeagueSummary; latest?: string }) {
           <View style={styles.pills}>
             <Pill label={closed ? "Closed" : `${s.daysLeft}d left`} tone={closed ? "neutral" : "accent"} icon={closed ? "lock-outline" : "clock-outline"} />
             <Pill label={`${s.memberCount} ${s.memberCount === 1 ? "player" : "players"}`} icon="account-multiple" />
+            {league.mode && league.mode !== "bankroll" ? (
+              <Pill label={league.mode === "pickem" ? "Pick'em" : "Survivor"} tone="league" icon={league.mode === "pickem" ? "checkbox-marked-circle-outline" : "skull-outline"} />
+            ) : null}
             {league.pot > 0 && <Pill label={`${league.pot.toLocaleString()} pot`} tone="money" icon="trophy" />}
           </View>
         </View>

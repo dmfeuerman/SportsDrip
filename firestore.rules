@@ -31,10 +31,6 @@ service cloud.firestore {
       return a < b ? a + '_' + b : b + '_' + a;
     }
 
-    // Fields the client is allowed to change on its own user doc.
-    // Everything else (balance, stats, onboarded, username, createdAt) is
-    // server-owned. Avatar appearance and equipped items are validated by the
-    // updateAvatar / equipItem callables, so they are denied here too.
     function onlyChanging(allowed) {
       return request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(allowed);
@@ -44,47 +40,63 @@ service cloud.firestore {
     // users/{uid}
     // ---------------------------------------------------------------------
     match /users/{uid} {
-      // Own doc: full read. Other users: read is allowed so friend lists,
-      // leaderboards and league standings can render avatars and names.
-      // Never put anything private in this document — email lives here, so
-      // if that becomes a concern move it to users/{uid}/private/contact.
-      // `list` let any signed-in client page the entire user base, email and
-      // balance included. Discovery goes through the searchUsers callable,
-      // which returns public fields only.
       allow get: if signedIn();
       allow list: if false;
-
-      // No client writes at all. Profile creation, avatar edits, equipping and
-      // every balance change go through callables.
       allow create, update, delete: if false;
 
-      // Inventory: owner reads, server writes.
       match /inventory/{itemId} {
         allow read: if isSelf(uid) || isFriend(uid);
         allow write: if false;
       }
 
-      // Credit ledger: owner reads only. This is the audit trail.
+      match /moves/{moveId} {
+        allow read: if isSelf(uid) || isFriend(uid);
+        allow write: if false;
+      }
+
+      match /backgrounds/{backgroundId} {
+        allow read: if isSelf(uid) || isFriend(uid);
+        allow write: if false;
+      }
+
+      // XP grant receipts (lib/xp.ts). Server-only.
+      match /quests/{week} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      match /dailyPicks/{day} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      match /xpEvents/{eventId} {
+        allow read, write: if false;
+      }
+
       match /ledger/{entryId} {
         allow read: if isSelf(uid);
         allow write: if false;
       }
 
-      // Prize box state: owner reads, server writes. readyAt is a server
-      // timestamp, so the device clock is irrelevant.
       match /prizeBoxes/{tier} {
         allow read: if isSelf(uid);
         allow write: if false;
       }
 
-      // Notifications: written by the server in the same transaction that
-      // moved the money. The owner may only flip `read`.
       match /notifications/{notificationId} {
         allow read: if isSelf(uid);
         allow update: if isSelf(uid) &&
                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
                       request.resource.data.read is bool;
         allow create, delete: if false;
+      }
+
+      // Trophy shelf (champion, last place, lock hits, head-to-head titles).
+      // Public status by design; written only by the server.
+      match /trophies/{trophyId} {
+        allow read: if signedIn();
+        allow write: if false;
       }
 
       // Private subdoc for anything that must not be visible to other users.
@@ -96,12 +108,10 @@ service cloud.firestore {
 
     // ---------------------------------------------------------------------
     // usernames/{usernameLower} -> { uid }
-    // Uniqueness claims. Read is public so the signup form can check
-    // availability; writes are transactional in createProfile.
     // ---------------------------------------------------------------------
     match /usernames/{username} {
       allow get: if signedIn();
-      allow list: if false;          // prevents enumerating the user base
+      allow list: if false;
       allow write: if false;
     }
 
@@ -112,16 +122,54 @@ service cloud.firestore {
       allow read: if signedIn() &&
                   (resource.data.from == request.auth.uid ||
                    resource.data.to == request.auth.uid);
-      allow write: if false;         // sendFriendRequest / respondFriendRequest
+      allow write: if false;
     }
 
     // ---------------------------------------------------------------------
-    // friendships/{pairId}  (pairId = sorted uids joined by '_')
-    // The canonical id is what makes duplicate friendships impossible.
+    // friendships/{pairId}
     // ---------------------------------------------------------------------
     match /friendships/{pairId} {
       allow read: if signedIn() && request.auth.uid in resource.data.users;
-      allow write: if false;         // respondFriendRequest / removeFriend
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // directMessages/{dm_<uidA>_<uidB>}/messages/{messageId}
+    // Thread id is "dm_" + the two uids sorted. Only the two members read;
+    // only friends write, as themselves; nothing is edited or deleted.
+    // ---------------------------------------------------------------------
+    function dmMembers(threadId) {
+      return threadId.split('_');
+    }
+
+    function inDmThread(threadId) {
+      let p = dmMembers(threadId);
+      return signedIn() && p.size() == 3 && p[0] == 'dm' &&
+             (p[1] == request.auth.uid || p[2] == request.auth.uid);
+    }
+
+    match /directMessages/{threadId}/messages/{messageId} {
+      allow read: if inDmThread(threadId);
+      allow create: if inDmThread(threadId) &&
+                    messageId.size() <= 64 &&
+                    request.resource.data.keys().hasOnly(['id', 'threadId', 'senderUid', 'senderName', 'recipientUid', 'recipientName', 'kind', 'text', 'at', 'replyTo', 'createdAt']) &&
+                    request.resource.data.senderUid == request.auth.uid &&
+                    request.resource.data.threadId == threadId &&
+                    threadId == 'dm_' + pairId(request.auth.uid, request.resource.data.recipientUid) &&
+                    isFriend(request.resource.data.recipientUid) &&
+                    request.resource.data.kind == 'text' &&
+                    request.resource.data.text is string &&
+                    request.resource.data.text.size() >= 1 &&
+                    request.resource.data.text.size() <= 500 &&
+                    request.resource.data.at is int;
+      // Reactions: either participant may set or clear only their own entry in `reactors`.
+      allow update: if inDmThread(threadId) &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactors']) &&
+                    request.resource.data.reactors is map &&
+                    request.resource.data.reactors.diff(resource.data.get('reactors', {})).affectedKeys().hasOnly([request.auth.uid]) &&
+                    (!(request.auth.uid in request.resource.data.reactors) ||
+                     request.resource.data.reactors[request.auth.uid] in ['🔥', '💀', '😂', '🧊', '🫡', '🤡']);
+      allow delete: if false;
     }
 
     // ---------------------------------------------------------------------
@@ -131,42 +179,70 @@ service cloud.firestore {
       allow get: if signedIn() &&
                  (resource.data.uid == request.auth.uid ||
                   isFriend(resource.data.uid));
-      // A comment asking for a where clause is not enforcement. Evaluating
-      // ownership per document forces the query to carry the filter: an
-      // unscoped list now fails instead of returning every bet in the app.
       allow list: if signedIn() && resource.data.uid == request.auth.uid;
-      allow write: if false;         // placeBet / settleBets
+      allow write: if false;
     }
 
     // ---------------------------------------------------------------------
-    // games/{gameId} — server-cached sports data. Read-only for everyone.
+    // challenges/{challengeId}
+    // ---------------------------------------------------------------------
+    match /challenges/{challengeId} {
+      allow get: if signedIn() && request.auth.uid in resource.data.participants;
+      allow list: if signedIn() && request.auth.uid in resource.data.participants;
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // games/{gameId}
     // ---------------------------------------------------------------------
     match /games/{gameId} {
       allow read: if signedIn();
       allow write: if false;
     }
 
+    // Daily Pick: the featured game is public; picks are server-written.
+    match /sweat/{gameId} {
+      allow read, write: if false;
+    }
+
+    match /dailyPick/{day} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     // ---------------------------------------------------------------------
-    // catalog/{itemId} — clothing/accessories. Read-only for everyone.
-    // Add items from the Firebase console or an admin script; no app release.
+    // catalog/{itemId} & moves/{moveId}
     // ---------------------------------------------------------------------
     match /catalog/{itemId} {
       allow read: if signedIn();
       allow write: if false;
     }
 
+    match /moves/{moveId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /backgrounds/{backgroundId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Invite codes -> uid. Looked up only through checkReferralCode / createProfile.
+    match /referralCodes/{code} {
+      allow read, write: if false;
+    }
+
     // ---------------------------------------------------------------------
     // leagues/{leagueId}
-    //
-    // Behind the trusted boundary as of Pass 4. Members read; nobody writes.
-    // Create, join, leave, bets, loans, settings and payouts all go through
-    // callables (functions/src/callable/leagues.ts). Before this a member
-    // could write their own `leagueTokens` to any value and "approve" a loan
-    // that minted tokens out of nothing.
     // ---------------------------------------------------------------------
     function isLeagueMember(leagueId) {
       return signedIn() && request.auth.uid in
         get(/databases/$(database)/documents/leagues/$(leagueId)).data.memberIds;
+    }
+
+    function memberDisplayName(leagueId) {
+      return get(/databases/$(database)/documents/leagues/$(leagueId)).data.members[request.auth.uid].displayName;
     }
 
     match /leagues/{leagueId} {
@@ -185,25 +261,122 @@ service cloud.firestore {
         allow read: if isLeagueMember(leagueId);
         allow write: if false;
       }
-      // Pre-Pass-4 client-written bets. Never settled, never shown.
+
+      // League chat. Members post text directly; bet cards and system rows
+      // come from the server. The name must be the poster's league name,
+      // reactions go through reactToItem, and nothing can be edited or deleted.
+      match /messages/{messageId} {
+        allow read: if isLeagueMember(leagueId);
+        allow create: if isLeagueMember(leagueId) &&
+                      messageId.size() <= 64 &&
+                      request.resource.data.keys().hasOnly(['uid', 'name', 'kind', 'text', 'at', 'createdAt', 'replyTo', 'reactions', 'reactors', 'gameId']) &&
+                      (!('gameId' in request.resource.data) || (request.resource.data.gameId is string && request.resource.data.gameId.size() <= 64)) &&
+                      request.resource.data.uid == request.auth.uid &&
+                      request.resource.data.name == memberDisplayName(leagueId) &&
+                      request.resource.data.kind == 'text' &&
+                      request.resource.data.text is string &&
+                      request.resource.data.text.size() >= 1 &&
+                      request.resource.data.text.size() <= 500 &&
+                      request.resource.data.at is int &&
+                      (!('reactions' in request.resource.data) || request.resource.data.reactions.size() == 0) &&
+                      (!('reactors' in request.resource.data) || request.resource.data.reactors.size() == 0);
+        allow update, delete: if false;
+      }
+
+      match /gameSides/{gameId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      match /rivalries/{pairId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      match /reports/{week} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      match /matchups/{week} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      match /audit/{auditId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      match /picks/{pickId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      match /parlays/{parlayId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
       match /bets/{betId} {
         allow read, write: if false;
       }
     }
 
     // ---------------------------------------------------------------------
-    // leagueInvites/{code} -> { leagueId, leagueName, buyIn }
-    // Get-by-code so a code can be previewed; written only by createLeague.
+    // leagueInvites/{code}
     // ---------------------------------------------------------------------
     match /leagueInvites/{code} {
       allow get: if signedIn();
-      allow list: if false;          // prevents enumerating every invite code
+      allow list: if false;
       allow write: if false;
     }
 
     // ---------------------------------------------------------------------
-    // Default deny.
+    // analyticsEvents/{eventId}
     // ---------------------------------------------------------------------
+    match /analyticsEvents/{eventId} {
+      allow create: if signedIn() &&
+                    eventId.size() <= 64 &&
+                    request.resource.data.keys().hasOnly(['uid', 'name', 'params', 'clientAt', 'at', 'platform', 'sessionId', 'schema']) &&
+                    request.resource.data.uid == request.auth.uid &&
+                    request.resource.data.name in [
+                      'onboarding_completed', 'invite_code_captured', 'league_created', 'league_joined',
+                      'bet_placed', 'bet_tailed', 'bet_faded', 'share_card_tapped'
+                    ] &&
+                    request.resource.data.params is map &&
+                    request.resource.data.params.size() <= 12 &&
+                    request.resource.data.clientAt is int &&
+                    request.resource.data.at == request.time &&
+                    request.resource.data.platform is string &&
+                    request.resource.data.platform.size() <= 16 &&
+                    request.resource.data.sessionId is string &&
+                    request.resource.data.sessionId.size() <= 32;
+      allow read, update, delete: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // betComments/{betId}/comments/{commentId}
+    // Replies on a player's bet result / feed event. Authors post as
+    // themselves under their profile name; nothing is edited or deleted.
+    // ---------------------------------------------------------------------
+    match /betComments/{betId}/comments/{commentId} {
+      allow read: if signedIn();
+      allow create: if signedIn() &&
+                    commentId.size() <= 64 &&
+                    request.resource.data.keys().hasOnly(['id', 'betId', 'uid', 'name', 'text', 'at', 'parentQuote', 'createdAt']) &&
+                    request.resource.data.id == commentId &&
+                    request.resource.data.betId == betId &&
+                    request.resource.data.uid == request.auth.uid &&
+                    request.resource.data.name == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName &&
+                    request.resource.data.text is string &&
+                    request.resource.data.text.size() >= 1 &&
+                    request.resource.data.text.size() <= 500 &&
+                    request.resource.data.at is int &&
+                    request.resource.data.parentQuote is map;
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

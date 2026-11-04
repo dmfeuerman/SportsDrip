@@ -41,6 +41,8 @@ export function useGames(statuses: GameStatus[] = ["upcoming", "live"]) {
   const [games, setGames] = useState<Game[]>(DEMO ? demoGames : []);
   const [loading, setLoading] = useState(!DEMO);
   const [error, setError] = useState<string | null>(null);
+  /** When the server last delivered a fresh (non-cache) board. */
+  const [syncedAt, setSyncedAt] = useState<number | null>(DEMO ? Date.now() : null);
 
   // Stable dependency — a fresh array literal on every render would resubscribe
   // on every render.
@@ -73,6 +75,7 @@ export function useGames(statuses: GameStatus[] = ["upcoming", "live"]) {
       ),
       (snap) => {
         answer.hit();
+        if (!snap.metadata.fromCache) setSyncedAt(Date.now());
         setGames(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Game));
         setError(null);
         setLoading(false);
@@ -98,5 +101,5 @@ export function useGames(statuses: GameStatus[] = ["upcoming", "live"]) {
     [games, now]
   );
 
-  return { games, live, upcoming, loading, error };
+  return { games, live, upcoming, loading, error, syncedAt };
 }

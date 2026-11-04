@@ -5,17 +5,23 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { Switch, TouchableOpacity } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import NumericInput from "@/components/NumericInput";
 import { CloseButton } from "@/components/ui";
 import {
   BUY_IN_OPTIONS,
+  DEFAULT_DURATION,
+  DURATION_DAYS,
+  DURATION_OPTIONS,
+  LEAGUE_MODES,
+  MATCHUP_CADENCES,
+  type LeagueMode,
+  type MatchupCadence,
   TOKEN_START_OPTIONS,
   LeagueDuration,
   PRIZE_PRESETS,
@@ -25,6 +31,7 @@ import {
 } from "@/constants/leagueTypes";
 import { useColors } from "@/hooks/useColors";
 import { flatInterest } from "@/lib/loanMath";
+import { fmtDate, fullSeasonPlan } from "@/constants/seasons";
 
 interface Props {
   visible: boolean;
@@ -40,18 +47,120 @@ interface Props {
     bankLoanEnabled: boolean,
     bankInterestRate: number,
     bankInterestIntervalHours: number,
+    mode?: LeagueMode,
+    matchupsEnabled?: boolean,
+    matchupCadence?: MatchupCadence,
+    stimulusEnabled?: boolean,
   ) => Promise<string | null>;
 }
 
 // Must match functions/src/lib/leagueConfig.ts — the server rejects anything else.
 const TOKEN_OPTIONS = TOKEN_START_OPTIONS;
-const DURATION_OPTIONS: LeagueDuration[] = [
-  "1 Week",
-  "2 Weeks",
-  "1 Month",
-  "3 Months",
-];
 const SPORT_OPTIONS: Sport[] = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"];
+
+interface Template {
+  id: string;
+  label: string;
+  icon: string;
+  /** What you get, in a sentence or two — shown when the template is selected. */
+  desc: string;
+  mode: LeagueMode;
+  tokens: number;
+  buyIn: number;
+  duration: LeagueDuration;
+  bankLoanEnabled: boolean;
+  matchupsEnabled: boolean;
+  matchupCadence: MatchupCadence;
+  stimulusEnabled: boolean;
+}
+
+const TEMPLATES: Template[] = [
+  {
+    id: "sweat",
+    label: "Season Sweat",
+    icon: "fire",
+    desc: "A month-long bankroll league: everyone starts with 10K tokens, bets at real odds and can borrow from the bank, with a new head-to-head opponent every Monday. Highest net worth takes the 100-credit-a-head pot.",
+    mode: "bankroll",
+    tokens: 10_000,
+    buyIn: 100,
+    duration: "1 Month",
+    bankLoanEnabled: true,
+    matchupsEnabled: true,
+    matchupCadence: "weekly",
+    stimulusEnabled: false,
+  },
+  {
+    id: "h2h",
+    label: "H2H Showdown",
+    icon: "sword-cross",
+    desc: "Matchups only: twice a week you're paired with one league-mate, and whoever grows their stack more wins the round. The table goes by W-L record and the last round is a playoff. Free to join.",
+    mode: "matchups",
+    tokens: 10_000,
+    buyIn: 0,
+    duration: "1 Month",
+    bankLoanEnabled: false,
+    matchupsEnabled: true,
+    matchupCadence: "twice-weekly",
+    stimulusEnabled: false,
+  },
+  {
+    id: "season",
+    label: "Full Season",
+    icon: "calendar-star",
+    desc: "Runs until the last of your sports crowns a champion (see the end date below). 25K tokens, weekly matchups, and the bank can vote everyone a stimulus if stacks run dry over the long haul.",
+    mode: "bankroll",
+    tokens: 25_000,
+    buyIn: 250,
+    duration: "Full Season",
+    bankLoanEnabled: true,
+    matchupsEnabled: true,
+    matchupCadence: "weekly",
+    stimulusEnabled: true,
+  },
+  {
+    id: "high",
+    label: "High Rollers",
+    icon: "diamond-stone",
+    desc: "Three months, 50K-token stacks and a 1,000-credit buy-in. Bank loans and weekly matchups are on — for groups that want big swings and a big pot.",
+    mode: "bankroll",
+    tokens: 50_000,
+    buyIn: 1_000,
+    duration: "3 Months",
+    bankLoanEnabled: true,
+    matchupsEnabled: true,
+    matchupCadence: "weekly",
+    stimulusEnabled: false,
+  },
+  {
+    id: "pickem",
+    label: "Weekly Pick'em",
+    icon: "checkbox-marked-circle-outline",
+    desc: "No stakes to manage: pick straight-up winners each week, 1 point per correct pick. Most points after a month wins. Free to join.",
+    mode: "pickem",
+    tokens: 10_000,
+    buyIn: 0,
+    duration: "1 Month",
+    bankLoanEnabled: false,
+    matchupsEnabled: true,
+    matchupCadence: "weekly",
+    stimulusEnabled: false,
+  },
+  {
+    id: "survivor",
+    label: "Survivor Pool",
+    icon: "skull-outline",
+    desc: "Pick one team to win each week and never the same team twice. Lose — or miss a week — and you're out. Last one standing takes the 250-credit-a-head pot.",
+    mode: "survivor",
+    tokens: 10_000,
+    buyIn: 250,
+    duration: "3 Months",
+    bankLoanEnabled: false,
+    matchupsEnabled: false,
+    matchupCadence: "weekly",
+    stimulusEnabled: false,
+  },
+];
+
 export default function CreateLeagueModal({
   visible,
   onClose,
@@ -61,8 +170,12 @@ export default function CreateLeagueModal({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
+  const [mode, setMode] = useState<LeagueMode>("bankroll");
+  const [matchupsEnabled, setMatchupsEnabled] = useState(true);
+  const [matchupCadence, setMatchupCadence] = useState<MatchupCadence>("weekly");
+  const [stimulusEnabled, setStimulusEnabled] = useState(false);
   const [startingLeagueTokens, setStartingLeagueTokens] = useState(10_000);
-  const [duration, setDuration] = useState<LeagueDuration>("1 Month");
+  const [duration, setDuration] = useState<LeagueDuration>(DEFAULT_DURATION);
   const [sports, setSports] = useState<Sport[]>([...SPORT_OPTIONS]);
   const [buyIn, setBuyIn] = useState(0);
   const [selectedPreset, setSelectedPreset] =
@@ -92,6 +205,33 @@ export default function CreateLeagueModal({
     (!bankLoanEnabled ||
       (rateNum >= 0.5 && rateNum <= 50));
 
+  function applyTemplate(t: Template) {
+    setMode(t.mode);
+    setStartingLeagueTokens(t.tokens);
+    setBuyIn(t.buyIn <= yourTokens ? t.buyIn : 0);
+    setDuration(t.duration);
+    setBankLoanEnabled(t.bankLoanEnabled);
+    setMatchupsEnabled(t.matchupsEnabled);
+    setMatchupCadence(t.matchupCadence);
+    setStimulusEnabled(t.stimulusEnabled);
+  }
+
+  // A template stays selected only while the form still matches it; change a
+  // setting and it's your own league again.
+  const activeTemplate = TEMPLATES.find(
+    (t) =>
+      t.mode === mode &&
+      t.tokens === startingLeagueTokens &&
+      (t.buyIn <= yourTokens ? t.buyIn : 0) === buyIn &&
+      t.duration === duration &&
+      t.bankLoanEnabled === bankLoanEnabled &&
+      (t.mode === "matchups" || t.matchupsEnabled === matchupsEnabled) &&
+      (!t.matchupsEnabled || t.matchupCadence === matchupCadence) &&
+      t.stimulusEnabled === stimulusEnabled
+  );
+  const h2hOn = mode === "matchups" || matchupsEnabled;
+  const season = duration === "Full Season" ? fullSeasonPlan(sports, Date.now()) : null;
+
   function toggleSport(sport: Sport) {
     setSports((prev) =>
       prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport],
@@ -113,6 +253,10 @@ export default function CreateLeagueModal({
       bankLoanEnabled,
       rate,
       24, // legacy interval; loans are flat-fee and don't accrue over time
+      mode,
+      mode === "matchups" || matchupsEnabled,
+      matchupCadence,
+      stimulusEnabled,
     );
     setSubmitting(false);
     // Keep the form on failure so nothing the user typed is lost.
@@ -122,6 +266,10 @@ export default function CreateLeagueModal({
     }
     // Reset
     setName("");
+    setMode("bankroll");
+    setMatchupsEnabled(true);
+    setMatchupCadence("weekly");
+    setStimulusEnabled(false);
     setStartingLeagueTokens(10_000);
     setDuration("1 Month");
     setSports([...SPORT_OPTIONS]);
@@ -164,6 +312,51 @@ export default function CreateLeagueModal({
             the prize pot.
           </Text>
 
+          {/* Quick-start templates */}
+          <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 4 }]}>
+            QUICK-START TEMPLATES
+          </Text>
+          <View style={styles.optionRow}>
+            {TEMPLATES.map((t) => {
+              const on = activeTemplate?.id === t.id;
+              const onFg = colors.isDark ? "#05200F" : "#FFFFFF";
+              return (
+                <TouchableOpacity
+                  key={t.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  style={[
+                    styles.optionChip,
+                    on
+                      ? { backgroundColor: colors.positive, borderColor: colors.positive }
+                      : { backgroundColor: colors.secondary, borderColor: colors.border },
+                  ]}
+                  onPress={() => applyTemplate(t)}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name={(on ? "check-circle" : t.icon) as any} size={13} color={on ? onFg : colors.primary} />
+                  <Text style={[styles.optionText, { color: on ? onFg : colors.foreground }]}>{t.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {activeTemplate ? (
+            <View style={[styles.templateInfo, { backgroundColor: colors.positive + "14", borderColor: colors.positive + "66" }]}>
+              <MaterialCommunityIcons name={activeTemplate.icon as any} size={16} color={colors.positive} />
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={[styles.templateTitle, { color: colors.positive }]}>{activeTemplate.label} template</Text>
+                <Text style={[styles.templateDesc, { color: colors.foreground }]}>{activeTemplate.desc}</Text>
+                <Text style={[styles.templateDesc, { color: colors.mutedForeground }]}>
+                  Everything below is filled in for you — change anything you like.
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <Text style={[styles.durationHint, { color: colors.subtleForeground, marginTop: 6 }]}>
+              Tap a template to fill in the settings below in one go.
+            </Text>
+          )}
+
           {/* League name */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             LEAGUE NAME
@@ -183,6 +376,38 @@ export default function CreateLeagueModal({
             placeholderTextColor={colors.mutedForeground}
             maxLength={32}
           />
+
+          {/* League Mode */}
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>
+            LEAGUE FORMAT
+          </Text>
+          <View style={styles.presetList}>
+            {LEAGUE_MODES.map((m) => {
+              const active = mode === m.value;
+              return (
+                <TouchableOpacity
+                  key={m.value}
+                  style={[
+                    styles.presetRow,
+                    {
+                      backgroundColor: active ? colors.primary + "11" : colors.secondary,
+                      borderColor: active ? colors.primary : colors.border,
+                    },
+                  ]}
+                  onPress={() => setMode(m.value)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.presetRadio, { borderColor: active ? colors.primary : colors.border }]}>
+                    {active && <View style={[styles.presetRadioFill, { backgroundColor: colors.primary }]} />}
+                  </View>
+                  <View style={styles.presetInfo}>
+                    <Text style={[styles.presetLabel, { color: colors.foreground }]}>{m.label}</Text>
+                    <Text style={[styles.presetSplit, { color: colors.mutedForeground }]}>{m.desc}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           {/* Starting league tokens */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
@@ -398,45 +623,6 @@ export default function CreateLeagueModal({
             })}
           </View>
 
-          {/* Duration */}
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>
-            LEAGUE DURATION
-          </Text>
-          <View style={styles.optionRow}>
-            {DURATION_OPTIONS.map((d) => {
-              const active = duration === d;
-              return (
-                <TouchableOpacity
-                  key={d}
-                  style={[
-                    styles.optionChip,
-                    {
-                      backgroundColor: active
-                        ? colors.primary
-                        : colors.secondary,
-                      borderColor: active ? colors.primary : colors.border,
-                    },
-                  ]}
-                  onPress={() => setDuration(d)}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      {
-                        color: active
-                          ? colors.primaryForeground
-                          : colors.mutedForeground,
-                      },
-                    ]}
-                  >
-                    {d}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
           {/* Sports */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             ALLOWED SPORTS
@@ -477,6 +663,154 @@ export default function CreateLeagueModal({
                 </TouchableOpacity>
               );
             })}
+          </View>
+
+          {/* Duration */}
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>
+            LEAGUE DURATION
+          </Text>
+          <View style={styles.optionRow}>
+            {DURATION_OPTIONS.map((d) => {
+              const active = duration === d;
+              return (
+                <TouchableOpacity
+                  key={d}
+                  style={[
+                    styles.optionChip,
+                    {
+                      backgroundColor: active
+                        ? colors.primary
+                        : colors.secondary,
+                      borderColor: active ? colors.primary : colors.border,
+                    },
+                  ]}
+                  onPress={() => setDuration(d)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.optionText,
+                      {
+                        color: active
+                          ? colors.primaryForeground
+                          : colors.mutedForeground,
+                      },
+                    ]}
+                  >
+                    {d}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {season ? (
+            <View style={[styles.seasonCard, { backgroundColor: colors.primary + "10", borderColor: colors.primary + "55" }]}>
+              <View style={styles.seasonHead}>
+                <MaterialCommunityIcons name="calendar-range" size={16} color={colors.primary} />
+                <Text style={[styles.seasonEnd, { color: colors.foreground }]}>
+                  Ends {fmtDate(season.end)}
+                </Text>
+                <Text style={[styles.seasonLen, { color: colors.primary }]}>
+                  {season.days >= 60 ? `~${Math.round(season.days / 30.4)} months` : `${Math.round(season.days / 7)} weeks`}
+                </Text>
+              </View>
+              {sports.length === 0 ? (
+                <Text style={[styles.templateDesc, { color: colors.mutedForeground }]}>Pick at least one sport above.</Text>
+              ) : (
+                <>
+                  {season.seasons.map((x) => (
+                    <View key={x.sport} style={styles.seasonRow}>
+                      <MaterialCommunityIcons name={SPORT_ICONS[x.sport] as any} size={13} color={colors.mutedForeground} />
+                      <Text style={[styles.seasonSport, { color: colors.foreground }]}>{x.sport} {x.label}</Text>
+                      <Text style={[styles.templateDesc, { color: colors.mutedForeground, flex: 1, textAlign: "right" }]}>
+                        {x.current ? "in progress" : `starts ${fmtDate(x.start, false)}`} · {x.finale} ~{fmtDate(x.end)}
+                      </Text>
+                    </View>
+                  ))}
+                  {season.decidedBy ? (
+                    <Text style={[styles.templateDesc, { color: colors.foreground }]}>
+                      The league runs until the last sport finishes — here the {season.decidedBy.sport} {season.decidedBy.finale}.
+                      {season.seasons.some((x) => !x.current)
+                        ? " Sports whose season is over half done (or not started) count from their next full season, so it can run well into next year."
+                        : ""}
+                    </Text>
+                  ) : null}
+                  {season.days > 200 ? (
+                    <Text style={[styles.templateDesc, { color: colors.warning }]}>
+                      That's a long season — make sure everyone's in for {Math.round(season.days / 30.4)} months. Drop a sport to end sooner.
+                    </Text>
+                  ) : null}
+                </>
+              )}
+            </View>
+          ) : (
+            <Text style={[styles.durationHint, { color: colors.subtleForeground }]}>
+              {DURATION_DAYS[duration as Exclude<LeagueDuration, "Full Season">] / 7} weeks · ends{" "}
+              {fmtDate(Date.now() + DURATION_DAYS[duration as Exclude<LeagueDuration, "Full Season">] * 86_400_000, false)}
+              . Leagues run at least a month so the table has time to mean something. Pick Full Season to follow your sports' calendars.
+            </Text>
+          )}
+
+          {/* Weekly H2H Matchups toggle */}
+          <View
+            style={[
+              styles.bankCard,
+              { backgroundColor: colors.secondary, borderColor: colors.border },
+            ]}
+          >
+            <View style={styles.bankToggleRow}>
+              <View style={styles.bankToggleLeft}>
+                <MaterialCommunityIcons
+                  name="sword-cross"
+                  size={16}
+                  color={matchupsEnabled ? colors.primary : colors.mutedForeground}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.bankToggleTitle, { color: colors.foreground }]}>
+                    Head-to-Head Matchups
+                  </Text>
+                  <Text style={[styles.bankToggleDesc, { color: colors.mutedForeground }]}>
+                    {mode === "matchups"
+                      ? "Always on in an H2H League — pick how often opponents change"
+                      : "Pair members each round + a final playoff round"}
+                  </Text>
+                </View>
+              </View>
+              {mode !== "matchups" ? (
+                <Switch
+                  value={matchupsEnabled}
+                  onValueChange={setMatchupsEnabled}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={matchupsEnabled ? colors.primaryForeground : colors.mutedForeground}
+                />
+              ) : null}
+            </View>
+            {h2hOn ? (
+              <View style={[styles.bankOptions, { borderTopColor: colors.border, marginTop: 12 }]}>
+                <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 12 }]}>HOW OFTEN</Text>
+                <View style={styles.optionRow}>
+                  {MATCHUP_CADENCES.map((m) => {
+                    const on = matchupCadence === m.value;
+                    return (
+                      <TouchableOpacity
+                        key={m.value}
+                        style={[
+                          styles.optionChip,
+                          { backgroundColor: on ? colors.primary : colors.card, borderColor: on ? colors.primary : colors.border },
+                        ]}
+                        onPress={() => setMatchupCadence(m.value)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.optionText, { color: on ? colors.primaryForeground : colors.mutedForeground }]}>{m.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={[styles.durationHint, { color: colors.subtleForeground }]}>
+                  {MATCHUP_CADENCES.find((m) => m.value === matchupCadence)?.desc}. Whoever grows their net worth more in a round wins it.
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {/* Bank loan feature */}
@@ -568,6 +902,28 @@ export default function CreateLeagueModal({
                 </View>
               </View>
             )}
+          </View>
+
+          {/* Bank stimulus votes */}
+          <View style={[styles.bankCard, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+            <View style={styles.bankToggleRow}>
+              <View style={styles.bankToggleLeft}>
+                <MaterialCommunityIcons name="cash-plus" size={16} color={stimulusEnabled ? colors.positive : colors.mutedForeground} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.bankToggleTitle, { color: colors.foreground }]}>Stimulus Votes</Text>
+                  <Text style={[styles.bankToggleDesc, { color: colors.mutedForeground }]}>
+                    Anyone can ask the bank to give every member 10–50% of the starting stack. A majority yes pays everyone the same amount — free, not a loan. Once a week at most.
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                value={stimulusEnabled}
+                onValueChange={setStimulusEnabled}
+                trackColor={{ false: colors.border, true: colors.positive }}
+                thumbColor={stimulusEnabled ? "#FFFFFF" : colors.mutedForeground}
+                accessibilityLabel="Stimulus votes"
+              />
+            </View>
           </View>
 
           {/* Cost summary */}
@@ -748,6 +1104,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   optionText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  durationHint: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 8 },
+  templateInfo: { flexDirection: "row", gap: 10, padding: 12, borderRadius: 14, borderWidth: 1, marginTop: 10, alignItems: "flex-start" },
+  templateTitle: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  templateDesc: { fontSize: 12, lineHeight: 17, fontFamily: "Inter_400Regular" },
+  seasonCard: { gap: 8, padding: 12, borderRadius: 14, borderWidth: 1, marginTop: 10 },
+  seasonHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  seasonEnd: { flex: 1, fontSize: 15, fontFamily: "Inter_700Bold" },
+  seasonLen: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  seasonRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  seasonSport: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   potPreview: {
     padding: 12,
     borderRadius: 12,

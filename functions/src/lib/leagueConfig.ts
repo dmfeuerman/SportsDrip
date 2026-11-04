@@ -4,8 +4,95 @@
  */
 
 export const SPORTS = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"] as const;
-export const DURATIONS = { "1 Week": 7, "2 Weeks": 14, "1 Month": 30, "3 Months": 90 } as const;
-export type Duration = keyof typeof DURATIONS;
+/** "matchups": a bankroll league ranked by head-to-head record instead of net worth. */
+export const LEAGUE_MODES = ["bankroll", "pickem", "survivor", "matchups"] as const;
+export type LeagueMode = (typeof LEAGUE_MODES)[number];
+
+/**
+ * Season lengths in days. One month (4 weeks) is the floor: short leagues
+ * never built enough history for standings, rivalries or the weekly ritual to
+ * mean anything. Every option is a whole number of weeks so weekly head-to-head
+ * matchups divide the season evenly (4+ week regular season, then a final week).
+ */
+export const DURATIONS = { "1 Month": 28, "6 Weeks": 42, "2 Months": 56, "3 Months": 91 } as const;
+export type FixedDuration = keyof typeof DURATIONS;
+/** "Full Season": runs until the last chosen sport's season ends (seasonEndFor). */
+export const FULL_SEASON = "Full Season";
+export type Duration = FixedDuration | typeof FULL_SEASON;
+export const DURATION_KEYS = ["1 Month", "6 Weeks", "2 Months", "3 Months", FULL_SEASON] as const satisfies readonly Duration[];
+export const MIN_DURATION_DAYS = 28;
+export const MAX_DURATION_DAYS = 91;
+/** A full-season league can span two sports' seasons (e.g. MLB + next NBA season). */
+export const MAX_SEASON_DAYS = 500;
+
+const DAY = 86_400_000;
+
+// ---------------------------------------------------------------------------
+// Sport seasons. Approximate regular season start → last game of the
+// playoffs, as [month, day]. An end before the start means the next year.
+// Mirrored in artifacts/mobile/constants/seasons.ts for the create screen.
+// ---------------------------------------------------------------------------
+export const SEASONS: Record<(typeof SPORTS)[number], { start: [number, number]; end: [number, number]; finale: string }> = {
+  NFL: { start: [9, 4], end: [2, 10], finale: "Super Bowl" },
+  NCAAF: { start: [8, 23], end: [1, 21], finale: "CFP title game" },
+  NBA: { start: [10, 21], end: [6, 22], finale: "NBA Finals" },
+  NCAAB: { start: [11, 3], end: [4, 8], finale: "Final Four" },
+  NHL: { start: [10, 7], end: [6, 24], finale: "Stanley Cup Final" },
+  MLB: { start: [3, 26], end: [11, 4], finale: "World Series" },
+  Soccer: { start: [8, 15], end: [5, 31], finale: "end of the European season" },
+};
+
+/**
+ * End of the season a new league should cover for one sport: the one in
+ * progress if at least half of it is left, otherwise the next full one.
+ */
+export function sportSeasonEnd(sport: (typeof SPORTS)[number], now: number): { start: number; end: number } {
+  const w = SEASONS[sport];
+  const year = new Date(now).getUTCFullYear();
+  const at = (y: number, [m, d]: [number, number]) => Date.UTC(y, m - 1, d, 23, 59);
+  const spans = [year - 1, year, year + 1].map((y) => {
+    const start = at(y, w.start);
+    const endYear = w.end[0] < w.start[0] || (w.end[0] === w.start[0] && w.end[1] < w.start[1]) ? y + 1 : y;
+    return { start, end: at(endYear, w.end) };
+  });
+  const i = spans.findIndex((s) => s.end > now);
+  const cur = spans[i]!;
+  if (now > cur.start && cur.end - now < (cur.end - cur.start) / 2 && spans[i + 1]) return spans[i + 1]!;
+  return cur;
+}
+
+/** When a full-season league with these sports ends: the latest of their seasons. */
+export function seasonEndFor(sports: readonly (typeof SPORTS)[number][], now: number): number {
+  const end = Math.max(...sports.map((s) => sportSeasonEnd(s, now).end), now + MIN_DURATION_DAYS * DAY);
+  return Math.min(end, now + MAX_SEASON_DAYS * DAY);
+}
+
+/** League end for a duration choice, counted from `from` (creation time). */
+export function endsAtFor(d: Duration, sports: readonly (typeof SPORTS)[number][], from: number): number {
+  return d === FULL_SEASON ? seasonEndFor(sports, from) : from + DURATIONS[d] * DAY;
+}
+
+/** Whole weeks between start and end (for the playoff week / report cadence). */
+export const weeksBetween = (from: number, to: number): number => Math.max(4, Math.ceil((to - from) / (7 * DAY)));
+export const durationWeeks = (d: FixedDuration): number => DURATIONS[d] / 7;
+
+// ---------------------------------------------------------------------------
+// Head-to-head matchups
+// ---------------------------------------------------------------------------
+/** How often matchups turn over: Mondays; Mondays + Thursdays; every day. */
+export const MATCHUP_CADENCES = ["weekly", "twice-weekly", "daily"] as const;
+export type MatchupCadence = (typeof MATCHUP_CADENCES)[number];
+export const CADENCE_DAYS: Record<MatchupCadence, number> = { weekly: 7, "twice-weekly": 3.5, daily: 1 };
+
+// ---------------------------------------------------------------------------
+// Bank stimulus: members vote for the bank to hand everyone extra tokens.
+// ---------------------------------------------------------------------------
+/** Percent of the league's starting tokens each member gets if a vote passes. */
+export const STIMULUS_PCTS = [10, 25, 50] as const;
+/** An unanswered request lapses after this long. */
+export const STIMULUS_TTL_MS = 48 * 3_600_000;
+/** Minimum gap between two approved stimulus payments. */
+export const STIMULUS_COOLDOWN_MS = 7 * DAY;
 
 export const TOKEN_START_OPTIONS = [1_000, 5_000, 10_000, 25_000, 50_000] as const;
 export const BUY_IN_OPTIONS = [0, 100, 250, 500, 1_000] as const;

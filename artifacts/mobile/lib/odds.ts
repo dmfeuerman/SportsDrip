@@ -3,29 +3,29 @@ import type { Game, Side } from "@/types/game";
 /**
  * Odds maths, in one place.
  *
- * Three screens currently do their own arithmetic on `odds`: the card shows
- * `2.15x`, the bet sheet multiplies for the payout, the ticket list multiplies
- * again for the return. That's fine until you want to show a probability, and
- * then it's three places to get vig removal wrong.
- *
  * Everything here is pure and takes decimal odds, which is what the provider
  * writes and what the server settles on.
  */
 
-/** Raw implied probability, vig included. 2.00 -> 0.50. */
-export function impliedProbability(decimalOdds: number): number {
-  if (!Number.isFinite(decimalOdds) || decimalOdds <= 1) return 0;
+export const NO_LINE = "No line yet";
+
+export type OddsFormat = "decimal" | "american";
+
+/** Raw implied probability, vig included. 2.00 -> 0.50. Null (no line) -> 0. */
+export function impliedProbability(decimalOdds: number | null | undefined): number {
+  if (typeof decimalOdds !== "number" || !Number.isFinite(decimalOdds) || decimalOdds <= 1) return 0;
   return 1 / decimalOdds;
+}
+
+/** "2.31x", or "—" when there is no line. */
+export function formatDecimal(decimalOdds: number | null | undefined): string {
+  return typeof decimalOdds === "number" && Number.isFinite(decimalOdds) && decimalOdds > 1 ? `${decimalOdds.toFixed(2)}x` : "—";
 }
 
 /**
  * Two-way market with the margin removed, so the pair sums to 100%.
- *
- * Showing the raw numbers is what most apps do and it's quietly wrong: on a
- * typical line they add to about 105%, so both teams look likelier than they
- * are, and the favourite's edge reads smaller than it is.
  */
-export function fairProbabilities(homeOdds: number, awayOdds: number): { home: number; away: number } {
+export function fairProbabilities(homeOdds: number | null | undefined, awayOdds: number | null | undefined): { home: number; away: number } {
   const h = impliedProbability(homeOdds);
   const a = impliedProbability(awayOdds);
   const total = h + a;
@@ -34,9 +34,11 @@ export function fairProbabilities(homeOdds: number, awayOdds: number): { home: n
 }
 
 /** The book's cut, as a percentage. Worth surfacing — it's the user's cost. */
-export function margin(homeOdds: number, awayOdds: number): number {
-  const total = impliedProbability(homeOdds) + impliedProbability(awayOdds);
-  return Math.max(0, total - 1);
+export function margin(homeOdds: number | null | undefined, awayOdds: number | null | undefined): number {
+  const h = impliedProbability(homeOdds);
+  const a = impliedProbability(awayOdds);
+  if (!h || !a) return 0;
+  return Math.max(0, h + a - 1);
 }
 
 export function payout(stake: number, decimalOdds: number): number {
@@ -48,22 +50,31 @@ export function profit(stake: number, decimalOdds: number): number {
 }
 
 /** Decimal to American, for people who read lines that way. */
-export function toAmerican(decimalOdds: number): string {
-  if (!Number.isFinite(decimalOdds) || decimalOdds <= 1) return "—";
+export function toAmerican(decimalOdds: number | null | undefined): string {
+  if (typeof decimalOdds !== "number" || !Number.isFinite(decimalOdds) || decimalOdds <= 1) return "—";
   const value = decimalOdds >= 2 ? (decimalOdds - 1) * 100 : -100 / (decimalOdds - 1);
   const rounded = Math.round(value);
   return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
+/** The user's chosen format (lib/settings.ts): "2.31x" by default, "+131" for sportsbook regulars. */
+export function formatOdds(decimalOdds: number | null | undefined, format: OddsFormat = "decimal"): string {
+  return format === "american" ? toAmerican(decimalOdds) : formatDecimal(decimalOdds);
 }
 
 export function formatPercent(p: number, digits = 0): string {
   return `${(p * 100).toFixed(digits)}%`;
 }
 
+export function sidePrice(game: Game, side: Side): number | null {
+  return side === "home" ? game.homeTeam.odds : game.awayTeam.odds;
+}
+
 /** "the favourite", for copy that needs to name one. */
 export function favourite(game: Game): Side | null {
   const h = game.homeTeam.odds;
   const a = game.awayTeam.odds;
-  if (!Number.isFinite(h) || !Number.isFinite(a) || h === a) return null;
+  if (typeof h !== "number" || typeof a !== "number" || !Number.isFinite(h) || !Number.isFinite(a) || h === a) return null;
   return h < a ? "home" : "away";
 }
 
@@ -79,10 +90,39 @@ export function score(game: Game, side: Side): number | null {
  * Where a pending bet stands right now: ahead, behind, or level. Used to give
  * an open ticket a live state instead of a static "OPEN" pill.
  */
-export function livePosition(game: Game, side: Side): "ahead" | "behind" | "level" | null {
-  if (game.status === "upcoming") return null;
-  const mine = score(game, side);
-  const theirs = score(game, side === "home" ? "away" : "home");
+export function livePosition(
+  game: Game,
+  sideOrBet:
+    | Side
+    | null
+    | undefined
+    | { side?: Side | null; market?: "ml" | "spread" | "total"; selection?: "home" | "away" | "over" | "under"; line?: number | null }
+): "ahead" | "behind" | "level" | null {
+  if (game.status === "upcoming" || !sideOrBet) return null;
+  if (typeof sideOrBet === "object") {
+    if (game.homeScore === null || game.awayScore === null) return null;
+    const market = sideOrBet.market ?? "ml";
+    const sel = sideOrBet.selection ?? sideOrBet.side ?? "home";
+    if (market === "spread" && typeof sideOrBet.line === "number") {
+      const picked = (sel === "home" ? game.homeScore : game.awayScore) + sideOrBet.line;
+      const other = sel === "home" ? game.awayScore : game.homeScore;
+      if (Math.abs(picked - other) < 1e-9) return "level";
+      return picked > other ? "ahead" : "behind";
+    }
+    if (market === "total" && typeof sideOrBet.line === "number") {
+      const total = game.homeScore + game.awayScore;
+      if (Math.abs(total - sideOrBet.line) < 1e-9) return "level";
+      return sel === "over" ? (total > sideOrBet.line ? "ahead" : "behind") : (total < sideOrBet.line ? "ahead" : "behind");
+    }
+    const side: Side = sel === "away" ? "away" : "home";
+    const mine = score(game, side);
+    const theirs = score(game, side === "home" ? "away" : "home");
+    if (mine === null || theirs === null) return null;
+    if (mine === theirs) return "level";
+    return mine > theirs ? "ahead" : "behind";
+  }
+  const mine = score(game, sideOrBet);
+  const theirs = score(game, sideOrBet === "home" ? "away" : "home");
   if (mine === null || theirs === null) return null;
   if (mine === theirs) return "level";
   return mine > theirs ? "ahead" : "behind";
@@ -101,8 +141,7 @@ export function untilKickoff(startsAt: number, now = Date.now()): string {
 
 /**
  * "Today 7:30 PM", "Tomorrow 1:00 PM", "Sat 3:00 PM", "Nov 2 8:15 PM" in the
- * device's time zone. The server's label is written in the server's zone at
- * sync time, so it goes stale ("Today" a day later) and can be hours off.
+ * device's time zone.
  */
 export function kickoffLabel(startsAt: number, now = Date.now()): string {
   const d = new Date(startsAt);

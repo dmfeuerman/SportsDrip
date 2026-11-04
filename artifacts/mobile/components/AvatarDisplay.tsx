@@ -33,6 +33,8 @@ interface Props {
   cheerSignal?: number;
   /** lg only. Bet-result reaction, played once per new id. */
   reaction?: { kind: ReactionKind; id: number } | null;
+  /** lg only. A loadout move (constants/moves.ts), played once per new `n`. */
+  move?: { id: string; n: number } | null;
   /** lg only. False while the screen is hidden, so it stops drawing. */
   active?: boolean;
 }
@@ -43,7 +45,7 @@ interface Props {
  * falls back to a flat silhouette rather than taking the screen down.
  */
 const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDisplay(
-  { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, active },
+  { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, move, active },
   ref
 ) {
   const look = useMemo(() => normalizeAvatar(avatar), [avatar]);
@@ -68,6 +70,7 @@ const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDispla
           focus={focus}
           cheerSignal={cheerSignal}
           reaction={reaction}
+          move={move}
           active={active}
         />
       </View>

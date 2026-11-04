@@ -40,6 +40,19 @@ function describe(a: Slot, b: Slot) {
   return `Your ${a} and ${b} can't be worn together.`;
 }
 
+interface PunishmentLock {
+  itemId: string;
+  slot: Slot;
+  expiresAt: number;
+  leagueName?: string;
+}
+
+function activePunishment(user: FirebaseFirestore.DocumentSnapshot): PunishmentLock | null {
+  const p = user.get("punishment") as PunishmentLock | undefined;
+  if (!p || !p.itemId || !p.slot || typeof p.expiresAt !== "number") return null;
+  return p.expiresAt > Date.now() ? p : null;
+}
+
 /**
  * Saves a whole look — appearance and outfit — in one transaction. This is
  * what the character creator's Save button calls, so a look is never half
@@ -74,6 +87,15 @@ export const saveAppearance = onCall({ region: "us-central1" }, async (req) => {
       ...ids.map((id) => tx.get(db.collection("catalog").doc(id))),
     ]);
     if (!user.exists) throw new HttpsError("failed-precondition", "Create your profile first.");
+
+    const punishment = activePunishment(user);
+    if (punishment && equipped[punishment.slot] !== punishment.itemId) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Your last-place punishment (${punishment.leagueName ?? "league"}) is locked on for 7 days.`
+      );
+    }
+
     const owned = rest.slice(0, ids.length);
     const catalog = rest.slice(ids.length);
     const items = new Map<string, ItemLike>();
@@ -111,6 +133,14 @@ export async function equipOne(uid: string, slot: Slot, itemId: string | null) {
     if (!user.exists) throw new HttpsError("failed-precondition", "Create your profile first.");
     const current = ((user.get("equipped") as Equipped | undefined) ?? {}) as Equipped;
 
+    const punishment = activePunishment(user);
+    if (punishment && punishment.slot === slot && itemId !== punishment.itemId) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Your last-place punishment (${punishment.leagueName ?? "league"}) is locked on for 7 days.`
+      );
+    }
+
     if (itemId === null) {
       const next = applyEquip(current, slot, null, () => undefined).equipped;
       tx.update(userRef, { equipped: next, updatedAt: FieldValue.serverTimestamp() });
@@ -134,6 +164,12 @@ export async function equipOne(uid: string, slot: Slot, itemId: string | null) {
       if (it) items.set(id, it);
     });
     const { equipped, removed } = applyEquip(current, slot, itemId, (id) => items.get(id));
+    if (punishment && removed.includes(punishment.slot)) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Can't equip that while your last-place punishment is active.`
+      );
+    }
     tx.update(userRef, { equipped, updatedAt: FieldValue.serverTimestamp() });
     return { ok: true as const, removed, equipped };
   });

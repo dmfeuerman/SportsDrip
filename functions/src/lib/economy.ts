@@ -103,7 +103,13 @@ export type LedgerType =
   | "league_buy_in"
   | "league_payout"
   | "ad_reward"
-  | "admin_adjust";
+  | "challenge_escrow"
+  | "challenge_payout"
+  | "challenge_refund"
+  | "admin_adjust"
+  | "dev_grant"
+  | "level_reward"
+  | "referral_bonus";
 
 export interface LedgerEntry {
   type: LedgerType;
@@ -162,6 +168,76 @@ export async function applyCredits(
   });
 
   return next;
+}
+
+export interface CreditMove {
+  uid: string;
+  delta: number;
+  type: LedgerType;
+  idempotencyKey: string;
+  ref?: string;
+  note?: string;
+}
+
+/**
+ * `applyCredits` for several moves (and several users) in one transaction.
+ *
+ * Firestore makes every read come before the first write, so two plain
+ * applyCredits calls can't share a transaction: the second one's read would
+ * land after the first one's write. This reads every user and ledger row up
+ * front, then writes each user's balance once.
+ *
+ * - Same guarantees as applyCredits: no balance goes negative, and a move whose
+ *   idempotency key is already in the ledger is skipped.
+ * - A zero delta writes nothing but still reports the balance, so a loser's
+ *   notification can show where they stand.
+ * - The caller must not have written anything in this transaction yet.
+ *
+ * Returns each user's balance after the moves (null if the profile is gone and
+ * nothing was owed to it).
+ */
+export async function applyCreditsMany(tx: Tx, moves: CreditMove[]): Promise<Record<string, number | null>> {
+  const uids = [...new Set(moves.map((m) => m.uid))];
+  const userRefs = uids.map((u) => db.collection("users").doc(u));
+  const live = moves.filter((m) => m.delta !== 0);
+  const ledgerRefs = live.map((m) => db.collection("users").doc(m.uid).collection("ledger").doc(m.idempotencyKey));
+
+  const userSnaps = await Promise.all(userRefs.map((r) => tx.get(r)));
+  const ledgerSnaps = await Promise.all(ledgerRefs.map((r) => tx.get(r)));
+
+  const balances: Record<string, number | null> = {};
+  uids.forEach((u, i) => {
+    const snap = userSnaps[i]!;
+    balances[u] = snap.exists ? ((snap.get("balance") as number | undefined) ?? 0) : null;
+  });
+
+  const rows: Array<{ ref: FirebaseFirestore.DocumentReference; move: CreditMove; after: number }> = [];
+  const touched = new Set<string>();
+  live.forEach((m, i) => {
+    if (ledgerSnaps[i]!.exists) return; // already applied
+    const current = balances[m.uid];
+    if (current === null || current === undefined) throw new HttpsError("not-found", "Profile not found.");
+    const next = current + m.delta;
+    if (next < 0) throw new HttpsError("failed-precondition", "Not enough credits.");
+    balances[m.uid] = next;
+    touched.add(m.uid);
+    rows.push({ ref: ledgerRefs[i]!, move: m, after: next });
+  });
+
+  for (const u of touched) {
+    tx.update(db.collection("users").doc(u), { balance: balances[u], updatedAt: FieldValue.serverTimestamp() });
+  }
+  for (const { ref, move, after } of rows) {
+    tx.set(ref, {
+      type: move.type,
+      delta: move.delta,
+      balanceAfter: after,
+      ref: move.ref ?? null,
+      note: move.note ?? null,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  }
+  return balances;
 }
 
 /** Canonical, order-independent friendship id. Makes duplicates impossible. */

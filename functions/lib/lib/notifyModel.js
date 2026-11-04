@@ -13,7 +13,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.betNotificationId = betNotificationId;
 exports.betResultNotification = betResultNotification;
+exports.notificationRoute = notificationRoute;
+exports.followNotification = followNotification;
 exports.simpleNotification = simpleNotification;
+exports.challengeResultNotification = challengeResultNotification;
 function betNotificationId(betId, leagueId) {
     return leagueId ? `lsettle_${leagueId}_${betId}` : `settle_${betId}`;
 }
@@ -21,8 +24,9 @@ function betResultNotification(args) {
     const { outcome, bet } = args;
     const unit = args.wallet === "league" ? "league tokens" : "credits";
     const where = args.leagueName ? ` in ${args.leagueName}` : "";
+    const pickLabel = bet.label || bet.teamAbbr;
     const score = bet.finalHomeScore !== null && bet.finalAwayScore !== null
-        ? ` (${bet.side === "home" ? bet.finalHomeScore : bet.finalAwayScore}–${bet.side === "home" ? bet.finalAwayScore : bet.finalHomeScore})`
+        ? ` (${bet.side === "away" ? bet.finalAwayScore : bet.finalHomeScore}–${bet.side === "away" ? bet.finalHomeScore : bet.finalAwayScore})`
         : "";
     let type;
     let title;
@@ -32,20 +36,20 @@ function betResultNotification(args) {
         case "won":
             type = "bet_won";
             delta = bet.payout;
-            title = `${bet.teamAbbr} came through`;
-            body = `${bet.teamName} beat ${bet.opponentAbbr}${score}. +${bet.payout.toLocaleString("en-US")} ${unit}${where}.`;
+            title = `${pickLabel} came through`;
+            body = `${bet.teamName} vs ${bet.opponentAbbr}${score}. +${bet.payout.toLocaleString("en-US")} ${unit}${where}.`;
             break;
         case "lost":
             type = "bet_lost";
             delta = -bet.stake;
-            title = `${bet.teamAbbr} fell short`;
-            body = `${bet.teamName} lost to ${bet.opponentAbbr}${score}. ${bet.stake.toLocaleString("en-US")} ${unit} staked${where}.`;
+            title = `${pickLabel} fell short`;
+            body = `${bet.teamName} vs ${bet.opponentAbbr}${score}. ${bet.stake.toLocaleString("en-US")} ${unit} staked${where}.`;
             break;
         case "push":
             type = "bet_push";
             delta = bet.stake;
-            title = "Draw — stake returned";
-            body = `${bet.teamName} vs ${bet.opponentAbbr} ended level${score}. ${bet.stake.toLocaleString("en-US")} ${unit} back${where}.`;
+            title = "Push — stake returned";
+            body = `${bet.teamName} vs ${bet.opponentAbbr} landed on the number${score}. ${bet.stake.toLocaleString("en-US")} ${unit} back${where}.`;
             break;
         default:
             type = "bet_refunded";
@@ -70,6 +74,70 @@ function betResultNotification(args) {
         data: null,
     };
 }
+/**
+ * In-app route a notification opens (push tap, feed row). Paths are
+ * expo-router hrefs; the client pushes them as-is.
+ */
+function notificationRoute(n) {
+    const league = n.leagueId ? `/league/${encodeURIComponent(n.leagueId)}` : null;
+    switch (n.type) {
+        case "league_invite":
+            return n.data?.code ? `/join/${encodeURIComponent(n.data.code)}` : "/(tabs)/leagues";
+        case "league_report":
+            return league ? `${league}/recap${n.data?.week ? `?week=${encodeURIComponent(n.data.week)}` : ""}` : "/(tabs)/leagues";
+        case "lock_reminder":
+        case "clutch_alert":
+            return n.data?.gameId ? `/game/${encodeURIComponent(n.data.gameId)}` : league ?? "/(tabs)/games";
+        case "bet_won":
+        case "bet_lost":
+        case "bet_push":
+        case "bet_refunded":
+        case "bet_voided":
+        case "dispute_reported":
+            return n.wallet === "league" && league ? `${league}?tab=bets` : "/bets";
+        case "bet_tailed":
+        case "bet_faded":
+            return league ? `${league}?tab=bets` : "/(tabs)/leagues";
+        case "loan_funded":
+        case "loan_repaid":
+        case "loan_countered":
+        case "loan_request":
+        case "margin_call":
+        case "stimulus_request":
+        case "stimulus_approved":
+            return league ? `${league}?tab=bank` : "/(tabs)/leagues";
+        case "league_payout":
+        case "league_ended":
+            return league ?? "/(tabs)/leagues";
+        case "friend_request":
+        case "friend_accepted":
+        case "referral_bonus":
+            return "/(tabs)/friends";
+        case "level_up":
+            return "/levels";
+        default:
+            return n.type.startsWith("challenge_") ? "/challenges" : "/activity";
+    }
+}
+/** Another member tailed or faded your league bet. Written in the same transaction as their bet. */
+function followNotification(args) {
+    const amount = args.stake.toLocaleString("en-US");
+    return simpleNotification({
+        id: `${args.kind}_${args.followerBetId}`,
+        type: args.kind === "tail" ? "bet_tailed" : "bet_faded",
+        title: args.kind === "tail"
+            ? `${args.followerName} tailed your ${args.sourceTeamAbbr} pick`
+            : `${args.followerName} is fading you`,
+        body: args.kind === "tail"
+            ? `They put ${amount} on ${args.sourceTeamAbbr} with you in ${args.leagueName}.`
+            : `They put ${amount} on ${args.followerTeamAbbr} against your ${args.sourceTeamAbbr} pick in ${args.leagueName}.`,
+        now: args.now,
+        wallet: "league",
+        leagueId: args.leagueId,
+        leagueName: args.leagueName,
+        data: { betId: args.sourceBetId, followerBetId: args.followerBetId, gameId: args.gameId },
+    });
+}
 function simpleNotification(args) {
     return {
         id: args.id,
@@ -86,6 +154,63 @@ function simpleNotification(args) {
         read: false,
         createdAtMs: args.now,
         data: args.data ?? null,
+    };
+}
+/**
+ * A settled head-to-head, from one player's side. `bet` is filled in from that
+ * player's point of view (their team, their stake, the whole pot as the
+ * payout), so the existing result popup and recap render it unchanged.
+ */
+function challengeResultNotification(args) {
+    const { result, bet, friendName } = args;
+    const score = bet.finalHomeScore !== null && bet.finalAwayScore !== null
+        ? ` (${bet.side === "home" ? bet.finalHomeScore : bet.finalAwayScore}–${bet.side === "home" ? bet.finalAwayScore : bet.finalHomeScore})`
+        : "";
+    const pot = bet.payout.toLocaleString("en-US");
+    let type;
+    let title;
+    let body;
+    let delta;
+    switch (result) {
+        case "won":
+            type = "challenge_won";
+            delta = bet.payout;
+            title = `You beat ${friendName}`;
+            body = `${bet.teamName} beat ${bet.opponentAbbr}${score}. The ${pot}-credit pot is yours.`;
+            break;
+        case "lost":
+            type = "challenge_lost";
+            delta = -bet.stake;
+            title = `${friendName} takes the pot`;
+            body = `${bet.teamName} lost to ${bet.opponentAbbr}${score}. Your ${bet.stake.toLocaleString("en-US")} went to ${friendName}.`;
+            break;
+        case "push":
+            type = "challenge_push";
+            delta = bet.stake;
+            title = `Draw with ${friendName}`;
+            body = `${bet.teamName} vs ${bet.opponentAbbr} ended level${score}. Your ${bet.stake.toLocaleString("en-US")} is back.`;
+            break;
+        default:
+            type = "challenge_refunded";
+            delta = bet.stake;
+            title = "Challenge called off";
+            body = `${bet.teamName} vs ${bet.opponentAbbr} didn't go ahead. Your ${bet.stake.toLocaleString("en-US")} is back.`;
+    }
+    return {
+        id: `chsettle_${args.challengeId}`,
+        type,
+        title,
+        body,
+        delta,
+        balanceAfter: args.balanceAfter,
+        wallet: "credits",
+        leagueId: null,
+        leagueName: null,
+        bet,
+        popup: result === "won" || result === "lost",
+        read: false,
+        createdAtMs: args.now,
+        data: { challengeId: args.challengeId, friendName },
     };
 }
 //# sourceMappingURL=notifyModel.js.map

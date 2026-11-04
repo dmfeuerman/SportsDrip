@@ -40,6 +40,7 @@ export function seedGame(id: string, over: Record<string, unknown> = {}) {
     awayScore: null,
     homeTeam: { name: "Boston Celtics", abbreviation: "BOS", color: "#007A33", odds: 1.8 },
     awayTeam: { name: "New York Knicks", abbreviation: "NYK", color: "#F58426", odds: 2.1 },
+    priced: true,
     ...over,
   });
 }

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.peerLoanAction = exports.requestPeerLoan = exports.repayLoan = exports.takeBankLoan = exports.placeLeagueBet = exports.endLeague = exports.inviteToLeague = exports.updateLeagueSettings = exports.leaveLeague = exports.joinLeague = exports.createLeague = void 0;
+exports.leagueStimulus = exports.peerLoanAction = exports.requestPeerLoan = exports.repayLoan = exports.takeBankLoan = exports.placeLeagueBet = exports.voidLeagueBet = exports.reportResult = exports.endLeague = exports.voteEndLeague = exports.inviteToLeague = exports.updateLeagueSettings = exports.leaveLeague = exports.joinLeague = exports.createLeague = void 0;
+exports.loanOf = loanOf;
 const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
@@ -9,21 +10,26 @@ const loanMath_1 = require("../lib/loanMath");
 const notify_1 = require("../lib/notify");
 const notifyModel_1 = require("../lib/notifyModel");
 const settlement_1 = require("../lib/settlement");
+const pricing_1 = require("../lib/pricing");
 const leagueLifecycle_1 = require("../lib/leagueLifecycle");
+const streak_1 = require("../lib/streak");
+const weekly_1 = require("../lib/weekly");
 /**
  * Leagues, behind the trusted boundary.
- *
- * Before this pass every league mutation was a client write: members set
- * their own `leagueTokens`, "approving" a peer loan minted tokens from
- * nowhere, bank interest only ever ran on the device (and compounded), and
- * there was no way to place a league bet at all. The rules now deny every
- * client write under leagues/*; these callables are the only way in.
  *
  * Data model
  *   leagues/{id}                    config, pot, members map, results
  *   leagues/{id}/leagueBets/{betId} league-wallet bets (settled by settleBets)
  *   leagues/{id}/loans/{loanId}     bank and peer loans, flat one-time interest
  *   leagues/{id}/activity/{id}      feed
+ *   leagues/{id}/messages/{id}      chat messages + bet cards + system rows
+ *   leagues/{id}/gameSides/{gameId} per-game sweat aggregate
+ *   leagues/{id}/audit/{id}         immutable commissioner audit log
+ *   leagues/{id}/rivalries/{pairId} head-to-head rivalry records
+ *   leagues/{id}/reports/{week}     Tuesday League Report story cards
+ *   leagues/{id}/matchups/{week}    weekly head-to-head pairings
+ *   leagues/{id}/picks/{pickId}     pick'em and survivor picks
+ *   leagues/{id}/parlays/{parlayId} group parlays
  *   leagueInvites/{code}            code -> league lookup
  */
 const leagueRef = (id) => economy_1.db.collection("leagues").doc(id);
@@ -68,7 +74,23 @@ function loanOf(d) {
     };
 }
 function activity(tx, leagueId, id, entry) {
-    tx.set(leagueRef(leagueId).collection("activity").doc(id), { amount: 0, ...entry, at: Date.now() });
+    tx.set(leagueRef(leagueId).collection("activity").doc(id), {
+        amount: 0,
+        reactions: {},
+        reactors: {},
+        ...entry,
+        at: Date.now(),
+    });
+}
+function writeAudit(tx, leagueId, id, entry) {
+    tx.set(leagueRef(leagueId).collection("audit").doc(id), {
+        before: null,
+        after: null,
+        reason: null,
+        betId: null,
+        ...entry,
+        at: entry.at ?? Date.now(),
+    });
 }
 async function profileName(tx, uid) {
     const p = await tx.get(userRef(uid));
@@ -85,13 +107,17 @@ const CreateInput = zod_1.z.object({
     idempotencyKey: Key,
     name: zod_1.z.string().trim().min(1).max(40),
     startingLeagueTokens: zod_1.z.number().int().refine((n) => leagueConfig_1.TOKEN_START_OPTIONS.includes(n)),
-    duration: zod_1.z.enum(Object.keys(leagueConfig_1.DURATIONS)),
+    duration: zod_1.z.enum(leagueConfig_1.DURATION_KEYS),
     sports: zod_1.z.array(zod_1.z.enum(leagueConfig_1.SPORTS)).min(1).max(leagueConfig_1.SPORTS.length),
     buyIn: zod_1.z.number().int().refine((n) => leagueConfig_1.BUY_IN_OPTIONS.includes(n)),
     prizePreset: zod_1.z.enum(["winner-all", "top-2", "top-3"]),
     bankLoanEnabled: zod_1.z.boolean(),
     bankInterestRate: zod_1.z.number().min(leagueConfig_1.BANK_RATE_MIN).max(leagueConfig_1.BANK_RATE_MAX),
     bankInterestIntervalHours: zod_1.z.number().int().min(leagueConfig_1.BANK_INTERVAL_MIN_H).max(leagueConfig_1.BANK_INTERVAL_MAX_H).default(24),
+    mode: zod_1.z.enum(leagueConfig_1.LEAGUE_MODES).default("bankroll"),
+    matchupsEnabled: zod_1.z.boolean().default(false),
+    matchupCadence: zod_1.z.enum(leagueConfig_1.MATCHUP_CADENCES).default("weekly"),
+    stimulusEnabled: zod_1.z.boolean().default(false),
 });
 exports.createLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
@@ -104,7 +130,6 @@ exports.createLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req
             return { ok: true, leagueId, code: existing.get("code"), duplicate: true };
         }
         const name = await profileName(tx, uid);
-        // Find an unused code. Reads all happen before any write.
         let code = null;
         for (let i = 0; i < 6 && !code; i++) {
             const candidate = (0, leagueConfig_1.randomCode)();
@@ -135,14 +160,33 @@ exports.createLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req
             betsWon: 0,
             betsLost: 0,
             betsPush: 0,
+            locksWon: 0,
+            locksLost: 0,
+            locksPush: 0,
+            lastLockWeek: null,
+            pickPoints: 0,
+            eliminated: false,
+            eliminatedAt: null,
+            eliminatedWeek: null,
+            usedTeams: [],
+            h2h: { w: 0, l: 0, t: 0 },
         };
+        const endsAt = (0, leagueConfig_1.endsAtFor)(input.duration, input.sports, now);
         tx.set(ref, {
             schemaVersion: 2,
             id: leagueId,
             name: input.name,
             code,
+            mode: input.mode,
+            // An H2H league is nothing but matchups.
+            matchupsEnabled: input.mode === "matchups" || Boolean(input.matchupsEnabled),
+            matchupCadence: input.matchupCadence,
+            stimulusEnabled: input.stimulusEnabled,
+            stimulus: null,
             createdAt: now,
-            endsAt: now + leagueConfig_1.DURATIONS[input.duration] * 86_400_000,
+            endsAt,
+            duration: input.duration,
+            durationWeeks: (0, leagueConfig_1.weeksBetween)(now, endsAt),
             status: "active",
             creatorId: uid,
             startingLeagueTokens: input.startingLeagueTokens,
@@ -156,6 +200,7 @@ exports.createLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req
             memberIds: [uid],
             formerMemberIds: [],
             members: { [uid]: me },
+            endVotes: [],
             lastActivityAt: now,
             payoutStatus: "none",
         });
@@ -216,6 +261,16 @@ exports.joinLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req) 
                 betsWon: 0,
                 betsLost: 0,
                 betsPush: 0,
+                locksWon: 0,
+                locksLost: 0,
+                locksPush: 0,
+                lastLockWeek: null,
+                pickPoints: 0,
+                eliminated: false,
+                eliminatedAt: null,
+                eliminatedWeek: null,
+                usedTeams: [],
+                h2h: { w: 0, l: 0, t: 0 },
             },
             memberIds: economy_1.FieldValue.arrayUnion(uid),
             pot: economy_1.FieldValue.increment(buyIn),
@@ -231,7 +286,6 @@ exports.leaveLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req)
     const ref = leagueRef(leagueId);
     return economy_1.db.runTransaction(async (tx) => {
         const league = await tx.get(ref);
-        // Closed leagues are read-only: membership is frozen with the final standings.
         requireActiveLeague(league, Date.now());
         const me = requireMember(league, uid);
         const [loans, bets] = await Promise.all([
@@ -252,7 +306,6 @@ exports.leaveLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req)
         if (active && memberIds.length === 0 && (league.get("pot") ?? 0) > 0) {
             throw new https_1.HttpsError("failed-precondition", "You're the last member and there's a pot — end the league instead so it pays out.");
         }
-        // Open requests made by the leaver can't be funded any more.
         for (const d of loans.docs) {
             if (d.get("borrowerId") === uid && d.get("status") !== "active") {
                 tx.update(d.ref, { status: "cancelled", updatedAt: Date.now() });
@@ -262,6 +315,7 @@ exports.leaveLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req)
             [`members.${uid}`]: economy_1.FieldValue.delete(),
             memberIds: economy_1.FieldValue.arrayRemove(uid),
             formerMemberIds: economy_1.FieldValue.arrayUnion(uid),
+            endVotes: economy_1.FieldValue.arrayRemove(uid),
             lastActivityAt: Date.now(),
         };
         if (league.get("creatorId") === uid && memberIds.length > 0) {
@@ -281,39 +335,143 @@ exports.leaveLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req)
     });
 });
 // ---------------------------------------------------------------------------
-// Settings, invites, ending
+// Settings, audit log, invites, early end voting, disputes & voids
 // ---------------------------------------------------------------------------
+const UpdateSettingsInput = zod_1.z.object({
+    leagueId: zod_1.z.string().min(1),
+    bankLoanEnabled: zod_1.z.boolean().optional(),
+    bankInterestRate: zod_1.z.number().min(leagueConfig_1.BANK_RATE_MIN).max(leagueConfig_1.BANK_RATE_MAX).optional(),
+    bankInterestIntervalHours: zod_1.z.number().int().min(leagueConfig_1.BANK_INTERVAL_MIN_H).max(leagueConfig_1.BANK_INTERVAL_MAX_H).optional(),
+    name: zod_1.z.string().trim().min(1).max(40).optional(),
+    sports: zod_1.z.array(zod_1.z.enum(leagueConfig_1.SPORTS)).min(1).max(leagueConfig_1.SPORTS.length).optional(),
+    prizePreset: zod_1.z.enum(["winner-all", "top-2", "top-3"]).optional(),
+    duration: zod_1.z.enum(leagueConfig_1.DURATION_KEYS).optional(),
+    mode: zod_1.z.enum(leagueConfig_1.LEAGUE_MODES).optional(),
+    matchupsEnabled: zod_1.z.boolean().optional(),
+    matchupCadence: zod_1.z.enum(leagueConfig_1.MATCHUP_CADENCES).optional(),
+    /** Not a locked rule: the creator can open or close stimulus votes any time. */
+    stimulusEnabled: zod_1.z.boolean().optional(),
+});
 exports.updateLeagueSettings = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
-    const input = zod_1.z
-        .object({
-        leagueId: zod_1.z.string().min(1),
-        bankLoanEnabled: zod_1.z.boolean(),
-        bankInterestRate: zod_1.z.number().min(leagueConfig_1.BANK_RATE_MIN).max(leagueConfig_1.BANK_RATE_MAX),
-        bankInterestIntervalHours: zod_1.z.number().int().min(leagueConfig_1.BANK_INTERVAL_MIN_H).max(leagueConfig_1.BANK_INTERVAL_MAX_H).default(24),
-    })
-        .parse(req.data);
+    const input = UpdateSettingsInput.parse(req.data);
+    const ref = leagueRef(input.leagueId);
+    const touchingRules = input.name !== undefined ||
+        input.sports !== undefined ||
+        input.prizePreset !== undefined ||
+        input.duration !== undefined ||
+        input.mode !== undefined ||
+        input.matchupsEnabled !== undefined ||
+        input.matchupCadence !== undefined;
     return economy_1.db.runTransaction(async (tx) => {
-        const league = await tx.get(leagueRef(input.leagueId));
-        requireActiveLeague(league, Date.now());
+        const [league, anyBets, anyPicks] = await Promise.all([
+            tx.get(ref),
+            touchingRules ? tx.get(ref.collection("leagueBets").limit(1)) : Promise.resolve(null),
+            touchingRules ? tx.get(ref.collection("picks").limit(1)) : Promise.resolve(null),
+        ]);
+        const now = Date.now();
+        requireActiveLeague(league, now);
         if (league.get("creatorId") !== uid) {
-            throw new https_1.HttpsError("permission-denied", "Only the league creator can change the bank.");
+            throw new https_1.HttpsError("permission-denied", "Only the league creator can change the bank or rules.");
         }
-        // New terms apply to new loans. Existing loans keep the rate they were
-        // taken at — a creator can't reprice everyone else's debt mid-season.
-        tx.update(leagueRef(input.leagueId), {
-            bankLoanEnabled: input.bankLoanEnabled,
-            bankInterestRate: input.bankInterestRate,
-            bankInterestIntervalHours: input.bankInterestIntervalHours,
-        });
         const me = requireMember(league, uid);
-        activity(tx, input.leagueId, `bank_${Date.now()}`, {
+        if (touchingRules && ((anyBets && !anyBets.empty) || (anyPicks && !anyPicks.empty))) {
+            throw new https_1.HttpsError("failed-precondition", "League rules are locked once the first bet has been placed.");
+        }
+        const before = {};
+        const after = {};
+        const update = { lastActivityAt: now };
+        if (input.bankLoanEnabled !== undefined) {
+            before.bankLoanEnabled = league.get("bankLoanEnabled");
+            after.bankLoanEnabled = input.bankLoanEnabled;
+            update.bankLoanEnabled = input.bankLoanEnabled;
+        }
+        if (input.bankInterestRate !== undefined) {
+            before.bankInterestRate = league.get("bankInterestRate");
+            after.bankInterestRate = input.bankInterestRate;
+            update.bankInterestRate = input.bankInterestRate;
+        }
+        if (input.bankInterestIntervalHours !== undefined) {
+            before.bankInterestIntervalHours = league.get("bankInterestIntervalHours");
+            after.bankInterestIntervalHours = input.bankInterestIntervalHours;
+            update.bankInterestIntervalHours = input.bankInterestIntervalHours;
+        }
+        if (input.name !== undefined) {
+            before.name = league.get("name");
+            after.name = input.name;
+            update.name = input.name;
+        }
+        if (input.sports !== undefined) {
+            before.allowedSports = league.get("allowedSports");
+            after.allowedSports = input.sports;
+            update.allowedSports = input.sports;
+        }
+        // A full-season league's end follows its sports.
+        const nextDuration = input.duration ?? league.get("duration");
+        if (input.duration !== undefined || (input.sports !== undefined && nextDuration === leagueConfig_1.FULL_SEASON)) {
+            const d = (input.duration ?? nextDuration);
+            const sports = input.sports ?? (league.get("allowedSports") ?? [...leagueConfig_1.SPORTS]);
+            const createdAt = league.get("createdAt") ?? now;
+            before.duration = league.get("duration");
+            after.duration = d;
+            update.duration = d;
+            update.endsAt = (0, leagueConfig_1.endsAtFor)(d, sports, createdAt);
+            update.durationWeeks = (0, leagueConfig_1.weeksBetween)(createdAt, update.endsAt);
+        }
+        if (input.prizePreset !== undefined) {
+            const shares = leagueConfig_1.PRIZE_PRESETS[input.prizePreset];
+            before.prizePreset = league.get("prizeDistribution")?.preset ?? null;
+            after.prizePreset = input.prizePreset;
+            update.prizeDistribution = { preset: input.prizePreset, ...shares };
+        }
+        if (input.mode !== undefined) {
+            before.mode = league.get("mode") ?? "bankroll";
+            after.mode = input.mode;
+            update.mode = input.mode;
+        }
+        if (input.matchupsEnabled !== undefined) {
+            before.matchupsEnabled = Boolean(league.get("matchupsEnabled"));
+            after.matchupsEnabled = input.matchupsEnabled;
+            update.matchupsEnabled = input.matchupsEnabled;
+        }
+        if ((input.mode ?? league.get("mode")) === "matchups")
+            update.matchupsEnabled = true;
+        if (input.matchupCadence !== undefined) {
+            before.matchupCadence = league.get("matchupCadence") ?? "weekly";
+            after.matchupCadence = input.matchupCadence;
+            update.matchupCadence = input.matchupCadence;
+        }
+        if (input.stimulusEnabled !== undefined) {
+            before.stimulusEnabled = Boolean(league.get("stimulusEnabled"));
+            after.stimulusEnabled = input.stimulusEnabled;
+            update.stimulusEnabled = input.stimulusEnabled;
+            // Closing it drops any request still waiting on votes.
+            if (!input.stimulusEnabled)
+                update.stimulus = null;
+        }
+        tx.update(ref, update);
+        const docSuffix = `${now}_${Math.random().toString(36).slice(2, 8)}`;
+        writeAudit(tx, input.leagueId, `settings_${docSuffix}`, {
+            action: "settings",
+            uid,
+            name: me.displayName,
+            before,
+            after,
+            at: now,
+        });
+        activity(tx, input.leagueId, `settings_${docSuffix}`, {
             type: "settings",
             uid,
             name: me.displayName,
-            text: input.bankLoanEnabled
-                ? `Bank terms: ${input.bankInterestRate}% flat on new loans`
-                : "The bank is closed to new loans",
+            text: input.bankLoanEnabled !== undefined
+                ? input.bankLoanEnabled
+                    ? `Bank terms: ${input.bankInterestRate ?? league.get("bankInterestRate")}% flat on new loans`
+                    : "The bank is closed to new loans"
+                : input.stimulusEnabled !== undefined && !touchingRules
+                    ? input.stimulusEnabled
+                        ? "Stimulus votes are open — anyone can ask the bank to top everyone up"
+                        : "Stimulus votes are closed"
+                    : `${me.displayName} updated the league rules`,
         });
         return { ok: true };
     });
@@ -345,12 +503,67 @@ exports.inviteToLeague = (0, https_1.onCall)({ region: "us-central1" }, async (r
             now: Date.now(),
             leagueId,
             leagueName: name,
-            // Surfaced as an in-app banner (InviteToastHost), not only a feed row.
             popup: true,
             data: { code: league.get("code"), leagueId, fromUid: uid },
         }));
         return { ok: true, status: "sent" };
     });
+});
+/**
+ * Casts or withdraws a member's vote to end the league early.
+ * Once a strict majority (`Math.floor(memberCount / 2) + 1`) votes yes, the
+ * league is finalized and paid out immediately.
+ */
+exports.voteEndLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
+    const uid = (0, economy_1.requireAuth)(req.auth);
+    const input = zod_1.z
+        .object({
+        leagueId: zod_1.z.string().min(1),
+        vote: zod_1.z.boolean().default(true),
+    })
+        .parse(req.data);
+    const ref = leagueRef(input.leagueId);
+    const outcome = await economy_1.db.runTransaction(async (tx) => {
+        const league = await tx.get(ref);
+        const now = Date.now();
+        requireActiveLeague(league, now);
+        const me = requireMember(league, uid);
+        const memberIds = league.get("memberIds") ?? [];
+        const currentVotes = new Set((league.get("endVotes") ?? []).filter((id) => memberIds.includes(id)));
+        if (input.vote)
+            currentVotes.add(uid);
+        else
+            currentVotes.delete(uid);
+        const votes = [...currentVotes];
+        const needed = Math.floor(memberIds.length / 2) + 1;
+        const count = votes.length;
+        tx.update(ref, { endVotes: votes, lastActivityAt: now });
+        const suffix = `${now}_${uid}_${Math.random().toString(36).slice(2, 8)}`;
+        writeAudit(tx, input.leagueId, `endvote_${suffix}`, {
+            action: "end_vote",
+            uid,
+            name: me.displayName,
+            vote: input.vote,
+            votes: count,
+            needed,
+            at: now,
+        });
+        activity(tx, input.leagueId, `endvote_${suffix}`, {
+            type: "end_vote",
+            uid,
+            name: me.displayName,
+            text: input.vote
+                ? `${me.displayName} voted to end the season early (${count}/${needed})`
+                : `${me.displayName} withdrew their early-end vote (${count}/${needed})`,
+        });
+        return { shouldFinalize: count >= needed, votes: count, needed };
+    });
+    if (outcome.shouldFinalize) {
+        const results = await (0, leagueLifecycle_1.finalizeLeague)(input.leagueId, Date.now());
+        await (0, leagueLifecycle_1.payoutLeague)(input.leagueId);
+        return { ok: true, ended: true, votes: outcome.votes, needed: outcome.needed, results };
+    }
+    return { ok: true, ended: false, votes: outcome.votes, needed: outcome.needed, results: null };
 });
 exports.endLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
@@ -359,36 +572,293 @@ exports.endLeague = (0, https_1.onCall)({ region: "us-central1" }, async (req) =
     if (!snap.exists)
         throw new https_1.HttpsError("not-found", "League not found.");
     requireMember(snap, uid);
-    const expired = Date.now() >= (snap.get("endsAt") ?? 0);
+    const now = Date.now();
+    const expired = now >= (snap.get("endsAt") ?? 0);
     if (snap.get("creatorId") !== uid && !expired) {
         throw new https_1.HttpsError("permission-denied", "Only the creator can end the league early.");
     }
-    const results = await (0, leagueLifecycle_1.finalizeLeague)(leagueId, Date.now());
+    if (!expired) {
+        const memberIds = snap.get("memberIds") ?? [];
+        if (memberIds.length > 1) {
+            const currentVotes = new Set((snap.get("endVotes") ?? []).filter((id) => memberIds.includes(id)));
+            currentVotes.add(uid);
+            const needed = Math.floor(memberIds.length / 2) + 1;
+            if (currentVotes.size < needed) {
+                throw new https_1.HttpsError("failed-precondition", `Ending early requires a majority vote (${currentVotes.size}/${needed}). Have league members vote first.`);
+            }
+        }
+    }
+    const results = await (0, leagueLifecycle_1.finalizeLeague)(leagueId, now);
     await (0, leagueLifecycle_1.payoutLeague)(leagueId);
     return { ok: true, results };
+});
+/**
+ * Flags a league bet result for commissioner review. Writes a dispute record on
+ * the bet, logs it in `leagues/{id}/audit`, and notifies the commissioner.
+ */
+exports.reportResult = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
+    const uid = (0, economy_1.requireAuth)(req.auth);
+    const input = zod_1.z
+        .object({
+        leagueId: zod_1.z.string().min(1),
+        betId: zod_1.z.string().min(1),
+        reason: zod_1.z.string().trim().min(3).max(240),
+    })
+        .parse(req.data);
+    const ref = leagueRef(input.leagueId);
+    const betRef = ref.collection("leagueBets").doc(input.betId);
+    return economy_1.db.runTransaction(async (tx) => {
+        const [league, bet] = await Promise.all([tx.get(ref), tx.get(betRef)]);
+        if (!league.exists)
+            throw new https_1.HttpsError("not-found", "League not found.");
+        const me = requireMember(league, uid);
+        if (!bet.exists)
+            throw new https_1.HttpsError("not-found", "Bet not found.");
+        const now = Date.now();
+        tx.update(betRef, {
+            disputed: true,
+            disputeReason: input.reason,
+            disputedBy: uid,
+            disputedByName: me.displayName,
+            disputedAt: now,
+        });
+        const suffix = `${input.betId}_${uid}_${now}`;
+        writeAudit(tx, input.leagueId, `dispute_${suffix}`, {
+            action: "dispute_reported",
+            uid,
+            name: me.displayName,
+            betId: input.betId,
+            reason: input.reason,
+            at: now,
+        });
+        activity(tx, input.leagueId, `dispute_${suffix}`, {
+            type: "dispute_reported",
+            uid,
+            name: me.displayName,
+            text: `${me.displayName} flagged a bet (${bet.get("label") ?? bet.get("teamAbbr")}): "${input.reason}"`,
+        });
+        const creatorId = league.get("creatorId");
+        if (creatorId && creatorId !== uid) {
+            (0, notify_1.writeNotification)(tx, creatorId, (0, notifyModel_1.simpleNotification)({
+                id: `dispute_${input.leagueId}_${input.betId}`,
+                type: "dispute_reported",
+                title: `Result flagged in ${league.get("name")}`,
+                body: `${me.displayName} flagged ${bet.get("displayName")}'s ${bet.get("label") ?? bet.get("teamAbbr")} bet: "${input.reason}"`,
+                wallet: "league",
+                leagueId: input.leagueId,
+                leagueName: league.get("name"),
+                now,
+            }));
+        }
+        return { ok: true };
+    });
+});
+/**
+ * Commissioner action to void a pending or settled league bet with a logged
+ * reason, restoring the member's league tokens to their pre-bet state.
+ */
+exports.voidLeagueBet = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
+    const uid = (0, economy_1.requireAuth)(req.auth);
+    const input = zod_1.z
+        .object({
+        leagueId: zod_1.z.string().min(1),
+        betId: zod_1.z.string().min(1),
+        reason: zod_1.z.string().trim().min(3).max(240),
+    })
+        .parse(req.data);
+    const ref = leagueRef(input.leagueId);
+    const betRef = ref.collection("leagueBets").doc(input.betId);
+    return economy_1.db.runTransaction(async (tx) => {
+        const [league, bet] = await Promise.all([tx.get(ref), tx.get(betRef)]);
+        const now = Date.now();
+        requireActiveLeague(league, now);
+        if (league.get("creatorId") !== uid) {
+            throw new https_1.HttpsError("permission-denied", "Only the league commissioner can void a bet.");
+        }
+        const me = requireMember(league, uid);
+        if (!bet.exists)
+            throw new https_1.HttpsError("not-found", "Bet not found.");
+        const status = bet.get("status");
+        if (status === "cancelled" || status === "void") {
+            throw new https_1.HttpsError("failed-precondition", "That bet has already been voided.");
+        }
+        const gameId = bet.get("gameId");
+        const sidesRef = ref.collection("gameSides").doc(gameId);
+        const sidesSnap = await tx.get(sidesRef);
+        const betUid = bet.get("uid");
+        const targetMember = member(league, betUid);
+        const stake = bet.get("stake");
+        const payout = bet.get("potentialPayout");
+        // Restore token balance:
+        //  - pending or lost: stake was debited and nothing returned -> +stake
+        //  - won: stake was debited and payout credited -> +(stake - payout)
+        //  - push: stake was already returned -> 0
+        const tokenDelta = status === "pending" || status === "lost"
+            ? stake
+            : status === "won"
+                ? stake - payout
+                : 0;
+        const leagueUpdate = { lastActivityAt: now };
+        if (targetMember) {
+            if (tokenDelta !== 0) {
+                leagueUpdate[`members.${betUid}.leagueTokens`] = economy_1.FieldValue.increment(tokenDelta);
+            }
+            if (status === "won")
+                leagueUpdate[`members.${betUid}.betsWon`] = economy_1.FieldValue.increment(-1);
+            if (status === "lost")
+                leagueUpdate[`members.${betUid}.betsLost`] = economy_1.FieldValue.increment(-1);
+            if (status === "push")
+                leagueUpdate[`members.${betUid}.betsPush`] = economy_1.FieldValue.increment(-1);
+            if (bet.get("lock") === true && bet.get("lockWeek")) {
+                leagueUpdate[`members.${betUid}.lastLockWeek`] = null;
+            }
+        }
+        tx.update(ref, leagueUpdate);
+        tx.update(betRef, {
+            status: "cancelled",
+            voidReason: input.reason,
+            voidedBy: uid,
+            voidedAt: now,
+            disputed: false,
+            settledAt: economy_1.FieldValue.serverTimestamp(),
+        });
+        if (sidesSnap.exists) {
+            const entries = (sidesSnap.get("entries") ?? []).filter((e) => e.betId !== input.betId);
+            tx.set(sidesRef, {
+                entries,
+                home: entries.filter((e) => e.side === "home"),
+                away: entries.filter((e) => e.side === "away"),
+                updatedAt: now,
+            }, { merge: true });
+        }
+        writeAudit(tx, input.leagueId, `void_${input.betId}`, {
+            action: "bet_voided",
+            uid,
+            name: me.displayName,
+            betId: input.betId,
+            reason: input.reason,
+            before: { status, stake, payout },
+            after: { status: "cancelled", voidReason: input.reason },
+            at: now,
+        });
+        activity(tx, input.leagueId, `void_${input.betId}`, {
+            type: "bet_voided",
+            uid,
+            name: me.displayName,
+            amount: stake,
+            text: `${me.displayName} voided ${bet.get("displayName")}'s ${bet.get("label") ?? bet.get("teamAbbr")} bet (${input.reason})`,
+        });
+        if (targetMember) {
+            (0, notify_1.writeNotification)(tx, betUid, (0, notifyModel_1.simpleNotification)({
+                id: `void_${input.leagueId}_${input.betId}`,
+                type: "bet_voided",
+                title: `Bet voided in ${league.get("name")}`,
+                body: `${me.displayName} voided your ${bet.get("label") ?? bet.get("teamAbbr")} bet: "${input.reason}".`,
+                delta: tokenDelta,
+                balanceAfter: targetMember.leagueTokens + tokenDelta,
+                wallet: "league",
+                leagueId: input.leagueId,
+                leagueName: league.get("name"),
+                now,
+            }));
+        }
+        return { ok: true, tokenDelta };
+    });
 });
 // ---------------------------------------------------------------------------
 // League bets
 // ---------------------------------------------------------------------------
-const LeagueBetInput = zod_1.z.object({
+const LeagueBetInput = zod_1.z
+    .object({
     leagueId: zod_1.z.string().min(1),
     gameId: zod_1.z.string().min(1),
-    side: zod_1.z.enum(["home", "away"]),
+    side: zod_1.z.enum(["home", "away"]).optional(),
+    market: zod_1.z.enum(["ml", "spread", "total"]).optional(),
+    selection: zod_1.z.enum(["home", "away", "over", "under"]).optional(),
     stake: Money(leagueConfig_1.MIN_LEAGUE_STAKE, 10_000_000),
     idempotencyKey: Key,
     expectedOdds: zod_1.z.number().positive().max(100).optional(),
-});
+    expectedLine: zod_1.z.number().finite().optional(),
+    /** Another member's pending bet in this league, copied on the same side. */
+    tailOf: zod_1.z.string().min(1).max(200).optional(),
+    /** Another member's pending bet in this league, opposed on the other side. */
+    fadeOf: zod_1.z.string().min(1).max(200).optional(),
+    /** One Lock of the Week per member per week. */
+    lock: zod_1.z.boolean().optional(),
+    /** Hide pick from chat and sweat tracker until kickoff. */
+    hidden: zod_1.z.boolean().optional(),
+})
+    .refine((v) => !(v.tailOf && v.fadeOf), { message: "A bet can tail or fade, not both." })
+    .refine((v) => !!(v.selection || v.side), { message: "Pick a side or selection." });
+function oppositeSelection(sel) {
+    if (sel === "home")
+        return "away";
+    if (sel === "away")
+        return "home";
+    if (sel === "over")
+        return "under";
+    return "over";
+}
+/**
+ * Validates a tail/fade reference. The source must be another member's
+ * still-pending bet in this same league, on this game, and the new bet must be
+ * on the same selection (tail) or the opposite selection (fade).
+ */
+function followSource(source, kind, leagueId, gameId, priced, uid) {
+    const verb = kind === "tail" ? "tail" : "fade";
+    if (!source.exists || source.get("leagueId") !== leagueId) {
+        throw new https_1.HttpsError("not-found", `That bet isn't in this league any more, so you can't ${verb} it.`);
+    }
+    if (source.get("status") !== "pending") {
+        throw new https_1.HttpsError("failed-precondition", `That bet has already settled — too late to ${verb} it.`);
+    }
+    if (source.get("uid") === uid) {
+        throw new https_1.HttpsError("failed-precondition", `You can't ${verb} your own bet.`);
+    }
+    if (source.get("gameId") !== gameId) {
+        throw new https_1.HttpsError("invalid-argument", "That bet is on a different game.");
+    }
+    const sourceMarket = source.get("market") ?? "ml";
+    const sourceSel = source.get("selection") ??
+        source.get("side");
+    if (priced.market !== sourceMarket) {
+        throw new https_1.HttpsError("invalid-argument", `A ${verb} must be in the same market (${sourceMarket}).`);
+    }
+    if (kind === "tail" && priced.selection !== sourceSel) {
+        throw new https_1.HttpsError("invalid-argument", "A tail backs the same side.");
+    }
+    if (kind === "fade" && priced.selection !== oppositeSelection(sourceSel)) {
+        throw new https_1.HttpsError("invalid-argument", "A fade backs the other side.");
+    }
+    const followers = source.get("followers") ?? {};
+    if (followers[uid]) {
+        throw new https_1.HttpsError("already-exists", `You've already ${followers[uid] === "tail" ? "tailed" : "faded"} this bet.`);
+    }
+    return {
+        kind,
+        ref: source.ref,
+        uid: source.get("uid"),
+        name: source.get("displayName") || "Player",
+        teamAbbr: source.get("label") || source.get("teamAbbr"),
+    };
+}
 exports.placeLeagueBet = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
     const input = LeagueBetInput.parse(req.data);
     const ref = leagueRef(input.leagueId);
     const betId = `${uid}_${input.idempotencyKey}`;
     const betRef = ref.collection("leagueBets").doc(betId);
+    const sidesRef = ref.collection("gameSides").doc(input.gameId);
+    const followId = input.tailOf ?? input.fadeOf ?? null;
+    const followKind = input.tailOf ? "tail" : input.fadeOf ? "fade" : null;
     return economy_1.db.runTransaction(async (tx) => {
-        const [existing, league, game] = await Promise.all([
+        const [existing, league, game, sourceSnap, sidesSnap, uSnap] = await Promise.all([
             tx.get(betRef),
             tx.get(ref),
             tx.get(economy_1.db.collection("games").doc(input.gameId)),
+            followId ? tx.get(ref.collection("leagueBets").doc(followId)) : Promise.resolve(null),
+            tx.get(sidesRef),
+            tx.get(userRef(uid)),
         ]);
         if (existing.exists)
             return { ok: true, betId, duplicate: true, leagueTokens: null };
@@ -411,12 +881,17 @@ exports.placeLeagueBet = (0, https_1.onCall)({ region: "us-central1" }, async (r
         }
         if (input.stake > me.leagueTokens)
             throw new https_1.HttpsError("failed-precondition", "Not enough league tokens.");
-        const team = game.get(input.side === "home" ? "homeTeam" : "awayTeam");
-        const opp = game.get(input.side === "home" ? "awayTeam" : "homeTeam");
-        if (input.expectedOdds && team.odds < input.expectedOdds * 0.95) {
-            throw new https_1.HttpsError("aborted", `The price moved to ${team.odds.toFixed(2)}x. Tap again to take it.`);
+        const priced = (0, pricing_1.requirePricedMarket)(game, input);
+        const follow = followKind && sourceSnap
+            ? followSource(sourceSnap, followKind, input.leagueId, input.gameId, priced, uid)
+            : null;
+        const isLock = Boolean(input.lock);
+        const wk = (0, weekly_1.weekKey)(startsAt || now);
+        if (isLock && me.lastLockWeek === wk) {
+            throw new https_1.HttpsError("failed-precondition", "You've already used your Lock of the Week.");
         }
-        const potentialPayout = (0, settlement_1.payoutFor)(input.stake, team.odds);
+        const isHidden = Boolean(input.hidden);
+        const potentialPayout = (0, settlement_1.payoutFor)(input.stake, priced.odds);
         tx.set(betRef, {
             id: betId,
             leagueId: input.leagueId,
@@ -424,29 +899,141 @@ exports.placeLeagueBet = (0, https_1.onCall)({ region: "us-central1" }, async (r
             displayName: me.displayName,
             gameId: input.gameId,
             sport: game.get("sport"),
-            side: input.side,
-            teamName: team.name,
-            teamAbbr: team.abbreviation,
-            teamColor: team.color,
-            opponentAbbr: opp.abbreviation,
+            market: priced.market,
+            selection: priced.selection,
+            side: priced.side,
+            line: priced.line,
+            label: priced.label,
+            teamName: priced.teamName,
+            teamAbbr: priced.teamAbbr,
+            teamColor: priced.teamColor,
+            opponentAbbr: priced.opponentAbbr,
             stake: input.stake,
-            odds: team.odds,
+            odds: priced.odds,
             potentialPayout,
             status: "pending",
+            startsAt: startsAt || null,
+            lock: isLock,
+            lockWeek: isLock ? wk : null,
+            hidden: isHidden,
+            disputed: false,
+            tails: 0,
+            fades: 0,
+            followers: {},
+            reactions: {},
+            reactors: {},
+            tailOf: follow?.kind === "tail" ? followId : null,
+            fadeOf: follow?.kind === "fade" ? followId : null,
+            followOfUid: follow?.uid ?? null,
+            followOfName: follow?.name ?? null,
             placedAt: now,
             settledAt: null,
         });
-        tx.update(ref, {
+        const leagueUpdate = {
             [`members.${uid}.leagueTokens`]: me.leagueTokens - input.stake,
             lastActivityAt: now,
-        });
+        };
+        if (isLock) {
+            leagueUpdate[`members.${uid}.lastLockWeek`] = wk;
+        }
+        tx.update(ref, leagueUpdate);
+        if (uSnap.exists) {
+            const prevStreak = uSnap.get("streak");
+            tx.update(userRef(uid), { streak: (0, streak_1.advanceStreak)(prevStreak, now) });
+        }
+        // Update sweat tracker aggregate when not hidden before kickoff.
+        if (!isHidden) {
+            const prevEntries = (sidesSnap.exists ? sidesSnap.get("entries") : undefined) ?? [];
+            const entry = {
+                betId,
+                uid,
+                name: me.displayName,
+                displayName: me.displayName,
+                side: priced.side,
+                market: priced.market,
+                selection: priced.selection,
+                line: priced.line,
+                label: priced.label,
+                teamAbbr: priced.teamAbbr,
+                stake: input.stake,
+                payout: potentialPayout,
+                odds: priced.odds,
+                lock: isLock,
+            };
+            const entries = [...prevEntries.filter((e) => e.betId !== betId), entry];
+            tx.set(sidesRef, {
+                gameId: input.gameId,
+                leagueId: input.leagueId,
+                sport: game.get("sport"),
+                startsAt: startsAt || null,
+                entries,
+                home: entries.filter((e) => e.side === "home"),
+                away: entries.filter((e) => e.side === "away"),
+                updatedAt: now,
+            }, { merge: true });
+        }
+        const amount = input.stake.toLocaleString("en-US");
+        const pickDisplay = priced.market === "ml" ? priced.teamAbbr : priced.label;
+        const text = isHidden
+            ? `${me.displayName} locked in a hidden pick (${amount} staked — reveals at kickoff)`
+            : !follow
+                ? `${me.displayName} put ${amount} on ${pickDisplay} (${priced.odds.toFixed(2)}x)${isLock ? " 🔒" : ""}`
+                : follow.kind === "tail"
+                    ? `${me.displayName} tailed ${follow.name} on ${pickDisplay} with ${amount} (${priced.odds.toFixed(2)}x)`
+                    : `${me.displayName} faded ${follow.name} — ${amount} on ${pickDisplay} (${priced.odds.toFixed(2)}x)`;
         activity(tx, input.leagueId, `bet_${betId}`, {
-            type: "bet_placed",
+            type: follow ? (follow.kind === "tail" ? "bet_tailed" : "bet_faded") : "bet_placed",
             uid,
             name: me.displayName,
             amount: input.stake,
-            text: `${me.displayName} put ${input.stake.toLocaleString("en-US")} on ${team.abbreviation} (${team.odds.toFixed(2)}x)`,
+            text,
         });
+        // Auto-post bet card into league chat unless the bettor opted to hide until lock.
+        if (!isHidden) {
+            tx.set(ref.collection("messages").doc(`bet_${betId}`), {
+                uid,
+                name: me.displayName,
+                kind: "bet",
+                text,
+                betId,
+                gameId: input.gameId,
+                sport: game.get("sport"),
+                market: priced.market,
+                selection: priced.selection,
+                side: priced.side,
+                line: priced.line,
+                label: priced.label,
+                teamAbbr: priced.teamAbbr,
+                teamColor: priced.teamColor,
+                opponentAbbr: priced.opponentAbbr,
+                stake: input.stake,
+                odds: priced.odds,
+                potentialPayout,
+                lock: isLock,
+                at: now,
+                reactions: {},
+                reactors: {},
+            });
+        }
+        if (follow) {
+            tx.update(follow.ref, {
+                [follow.kind === "tail" ? "tails" : "fades"]: economy_1.FieldValue.increment(1),
+                [`followers.${uid}`]: follow.kind,
+            });
+            (0, notify_1.writeNotification)(tx, follow.uid, (0, notifyModel_1.followNotification)({
+                kind: follow.kind,
+                followerBetId: betId,
+                sourceBetId: followId,
+                followerName: me.displayName,
+                sourceTeamAbbr: follow.teamAbbr,
+                followerTeamAbbr: pickDisplay,
+                stake: input.stake,
+                leagueId: input.leagueId,
+                leagueName: league.get("name"),
+                gameId: input.gameId,
+                now,
+            }));
+        }
         return { ok: true, betId, duplicate: false, leagueTokens: me.leagueTokens - input.stake };
     });
 });
@@ -567,6 +1154,8 @@ exports.repayLoan = (0, https_1.onCall)({ region: "us-central1" }, async (req) =
             toInterest: res.toInterest,
             toPrincipal: res.toPrincipal,
             loanId: input.loanId,
+            reactions: {},
+            reactors: {},
             text: `${me.displayName} repaid ${res.applied.toLocaleString("en-US")} to ${lender ? lender.displayName : "the bank"}${res.settled ? " — paid off" : ""}`,
             at: wall,
         });
@@ -626,15 +1215,13 @@ exports.requestPeerLoan = (0, https_1.onCall)({ region: "us-central1" }, async (
         const me = requireMember(league, uid);
         const max = Math.floor(league.get("startingLeagueTokens") * leagueConfig_1.PEER_LOAN_MAX_PCT);
         if (input.amount > max) {
-            throw new https_1.HttpsError("failed-precondition", `Peer loans are capped at ${max.toLocaleString("en-US")}.`);
+            throw new https_1.HttpsError("failed-precondition", `Peer loan requests are capped at ${max.toLocaleString("en-US")} (50% of starting tokens).`);
         }
         if (open.size >= leagueConfig_1.MAX_OPEN_REQUESTS) {
-            throw new https_1.HttpsError("resource-exhausted", "You already have three open requests.");
-        }
-        if ((league.get("memberIds") ?? []).length < 2) {
-            throw new https_1.HttpsError("failed-precondition", "Invite someone first — there's nobody to lend to you yet.");
+            throw new https_1.HttpsError("resource-exhausted", `You already have ${leagueConfig_1.MAX_OPEN_REQUESTS} open loan requests.`);
         }
         const rate = Math.round(input.rate * 100) / 100;
+        const interval = league.get("bankInterestIntervalHours") ?? 24;
         tx.set(loanRef, {
             id: loanRef.id,
             leagueId: input.leagueId,
@@ -649,10 +1236,10 @@ exports.requestPeerLoan = (0, https_1.onCall)({ region: "us-central1" }, async (
             counterBy: null,
             counterByName: null,
             declinedBy: [],
-            message: input.message ?? null,
-            // Terms are provisional until funded; accrual starts at funding.
-            ...(0, loanMath_1.newLoanTerms)(input.amount, rate, league.get("bankInterestIntervalHours"), now),
+            message: input.message || null,
+            ...(0, loanMath_1.newLoanTerms)(input.amount, rate, interval, now),
             createdAt: now,
+            fundedAt: null,
             updatedAt: now,
         });
         activity(tx, input.leagueId, `req_${loanRef.id}`, {
@@ -660,32 +1247,36 @@ exports.requestPeerLoan = (0, https_1.onCall)({ region: "us-central1" }, async (
             uid,
             name: me.displayName,
             amount: input.amount,
-            text: `${me.displayName} is asking for ${input.amount.toLocaleString("en-US")} at ${rate}%`,
+            text: `${me.displayName} asked to borrow ${input.amount.toLocaleString("en-US")} at ${rate}%`,
         });
-        for (const other of league.get("memberIds").filter((m) => m !== uid)) {
-            (0, notify_1.writeNotification)(tx, other, (0, notifyModel_1.simpleNotification)({
+        const leagueName = league.get("name");
+        for (const memberId of league.get("memberIds") ?? []) {
+            if (memberId === uid)
+                continue;
+            (0, notify_1.writeNotification)(tx, memberId, (0, notifyModel_1.simpleNotification)({
                 id: `loanreq_${loanRef.id}`,
                 type: "loan_request",
-                title: `${me.displayName} wants a loan`,
-                body: `${input.amount.toLocaleString("en-US")} league tokens at ${rate}% flat (repays ${(0, loanMath_1.totalRepayable)(input.amount, rate).toLocaleString("en-US")}) in ${league.get("name")}.`,
+                title: `${me.displayName} wants a loan in ${leagueName}`,
+                body: `${input.amount.toLocaleString("en-US")} league tokens at ${rate}% flat${input.message ? ` — "${input.message}"` : ""}.`,
                 wallet: "league",
                 leagueId: input.leagueId,
-                leagueName: league.get("name"),
+                leagueName,
                 now,
             }));
         }
         return { ok: true, loanId: loanRef.id, duplicate: false };
     });
 });
-const PeerAction = zod_1.z.object({
-    leagueId: zod_1.z.string().min(1),
-    loanId: zod_1.z.string().min(1),
-    action: zod_1.z.enum(["fund", "counter", "decline", "cancel", "accept_counter", "reject_counter"]),
-    rate: zod_1.z.number().gt(0).max(leagueConfig_1.PEER_RATE_MAX).optional(),
-});
 exports.peerLoanAction = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
-    const input = PeerAction.parse(req.data);
+    const input = zod_1.z
+        .object({
+        leagueId: zod_1.z.string().min(1),
+        loanId: zod_1.z.string().min(1),
+        action: zod_1.z.enum(["fund", "counter", "decline", "cancel", "accept_counter", "reject_counter"]),
+        rate: zod_1.z.number().gt(0).max(leagueConfig_1.PEER_RATE_MAX).optional(),
+    })
+        .parse(req.data);
     const ref = leagueRef(input.leagueId);
     const loanRef = ref.collection("loans").doc(input.loanId);
     return economy_1.db.runTransaction(async (tx) => {
@@ -698,10 +1289,10 @@ exports.peerLoanAction = (0, https_1.onCall)({ region: "us-central1" }, async (r
         const status = loan.get("status");
         const borrowerId = loan.get("borrowerId");
         const borrower = member(league, borrowerId);
+        const isBorrower = borrowerId === uid;
         const amount = loan.get("principal");
+        const interval = league.get("bankInterestIntervalHours") ?? 24;
         const leagueName = league.get("name");
-        const interval = loan.get("intervalHours");
-        const isBorrower = uid === borrowerId;
         const fund = (lenderId, rate) => {
             const lender = member(league, lenderId);
             if (!lender)
@@ -711,10 +1302,12 @@ exports.peerLoanAction = (0, https_1.onCall)({ region: "us-central1" }, async (r
             if (lender.leagueTokens < amount) {
                 throw new https_1.HttpsError("failed-precondition", `${lenderId === uid ? "You don't" : `${lender.displayName} doesn't`} have ${amount.toLocaleString("en-US")} league tokens to lend.`);
             }
+            const isBailout = borrower.leagueTokens < 100;
             tx.update(loanRef, {
                 status: "active",
                 lenderId,
                 lenderName: lender.displayName,
+                bailout: isBailout,
                 ...(0, loanMath_1.newLoanTerms)(amount, rate, interval, now),
                 fundedAt: now,
                 updatedAt: now,
@@ -725,11 +1318,13 @@ exports.peerLoanAction = (0, https_1.onCall)({ region: "us-central1" }, async (r
                 lastActivityAt: now,
             });
             activity(tx, input.leagueId, `fund_${loanRef.id}`, {
-                type: "loan_funded",
+                type: isBailout ? "bailout" : "loan_funded",
                 uid: lenderId,
                 name: lender.displayName,
                 amount,
-                text: `${lender.displayName} lent ${borrower.displayName} ${amount.toLocaleString("en-US")} at ${rate}%`,
+                text: isBailout
+                    ? `${lender.displayName} bailed out ${borrower.displayName} with ${amount.toLocaleString("en-US")} at ${rate}%`
+                    : `${lender.displayName} lent ${borrower.displayName} ${amount.toLocaleString("en-US")} at ${rate}%`,
             });
             const target = lenderId === uid ? borrowerId : lenderId;
             (0, notify_1.writeNotification)(tx, target, (0, notifyModel_1.simpleNotification)({
@@ -811,7 +1406,6 @@ exports.peerLoanAction = (0, https_1.onCall)({ region: "us-central1" }, async (r
                     throw new https_1.HttpsError("permission-denied", "Only the borrower can reject.");
                 if (status !== "countered")
                     throw new https_1.HttpsError("failed-precondition", "There's no counter-offer to reject.");
-                // Back on the market at the original rate for everyone else.
                 tx.update(loanRef, {
                     status: "requested",
                     counterRate: null,
@@ -824,6 +1418,122 @@ exports.peerLoanAction = (0, https_1.onCall)({ region: "us-central1" }, async (r
             }
         }
         return { ok: true };
+    });
+});
+const StimulusInput = zod_1.z.discriminatedUnion("action", [
+    zod_1.z.object({ leagueId: zod_1.z.string().min(1), action: zod_1.z.literal("request"), pct: zod_1.z.number().int().refine((n) => leagueConfig_1.STIMULUS_PCTS.includes(n)) }),
+    zod_1.z.object({ leagueId: zod_1.z.string().min(1), action: zod_1.z.literal("vote"), requestId: zod_1.z.string().min(1), approve: zod_1.z.boolean() }),
+    zod_1.z.object({ leagueId: zod_1.z.string().min(1), action: zod_1.z.literal("cancel"), requestId: zod_1.z.string().min(1) }),
+]);
+exports.leagueStimulus = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
+    const uid = (0, economy_1.requireAuth)(req.auth);
+    const input = StimulusInput.parse(req.data);
+    const ref = leagueRef(input.leagueId);
+    return economy_1.db.runTransaction(async (tx) => {
+        const league = await tx.get(ref);
+        const now = Date.now();
+        requireActiveLeague(league, now);
+        const me = requireMember(league, uid);
+        if (!league.get("stimulusEnabled"))
+            throw new https_1.HttpsError("failed-precondition", "Stimulus votes are turned off in this league.");
+        const memberIds = league.get("memberIds") ?? [];
+        const needed = Math.floor(memberIds.length / 2) + 1;
+        const leagueName = league.get("name") ?? "League";
+        const open = league.get("stimulus");
+        const live = open && open.expiresAt > now ? open : null;
+        const pay = (r) => {
+            const update = { stimulus: null, lastStimulusAt: now, lastActivityAt: now, stimulusTotal: economy_1.FieldValue.increment(r.amount) };
+            for (const id of memberIds) {
+                update[`members.${id}.leagueTokens`] = economy_1.FieldValue.increment(r.amount);
+                update[`members.${id}.stimulusReceived`] = economy_1.FieldValue.increment(r.amount);
+            }
+            tx.update(ref, update);
+            activity(tx, input.leagueId, `stimulus_paid_${r.id}`, {
+                type: "stimulus",
+                uid: r.uid,
+                name: r.name,
+                text: `Stimulus approved: the bank gave everyone ${r.amount.toLocaleString("en-US")} tokens`,
+                amount: r.amount,
+            });
+            for (const id of memberIds) {
+                (0, notify_1.writeNotification)(tx, id, (0, notifyModel_1.simpleNotification)({
+                    id: `stimulus_ok_${r.id}_${id}`,
+                    type: "stimulus_approved",
+                    title: `+${r.amount.toLocaleString("en-US")} tokens in ${leagueName}`,
+                    body: "The stimulus vote passed — the bank topped up every member.",
+                    now,
+                    delta: r.amount,
+                    wallet: "league",
+                    leagueId: input.leagueId,
+                    leagueName,
+                }));
+            }
+        };
+        if (input.action === "request") {
+            if (live)
+                throw new https_1.HttpsError("failed-precondition", "There's already a stimulus vote open.");
+            const last = league.get("lastStimulusAt") ?? 0;
+            if (now - last < leagueConfig_1.STIMULUS_COOLDOWN_MS) {
+                const days = Math.ceil((last + leagueConfig_1.STIMULUS_COOLDOWN_MS - now) / 86_400_000);
+                throw new https_1.HttpsError("failed-precondition", `The last stimulus was recent — try again in ${days} day${days === 1 ? "" : "s"}.`);
+            }
+            const starting = league.get("startingLeagueTokens") ?? 0;
+            const r = {
+                id: `${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+                uid,
+                name: me.displayName,
+                pct: input.pct,
+                amount: Math.max(1, Math.round((starting * input.pct) / 100)),
+                votes: [uid],
+                createdAt: now,
+                expiresAt: now + leagueConfig_1.STIMULUS_TTL_MS,
+            };
+            if (r.votes.length >= needed) {
+                pay(r);
+                return { ok: true, status: "paid", amount: r.amount };
+            }
+            tx.update(ref, { stimulus: r, lastActivityAt: now });
+            activity(tx, input.leagueId, `stimulus_req_${r.id}`, {
+                type: "stimulus",
+                uid,
+                name: me.displayName,
+                text: `${me.displayName} asked the bank for a ${r.pct}% stimulus (${r.amount.toLocaleString("en-US")} tokens each) — vote in the Bank tab`,
+                amount: r.amount,
+            });
+            for (const id of memberIds) {
+                if (id === uid)
+                    continue;
+                (0, notify_1.writeNotification)(tx, id, (0, notifyModel_1.simpleNotification)({
+                    id: `stimulus_req_${r.id}_${id}`,
+                    type: "stimulus_request",
+                    title: `Stimulus vote in ${leagueName}`,
+                    body: `${me.displayName} wants the bank to give everyone ${r.amount.toLocaleString("en-US")} tokens. ${needed} yes votes needed.`,
+                    now,
+                    popup: false,
+                    wallet: "league",
+                    leagueId: input.leagueId,
+                    leagueName,
+                }));
+            }
+            return { ok: true, status: "open", amount: r.amount };
+        }
+        if (!live || live.id !== input.requestId)
+            throw new https_1.HttpsError("failed-precondition", "That stimulus vote is closed.");
+        if (input.action === "cancel") {
+            if (live.uid !== uid && league.get("creatorId") !== uid) {
+                throw new https_1.HttpsError("permission-denied", "Only whoever asked (or the league creator) can withdraw it.");
+            }
+            tx.update(ref, { stimulus: null, lastActivityAt: now });
+            return { ok: true, status: "cancelled", amount: live.amount };
+        }
+        const votes = input.approve ? [...new Set([...live.votes, uid])] : live.votes.filter((v) => v !== uid);
+        const next = { ...live, votes };
+        if (votes.length >= needed) {
+            pay(next);
+            return { ok: true, status: "paid", amount: live.amount };
+        }
+        tx.update(ref, { stimulus: next, lastActivityAt: now });
+        return { ok: true, status: "open", amount: live.amount };
     });
 });
 //# sourceMappingURL=leagues.js.map

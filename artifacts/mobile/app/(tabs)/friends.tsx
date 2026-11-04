@@ -1,25 +1,27 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
+import InviteFriendsCard from "@/components/InviteFriendsCard";
 import TeamChips from "@/components/TeamChips";
-import { Button, ConfirmDialog, IconButton } from "@/components/ui";
-import { useLeague } from "@/context/LeagueContext";
-import { useNotifications } from "@/context/NotificationContext";
+import { Button, IconButton } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
+import { useChallenges } from "@/context/ChallengeContext";
+import { useChat } from "@/context/ChatContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { useFriends } from "@/hooks/useFriends";
@@ -28,19 +30,6 @@ import type { PublicUser } from "@/lib/api";
 /** Stable empty result set. A fresh `[]` is a new identity every render. */
 const EMPTY_RESULTS: PublicUser[] = [];
 
-/**
- * New screen. Requirement §2 and §21 in full: search a user, send a request,
- * accept or decline, view friends, remove, and see each friend's avatar in the
- * outfit they're actually wearing.
- *
- * None of this could exist before — there were no user profile documents to
- * search and no friendship model at all (AUDIT B4).
- *
- * The duplicate-relationship problem §2 asks about is solved server-side by the
- * canonical sorted pair id, not by checks in this UI. A double-tap on Add, two
- * devices racing, or both people adding each other at the same moment all
- * converge on one friendship document.
- */
 export default function FriendsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -51,7 +40,6 @@ export default function FriendsScreen() {
     friends,
     incoming,
     senders,
-    outgoing,
     friendUids,
     outgoingUids,
     loading,
@@ -69,10 +57,9 @@ export default function FriendsScreen() {
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const params = useLocalSearchParams<{ open?: string }>();
   const [busy, setBusy] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const { unreadCount } = useNotifications();
-  const { activeLeagues, inviteFriend } = useLeague();
-  const [invited, setInvited] = useState<Record<string, "busy" | "sent" | "error">>({});
+  const { incoming: challengeInbox, live: challengesLive, headToHead } = useChallenges();
+  const { unreadChatCount, unreadForFriend } = useChat();
 
   const topPad = Platform.OS === "web" ? 24 : insets.top;
   const bottomPad = Platform.OS === "web" ? 100 : insets.bottom + 84;
@@ -81,8 +68,6 @@ export default function FriendsScreen() {
   useEffect(() => {
     const q = query.trim().toLowerCase();
     if (q.length < 2) {
-      // Writing a fresh [] here is what turned an unstable dep into an
-      // infinite loop. Keep the existing array when it is already empty.
       setResults((prev) => (prev.length === 0 ? prev : EMPTY_RESULTS));
       return;
     }
@@ -106,15 +91,13 @@ export default function FriendsScreen() {
 
   const act = useCallback(async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    buzz.light();
     await fn();
     setBusy(null);
   }, []);
 
   const searching_ui = query.trim().length >= 2;
 
-  // Every user this screen knows about, so the profile sheet can paint its
-  // header before getPlayerProfile answers.
   const known = useMemo(() => {
     const m = new Map<string, PublicUser>();
     for (const u of Object.values(senders)) m.set(u.uid, u);
@@ -166,69 +149,6 @@ export default function FriendsScreen() {
     return null;
   };
 
-  const renderOptions = (uid: string) => {
-    if (uid === profile?.uid || !friendUids.has(uid)) return null;
-    const open = activeLeagues.filter((l) => !l.memberIds.includes(uid));
-    return (
-      <>
-        {open.length > 0 && (
-          <View style={{ gap: 8 }}>
-            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 0 }]}>Invite to a league</Text>
-            {open.map((l) => {
-              const k = `${l.id}:${uid}`;
-              const st = invited[k];
-              return (
-                <View key={l.id} style={styles.actionRow}>
-                  <Text style={[styles.userName, { color: colors.foreground, flex: 1 }]} numberOfLines={1}>
-                    {l.name}
-                  </Text>
-                  <Button
-                    size="sm"
-                    label={st === "sent" ? "Invited" : st === "error" ? "Retry" : "Invite"}
-                    variant={st === "sent" ? "secondary" : "league"}
-                    loading={st === "busy"}
-                    disabled={st === "sent"}
-                    onPress={async () => {
-                      setInvited((p) => ({ ...p, [k]: "busy" }));
-                      const e = await inviteFriend(l.id, uid);
-                      setInvited((p) => ({ ...p, [k]: e ? "error" : "sent" }));
-                    }}
-                  />
-                </View>
-              );
-            })}
-          </View>
-        )}
-        {open.length > 0 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
-        <Pressable
-          style={({ pressed }) => [styles.removeBtn, { backgroundColor: colors.destructive, opacity: pressed || busy === uid ? 0.75 : 1 }]}
-          disabled={busy === uid}
-          onPress={() => setConfirmRemove(uid)}
-        >
-          {busy === uid ? (
-            <ActivityIndicator color={colors.destructiveForeground} />
-          ) : (
-            <Text style={[styles.removeText, { color: colors.destructiveForeground }]}>Remove friend</Text>
-          )}
-        </Pressable>
-        <ConfirmDialog
-          visible={confirmRemove === uid}
-          title="Remove friend?"
-          body={`${known.get(uid)?.displayName ?? "This player"} will be removed from your friends. You can send a new request later.`}
-          confirmLabel="Remove"
-          destructive
-          busy={busy === uid}
-          onCancel={() => setConfirmRemove(null)}
-          onConfirm={async () => {
-            await act(uid, () => remove(uid));
-            setConfirmRemove(null);
-            setSelectedUid(null);
-          }}
-        />
-      </>
-    );
-  };
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View
@@ -239,7 +159,21 @@ export default function FriendsScreen() {
       >
         <View style={styles.titleRow}>
           <Text style={[styles.title, { color: colors.foreground }]}>Friends</Text>
-          <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
+          <View style={styles.actionRow}>
+            <IconButton
+              icon="chat-processing-outline"
+              label="Chat"
+              badge={unreadChatCount || undefined}
+              onPress={() => router.push("/messages" as never)}
+            />
+            <IconButton
+              icon="sword-cross"
+              label="Challenges"
+              badge={challengeInbox.length || undefined}
+              onPress={() => router.push("/challenges")}
+            />
+            <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
+          </View>
         </View>
         <View style={[styles.searchBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
           <MaterialCommunityIcons name="magnify" size={18} color={colors.mutedForeground} />
@@ -271,6 +205,22 @@ export default function FriendsScreen() {
         </Pressable>
       )}
 
+      {!searching_ui && (challengeInbox.length > 0 || challengesLive.length > 0) && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/challenges")}
+          style={[styles.banner, { backgroundColor: colors.alpha(colors.accent, 0.12), borderColor: colors.alpha(colors.accent, 0.55) }]}
+        >
+          <MaterialCommunityIcons name="sword-cross" size={15} color={colors.accent} />
+          <Text style={[styles.bannerText, { color: colors.foreground }]} numberOfLines={1}>
+            {challengeInbox.length > 0
+              ? `${challengeInbox.length} challenge${challengeInbox.length > 1 ? "s" : ""} waiting on you`
+              : `${challengesLive.length} challenge${challengesLive.length > 1 ? "s" : ""} locked in`}
+          </Text>
+          <MaterialCommunityIcons name="chevron-right" size={16} color={colors.mutedForeground} />
+        </Pressable>
+      )}
+
       <FlatList
         data={searching_ui ? results : friends}
         keyExtractor={(u) => u.uid}
@@ -279,41 +229,44 @@ export default function FriendsScreen() {
         ListHeaderComponent={
           searching_ui ? undefined : (
             <>
+              <InviteFriendsCard />
               {incoming.length > 0 && (
                 <View style={styles.section}>
                   <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
                     Requests ({incoming.length})
                   </Text>
                   {incoming.map((r) => (
-                    <Pressable
+                    <View
                       key={r.id}
-                      onPress={() => setSelectedUid(r.from)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`View ${senders[r.from]?.displayName ?? "player"}'s profile`}
                       style={[styles.reqRow, { backgroundColor: colors.card, borderColor: colors.border }]}
                     >
-                      <View
-                        style={[
-                          styles.thumb,
-                          { backgroundColor: colors.secondary, width: 34, height: 40 },
-                        ]}
+                      <Pressable
+                        onPress={() => setSelectedUid(r.from)}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}
                       >
-                        {senders[r.from] ? (
-                          <AvatarDisplay
-                            avatar={senders[r.from]!.avatar}
-                            equipped={senders[r.from]!.equipped}
-                            catalog={byId}
-                            size="xs"
-                          />
-                        ) : (
-                          <MaterialCommunityIcons name="account-plus" size={18} color={colors.primary} />
-                        )}
-                      </View>
-                      <Text style={[styles.reqText, { color: colors.foreground }]} numberOfLines={1}>
-                        {senders[r.from]
-                          ? `${senders[r.from]!.displayName} (@${senders[r.from]!.username})`
-                          : "A player wants to be friends"}
-                      </Text>
+                        <View
+                          style={[
+                            styles.thumb,
+                            { backgroundColor: colors.secondary, width: 34, height: 40 },
+                          ]}
+                        >
+                          {senders[r.from] ? (
+                            <AvatarDisplay
+                              avatar={senders[r.from]!.avatar}
+                              equipped={senders[r.from]!.equipped}
+                              catalog={byId}
+                              size="xs"
+                            />
+                          ) : (
+                            <MaterialCommunityIcons name="account-plus" size={18} color={colors.primary} />
+                          )}
+                        </View>
+                        <Text style={[styles.reqText, { color: colors.foreground }]} numberOfLines={1}>
+                          {senders[r.from]
+                            ? `${senders[r.from]!.displayName} (@${senders[r.from]!.username})`
+                            : "A player wants to be friends"}
+                        </Text>
+                      </Pressable>
                       <Pressable
                         style={[styles.acceptBtn, { backgroundColor: colors.primary }]}
                         disabled={busy === r.id}
@@ -330,7 +283,7 @@ export default function FriendsScreen() {
                       >
                         <MaterialCommunityIcons name="close" size={18} color={colors.foreground} />
                       </Pressable>
-                    </Pressable>
+                    </View>
                   ))}
                 </View>
               )}
@@ -345,33 +298,49 @@ export default function FriendsScreen() {
         renderItem={({ item }) => {
           const isFriend = friendUids.has(item.uid);
           const isPending = outgoingUids.has(item.uid);
+          const dmUnread = isFriend ? unreadForFriend(item.uid) : 0;
           return (
-            <Pressable
-              style={[styles.userRow, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => setSelectedUid(item.uid)}
-              accessibilityRole="button"
-              accessibilityLabel={`View ${item.displayName}'s profile`}
-            >
-              <View style={[styles.thumb, { backgroundColor: colors.secondary }]}>
-                <AvatarDisplay avatar={item.avatar} equipped={item.equipped} catalog={byId} size="xs" />
-              </View>
-              <View style={styles.userInfo}>
-                <Text style={[styles.userName, { color: colors.foreground }]} numberOfLines={1}>
-                  {item.displayName}
-                </Text>
-                <Text style={[styles.userHandle, { color: colors.mutedForeground }]} numberOfLines={1}>
-                  @{item.username}
-                </Text>
-                {isFriend && item.stats && (
-                  <Text style={[styles.userRecord, { color: colors.mutedForeground }]}>
-                    {item.stats.betsWon}W · {item.stats.betsLost}L
+            <View style={[styles.userRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Pressable
+                style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}
+                onPress={() => setSelectedUid(item.uid)}
+                accessibilityLabel={`View ${item.displayName}'s profile`}
+              >
+                <View style={[styles.thumb, { backgroundColor: colors.secondary }]}>
+                  <AvatarDisplay avatar={item.avatar} equipped={item.equipped} catalog={byId} size="xs" />
+                </View>
+                <View style={styles.userInfo}>
+                  <Text style={[styles.userName, { color: colors.foreground }]} numberOfLines={1}>
+                    {item.displayName}
                   </Text>
-                )}
-                <TeamChips teams={item.favoriteTeams} compact max={3} style={{ marginTop: 3 }} />
-              </View>
+                  <Text style={[styles.userHandle, { color: colors.mutedForeground }]} numberOfLines={1}>
+                    @{item.username}
+                  </Text>
+                  {isFriend && item.stats && (
+                    <Text style={[styles.userRecord, { color: colors.mutedForeground }]}>
+                      {item.stats.betsWon}W · {item.stats.betsLost}L
+                      {(() => {
+                        const r = headToHead(item.uid);
+                        return r.won + r.lost > 0 ? <Text style={{ color: colors.accent }}>{`  ·  H2H ${r.won}–${r.lost}`}</Text> : null;
+                      })()}
+                    </Text>
+                  )}
+                  <TeamChips teams={item.favoriteTeams} compact max={3} style={{ marginTop: 3 }} />
+                </View>
+              </Pressable>
 
               {isFriend ? (
-                <MaterialCommunityIcons name="chevron-right" size={20} color={colors.mutedForeground} />
+                <View style={styles.actionRow}>
+                  <IconButton
+                    icon="message-text-outline"
+                    label={`Message ${item.displayName}`}
+                    badge={dmUnread || undefined}
+                    onPress={() => router.push({ pathname: "/messages" as never, params: { uid: item.uid, name: item.displayName } })}
+                  />
+                  <Pressable onPress={() => setSelectedUid(item.uid)} hitSlop={8}>
+                    <MaterialCommunityIcons name="chevron-right" size={20} color={colors.mutedForeground} />
+                  </Pressable>
+                </View>
               ) : isPending ? (
                 <View style={[styles.pendingPill, { borderColor: colors.border }]}>
                   <Text style={[styles.pendingText, { color: colors.mutedForeground }]}>Sent</Text>
@@ -385,7 +354,7 @@ export default function FriendsScreen() {
                   <Text style={[styles.addText, { color: colors.primaryForeground }]}>Add</Text>
                 </Pressable>
               )}
-            </Pressable>
+            </View>
           );
         }}
         ListEmptyComponent={
@@ -411,13 +380,13 @@ export default function FriendsScreen() {
         }
       />
 
-      {/* Player profile: stats, favourite teams, active + settled bets (§21) */}
+      {/* Player profile: stats, favourite teams, Challenge & Invite buttons, active + settled bets */}
       <PlayerProfileSheet
         uid={selectedUid}
         onClose={() => setSelectedUid(null)}
         seed={selected ? { displayName: selected.displayName, username: selected.username, avatar: selected.avatar, equipped: selected.equipped, favoriteTeams: selected.favoriteTeams } : undefined}
         footer={selectedUid ? renderActions(selectedUid) : null}
-        options={selectedUid ? renderOptions(selectedUid) : null}
+        onRemoveFriend={(uid) => remove(uid)}
       />
     </View>
   );
@@ -428,16 +397,6 @@ const styles = StyleSheet.create({
   header: { borderBottomWidth: 1, paddingHorizontal: 16, paddingBottom: 12, gap: 10 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { fontSize: 24, fontFamily: "Inter_900Black" },
-  leagueBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  leagueBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -495,34 +454,6 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", gap: 8, padding: 32, borderRadius: 16, borderWidth: 1, marginTop: 24 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   emptyBody: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
-  sheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderWidth: 1,
-    padding: 24,
-    paddingTop: 14,
-    gap: 16,
-  },
-  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 4 },
-  vsRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  vsSide: { flex: 1, alignItems: "center", gap: 4 },
-  vsStage: {
-    width: "100%",
-    height: 190,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  vs: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  vsName: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  vsCredits: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  statsBox: { flexDirection: "row", borderWidth: 1, borderRadius: 14, paddingVertical: 12 },
-  statValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  statLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
   divider: { height: StyleSheet.hairlineWidth },
-  removeBtn: { borderRadius: 14, paddingVertical: 16, minHeight: 52, alignItems: "center", justifyContent: "center" },
-  removeText: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  actionRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  actionRow: { flexDirection: "row", alignItems: "center", gap: 8 },
 });

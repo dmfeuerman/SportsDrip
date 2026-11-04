@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
+import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
-import BetModal, { type BetWallet } from "@/components/BetModal";
+import BetModal, { type BetWallet, type SlipExtras } from "@/components/BetModal";
 import GameDetailSheet, { type DetailBet } from "@/components/GameDetailSheet";
 import KeyboardSheet from "@/components/KeyboardSheet";
 import { useApp } from "@/context/AppContext";
@@ -14,22 +15,33 @@ import { prefetchGameInsights } from "@/hooks/useGameInsights";
 import * as api from "@/lib/api";
 import { newIdempotencyKey } from "@/lib/api";
 import { openGameCenter } from "@/lib/gameCenter";
+import { quoteMarket, weekKey, type Market, type Selection } from "@/lib/markets";
 import type { Game, Side } from "@/types/game";
 
 /**
- * The games-board detail sheet, openable from any bet by id.
- *
- * Loads games/{id} directly so bets on games that have left the board still
- * open. Upcoming games get the same bet slip as the board.
- *
- * Render it inside whatever sheet lists the bets: iOS only stacks a Modal on
- * one that is already presented when it is a descendant of it.
+ * Tail (same side) or fade (other side) another member's league bet. Opens the
+ * slip straight away with that league and their stake preselected.
  */
+export interface FollowIntent {
+  betId: string;
+  kind: "tail" | "fade";
+  leagueId: string;
+  /** The member being followed. */
+  name: string;
+  /** Side this bet backs: theirs for a tail, the other one for a fade. */
+  side: Side;
+  market?: Market;
+  selection?: Selection;
+  stake: number;
+  sourceTeamAbbr: string;
+}
+
 export default function GameQuickView({
   gameId,
   onClose,
   defaultWallet,
   onLeave,
+  follow,
 }: {
   gameId: string | null;
   onClose: () => void;
@@ -37,25 +49,59 @@ export default function GameQuickView({
   defaultWallet?: string;
   /** Called before navigating to the game center, so a host sheet can close. */
   onLeave?: () => void;
+  /** Skip the detail sheet and open a tail / fade slip directly. */
+  follow?: FollowIntent | null;
 }) {
   const c = useColors();
   const { game: loaded, loading, missing } = useGame(gameId);
   const game = loaded && loaded.id === gameId ? loaded : null;
   const { balance, bets } = useApp();
   const { leagues, activeLeagues, uid, placeLeagueBet, myLeagueBets } = useLeague();
-  const { betLocked } = useToast();
+  const { betLocked, show } = useToast();
 
   const [showDetail, setShowDetail] = useState(true);
-  const [pending, setPending] = useState<{ game: Game; side: Side; key: string } | null>(null);
+  const [pending, setPending] = useState<{
+    game: Game;
+    side: Side;
+    market: Market;
+    selection: Selection;
+    key: string;
+    friend?: boolean;
+    follow?: FollowIntent;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [slipError, setSlipError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const followKey = follow ? `${follow.betId}:${follow.kind}` : null;
   useEffect(() => {
-    setShowDetail(true);
+    setShowDetail(!followKey);
     setPending(null);
     setSlipError(null);
     if (gameId) prefetchGameInsights(gameId);
+  }, [gameId, followKey]);
+
+  const followOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (!follow || !game || !followKey) return;
+    const key = `${game.id}:${followKey}`;
+    if (followOpened.current === key) return;
+    followOpened.current = key;
+    if (game.status !== "upcoming" || game.startsAt <= Date.now()) {
+      setShowDetail(true);
+      return;
+    }
+    setPending({
+      game,
+      side: follow.side,
+      market: follow.market ?? "ml",
+      selection: follow.selection ?? follow.side,
+      key: newIdempotencyKey(),
+      follow,
+    });
+  }, [follow, followKey, game]);
+  useEffect(() => {
+    if (!gameId) followOpened.current = null;
   }, [gameId]);
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
@@ -85,58 +131,99 @@ export default function GameQuickView({
     return out;
   }, [pending, activeLeagues, uid, balance]);
 
-  // Same iOS constraint as the board: let the detail sheet finish dismissing
-  // before the slip presents.
-  const startBet = useCallback((g: Game, side: Side) => {
-    setShowDetail(false);
-    setSlipError(null);
-    const open = () => setPending({ game: g, side, key: newIdempotencyKey() });
-    if (Platform.OS === "ios") timer.current = setTimeout(open, 350);
-    else open();
-  }, []);
+  const lockUsed: Record<string, boolean> = useMemo(() => {
+    const out: Record<string, boolean> = {};
+    if (!pending || !uid) return out;
+    const wk = weekKey(pending.game.startsAt || Date.now());
+    for (const lg of activeLeagues) {
+      out[lg.id] = lg.members[uid]?.lastLockWeek === wk;
+    }
+    return out;
+  }, [pending, activeLeagues, uid]);
+
+  const startBet = useCallback(
+    (g: Game, side: Side, market: Market = "ml", selection?: Selection, friend?: boolean) => {
+      setShowDetail(false);
+      setSlipError(null);
+      const open = () =>
+        setPending({
+          game: g,
+          side,
+          market,
+          selection: selection ?? side,
+          key: newIdempotencyKey(),
+          friend,
+        });
+      if (Platform.OS === "ios") timer.current = setTimeout(open, 350);
+      else open();
+    },
+    []
+  );
 
   const confirmBet = useCallback(
-    async (stake: number, walletId: string) => {
+    async (stake: number, walletId: string, extras: SlipExtras) => {
       if (!pending) return;
+      const quote = quoteMarket(pending.game, pending.market, pending.selection);
+      if (quote.odds === null) {
+        setSlipError("No line yet for this game. Check back closer to kickoff.");
+        return;
+      }
       setSubmitting(true);
       setSlipError(null);
-      const expectedOdds = pending.side === "home" ? pending.game.homeTeam.odds : pending.game.awayTeam.odds;
       let failure: string | null = null;
       if (walletId === "credits") {
         try {
-          await api.placeBet({ gameId: pending.game.id, side: pending.side, stake, idempotencyKey: pending.key, expectedOdds });
+          await api.placeBet({
+            gameId: pending.game.id,
+            side: quote.side ?? pending.side,
+            market: quote.market,
+            selection: quote.selection,
+            stake,
+            idempotencyKey: pending.key,
+            expectedOdds: quote.odds,
+            expectedLine: quote.line ?? undefined,
+          });
         } catch (err) {
           failure = api.friendlyError(err);
         }
       } else {
+        const f = pending.follow && pending.follow.leagueId === walletId ? pending.follow : null;
         failure = await placeLeagueBet({
           leagueId: walletId,
           gameId: pending.game.id,
-          side: pending.side,
+          side: quote.side ?? pending.side,
+          market: quote.market,
+          selection: quote.selection,
           stake,
           idempotencyKey: `${pending.key}${walletId.slice(-4)}`,
-          expectedOdds,
+          expectedOdds: quote.odds,
+          expectedLine: quote.line ?? undefined,
+          lock: extras.lock,
+          hidden: extras.hidden,
+          ...(f ? (f.kind === "tail" ? { tailOf: f.betId } : { fadeOf: f.betId }) : {}),
         });
       }
       setSubmitting(false);
       if (failure) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        buzz.error();
         setSlipError(failure);
         return;
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      buzz.success();
       {
-        const t = pending.side === "home" ? pending.game.homeTeam : pending.game.awayTeam;
         const w = wallets.find((x) => x.id === walletId);
         betLocked({
-          teamName: t.name,
-          teamAbbr: t.abbreviation,
-          teamColor: t.color,
-          odds: expectedOdds,
+          teamName: quote.teamName,
+          teamAbbr: quote.label,
+          teamColor: quote.teamColor,
+          odds: quote.odds,
           stake,
-          payout: Math.round(stake * expectedOdds),
+          payout: Math.round(stake * quote.odds),
           currency: walletId === "credits" ? "credits" : "league",
           walletLabel: w?.label,
+          leagueId: walletId === "credits" ? undefined : walletId,
+          gameId: pending.game.id,
+          hidden: !!extras.hidden,
         });
       }
       setPending(null);
@@ -162,14 +249,15 @@ export default function GameQuickView({
     );
   }
 
-  const team = pending ? (pending.side === "home" ? pending.game.homeTeam : pending.game.awayTeam) : null;
+  const quote = pending ? quoteMarket(pending.game, pending.market, pending.selection) : null;
 
   return (
     <>
       <GameDetailSheet
         game={showDetail ? game : null}
         onClose={onClose}
-        onBet={startBet}
+        onBet={(g, side, market, selection) => startBet(g, side, market, selection, false)}
+        onChallenge={(g, side) => startBet(g, side, "ml", side, true)}
         bets={detailBets}
         onOpenCenter={(g) => {
           onClose();
@@ -177,21 +265,63 @@ export default function GameQuickView({
           openGameCenter(g.id, g.status === "upcoming" ? "matchup" : "live");
         }}
       />
-      {pending && team && (
+      {pending && quote && (
         <BetModal
           visible
           onClose={onClose}
           onConfirm={confirmBet}
-          teamName={team.name}
-          teamAbbr={team.abbreviation}
-          teamColor={team.color}
-          odds={team.odds}
+          teamName={quote.teamName}
+          teamAbbr={quote.teamAbbr}
+          teamColor={quote.teamColor}
+          pickTitle={quote.pickTitle}
+          lockUsed={lockUsed}
+          odds={quote.odds}
           game={pending.game}
-          side={pending.side}
+          side={quote.side}
           wallets={wallets}
-          defaultWallet={defaultWallet}
+          defaultWallet={pending.follow?.leagueId ?? defaultWallet}
+          defaultStake={pending.follow?.stake}
+          context={
+            pending.follow
+              ? {
+                  icon: pending.follow.kind === "tail" ? "account-multiple-plus" : "account-switch",
+                  text:
+                    pending.follow.kind === "tail"
+                      ? `Tailing ${pending.follow.name} on ${pending.follow.sourceTeamAbbr}`
+                      : `Fading ${pending.follow.name}'s ${pending.follow.sourceTeamAbbr} pick`,
+                  leagueId: pending.follow.leagueId,
+                }
+              : undefined
+          }
           error={slipError}
           submitting={submitting}
+          challenge={
+            pending.follow || pending.market !== "ml"
+              ? undefined
+              : {
+                  initial: pending.friend,
+                  onSent: (sent) => {
+                    setPending(null);
+                    onClose();
+                    show({
+                      id: `chsent_${Date.now()}`,
+                      kind: "social",
+                      icon: "sword-cross",
+                      color: sent.teamColor,
+                      title: `Challenge sent to ${sent.friendName}`,
+                      body: `${sent.stake.toLocaleString()} on ${sent.teamAbbr} is in the pot. Winner takes ${sent.pot.toLocaleString()} once they accept.`,
+                      cta: "View",
+                      href: "/challenges",
+                    });
+                  },
+                  onFindFriends: () => {
+                    setPending(null);
+                    onClose();
+                    onLeave?.();
+                    router.navigate("/(tabs)/friends");
+                  },
+                }
+          }
           gameSummary={`${pending.game.awayTeam.abbreviation} @ ${pending.game.homeTeam.abbreviation} · ${pending.game.sport}`}
         />
       )}

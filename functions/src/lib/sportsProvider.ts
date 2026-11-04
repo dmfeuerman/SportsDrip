@@ -1,22 +1,20 @@
 /**
  * Sports data provider adapter.
  *
- * The rest of the codebase only knows about `NormalizedGame`. Swapping ESPN for
- * a paid feed means replacing the body of `fetchGames` and nothing else.
+ * The rest of the codebase only knows about `NormalizedGame` and the
+ * `SportsDataProvider` interface. syncGames calls `fetchGames()`; settlement
+ * reads the games/* documents it writes. Swapping ESPN for a paid feed (The
+ * Odds API, Sportradar) means writing another `SportsDataProvider` and
+ * pointing `activeProvider` at it — nothing downstream changes.
  *
  * This runs server-side on a schedule, so there is exactly one upstream request
  * per sport per cycle for the whole user base — not one per device.
  *
- * This revision extracts everything the scoreboard already returns and the app
- * was throwing away: logos, records, ranks, venue, broadcast, live clock and
- * situation, the posted spread and total, and — the significant one — the
- * actual moneyline. Odds used to be a hash of the event id, which meant the
- * "2.31x" on a mismatch was decoration. Where a book line exists it is now
- * used, with the hash kept only as a fallback so a game never becomes
- * unbettable because the odds feed is thin.
- *
- * Every new field is optional on the way out. Documents keep merging, and the
- * client renders whatever is present.
+ * Pricing: a game is only bettable when the feed carries a real two-way
+ * moneyline. There is no synthetic fallback. When ESPN has no line the game
+ * is written with `priced: false` and null odds, placeBet / placeLeagueBet
+ * refuse it, and the board shows "No line yet". A made-up price that pays out
+ * real (play) money is worse than no price.
  */
 
 export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "NCAAF" | "NCAAB" | "Soccer";
@@ -26,7 +24,8 @@ export interface TeamSide {
   name: string;
   abbreviation: string;
   color: string;
-  odds: number;
+  /** Decimal moneyline we pay out on. Null when the feed has no line. */
+  odds: number | null;
   altColor: string | null;
   logoUrl: string | null;
   location: string | null;
@@ -69,15 +68,27 @@ export interface NormalizedGame {
   sport: Sport;
   sportIcon: string;
   status: GameStatus;
+  /** Non-null when ESPN marks the fixture postponed or cancelled. */
+  disrupted?: "postponed" | "canceled" | null;
   startsAt: number;
   startTimeLabel: string;
   homeScore: number | null;
   awayScore: number | null;
   homeTeam: TeamSide;
   awayTeam: TeamSide;
+  /**
+   * True only when both sides carry a moneyline from the feed. The bet
+   * callables reject anything else, so this is the one switch that makes a
+   * game bettable.
+   */
+  priced: boolean;
+  /** Feed the prices came from ("ESPN BET", "DraftKings"), for attribution. */
+  oddsProvider: string | null;
   updatedAt: number;
   period: number | null;
   clock: string | null;
+  /** Seconds remaining in the period (elapsed for soccer) while live. */
+  clockSec?: number | null;
   situation: string | null;
   lastPlay: string | null;
   venue: string | null;
@@ -133,17 +144,6 @@ const MAX_ODDS = 6.0;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * Deterministic fallback price. Unchanged from the original so payouts stay
- * consistent for sports and fixtures where no book line is published.
- */
-function seededOdds(seed: string, min = 1.4, max = 2.9): number {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = Math.imul(31, h) + seed.charCodeAt(i);
-  h = Math.abs(h >>> 0);
-  return round2(min + ((h % 1000) / 1000) * (max - min));
-}
-
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const clampOdds = (n: number) => round2(Math.min(MAX_ODDS, Math.max(MIN_ODDS, n)));
 
@@ -159,24 +159,18 @@ function moneylineToDecimal(ml: number): number | null {
  * the app's edge is a single number set here rather than whatever the feed
  * happened to carry that day.
  */
-function priceMarket(
+export function priceMarket(
   homeMl: number | null,
-  awayMl: number | null,
-  seed: string
-): { home: number; away: number } {
+  awayMl: number | null
+): { home: number; away: number } | null {
   const h = homeMl !== null ? moneylineToDecimal(homeMl) : null;
   const a = awayMl !== null ? moneylineToDecimal(awayMl) : null;
-
-  if (!h || !a) {
-    return { home: seededOdds(seed + "home"), away: seededOdds(seed + "away", 1.6, 3.0) };
-  }
+  if (!h || !a || h <= 1 || a <= 1) return null;
 
   const pHome = 1 / h;
   const pAway = 1 / a;
   const total = pHome + pAway;
-  if (total <= 0) {
-    return { home: seededOdds(seed + "home"), away: seededOdds(seed + "away", 1.6, 3.0) };
-  }
+  if (!Number.isFinite(total) || total <= 0) return null;
 
   const fairHome = pHome / total;
   const fairAway = pAway / total;
@@ -196,6 +190,16 @@ function toColor(hex: string | undefined, fallback = "#4A90D9"): string {
   // vanish against the app's surfaces.
   if (clean.toLowerCase() === "ffffff" || clean.toLowerCase() === "000000") return fallback;
   return `#${clean}`;
+}
+
+export function toDisrupted(name: string): "postponed" | "canceled" | null {
+  if (name === "STATUS_POSTPONED" || name === "STATUS_SUSPENDED" || name === "STATUS_DELAYED") {
+    return "postponed";
+  }
+  if (name === "STATUS_CANCELED" || name === "STATUS_CANCELLED" || name === "STATUS_ABANDONED") {
+    return "canceled";
+  }
+  return null;
 }
 
 export function toStatus(name: string): GameStatus {
@@ -257,7 +261,7 @@ function findStat(records: any[], statName: string): number | null {
   return null;
 }
 
-function buildTeam(competitor: any, odds: number, homeAway: "home" | "away"): TeamSide {
+function buildTeam(competitor: any, odds: number | null, homeAway: "home" | "away"): TeamSide {
   const team = competitor?.team ?? {};
   const records: any[] = competitor?.records ?? [];
 
@@ -298,13 +302,52 @@ function buildBroadcast(comp: any): string | null {
   return geo ?? null;
 }
 
-function buildClock(event: any, status: GameStatus): { period: number | null; clock: string | null } {
-  if (status !== "live") return { period: null, clock: null };
+function buildClock(
+  event: any,
+  status: GameStatus
+): { period: number | null; clock: string | null; clockSec: number | null } {
+  if (status !== "live") return { period: null, clock: null, clockSec: null };
   const s = event?.status ?? {};
   const period = Number.isFinite(Number(s.period)) ? Number(s.period) : null;
   // shortDetail is already league-appropriate: "Q3 4:12", "Top 7th", "78'".
   const clock = s.type?.shortDetail ?? (s.displayClock ? String(s.displayClock) : null);
-  return { period, clock };
+  const clockSec = Number.isFinite(Number(s.clock)) ? Number(s.clock) : null;
+  return { period, clock, clockSec };
+}
+
+/** ESPN sends moneylines as numbers or strings ("+135", "EVEN", ""). */
+function moneyline(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (typeof raw === "string" && raw.trim().toUpperCase() === "EVEN") return 100;
+  const n = Number(typeof raw === "string" ? raw.replace(/^\+/, "") : raw);
+  return Number.isFinite(n) && n !== 0 ? n : null;
+}
+
+/**
+ * ESPN has shipped the moneyline in more than one shape: the older
+ * `homeTeamOdds.moneyLine` number, and the newer
+ * `moneyline.home.close.odds` string ("-238", "+195", "EVEN", "OFF"). Now that
+ * there is no synthetic fallback, reading only one shape would quietly make
+ * every game unbettable, so every known shape is tried, closing line first.
+ */
+export function extractMoneylines(bookOdds: any): { home: number | null; away: number | null } {
+  const pick = (side: "home" | "away"): number | null => {
+    const teamOdds = bookOdds?.[side === "home" ? "homeTeamOdds" : "awayTeamOdds"];
+    const ml = bookOdds?.moneyline?.[side];
+    for (const raw of [
+      teamOdds?.moneyLine,
+      ml?.close?.odds,
+      ml?.current?.odds,
+      ml?.open?.odds,
+      teamOdds?.current?.moneyLine?.american,
+      teamOdds?.close?.moneyLine?.american,
+    ]) {
+      const n = moneyline(raw);
+      if (n !== null) return n;
+    }
+    return null;
+  };
+  return { home: pick("home"), away: pick("away") };
 }
 
 const finiteOrNull = (v: unknown): number | null => {
@@ -339,7 +382,7 @@ function buildSituation(comp: any, home: any, away: any, status: GameStatus): Li
   };
 }
 
-function parseEvent(
+export function parseEvent(
   event: any,
   sport: Sport,
   sportIcon: string,
@@ -354,36 +397,41 @@ function parseEvent(
   const away = competitors.find((c) => c.homeAway === "away");
   if (!home || !away) return null;
 
-  const status = toStatus(event.status?.type?.name ?? "STATUS_SCHEDULED");
+  const rawStatusName = event.status?.type?.name ?? "STATUS_SCHEDULED";
+  const disrupted = toDisrupted(rawStatusName);
+  const status = disrupted ? "upcoming" : toStatus(rawStatusName);
   const scored = status !== "upcoming";
 
   const bookOdds = comp.odds?.[0];
-  const prices = priceMarket(
-    Number.isFinite(Number(bookOdds?.homeTeamOdds?.moneyLine))
-      ? Number(bookOdds.homeTeamOdds.moneyLine)
-      : null,
-    Number.isFinite(Number(bookOdds?.awayTeamOdds?.moneyLine))
-      ? Number(bookOdds.awayTeamOdds.moneyLine)
-      : null,
-    String(event.id)
-  );
+  const ml = extractMoneylines(bookOdds);
+  const prices = disrupted ? null : priceMarket(ml.home, ml.away);
 
-  const { period, clock } = buildClock(event, status);
+  const { period, clock, clockSec } = buildClock(event, status);
 
   return {
     id: `${sport}:${event.id}`,
     sport,
     sportIcon,
     status,
+    disrupted,
     startsAt: Date.parse(event.date) || 0,
     startTimeLabel:
-      status === "live" ? (clock ?? "LIVE") : formatStartTime(event.date),
+      disrupted === "postponed"
+        ? "POSTPONED"
+        : disrupted === "canceled"
+          ? "CANCELLED"
+          : status === "live"
+            ? (clock ?? "LIVE")
+            : formatStartTime(event.date),
     homeScore: scored ? Number.parseInt(home.score ?? "0", 10) : null,
     awayScore: scored ? Number.parseInt(away.score ?? "0", 10) : null,
-    homeTeam: buildTeam(home, prices.home, "home"),
-    awayTeam: buildTeam(away, prices.away, "away"),
+    homeTeam: buildTeam(home, prices?.home ?? null, "home"),
+    awayTeam: buildTeam(away, prices?.away ?? null, "away"),
+    priced: prices !== null,
+    oddsProvider: prices ? (bookOdds?.provider?.name ?? "ESPN") : null,
     period,
     clock,
+    clockSec,
     situation: comp.status?.type?.detail ?? null,
     lastPlay: comp.situation?.lastPlay?.text ?? null,
     venue: comp.venue?.fullName ?? null,
@@ -391,7 +439,7 @@ function parseEvent(
     neutralSite: Boolean(comp.neutralSite),
     broadcast: buildBroadcast(comp),
     seasonLabel,
-    line: buildLine(comp),
+    line: disrupted ? null : buildLine(comp),
     providerPath,
     linescore: scored ? buildLinescore(home, away) : null,
     live: buildSituation(comp, home, away, status),
@@ -446,16 +494,48 @@ async function fetchSport(cfg: SportConfig): Promise<NormalizedGame[]> {
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+// ---------------------------------------------------------------------------
+// Provider interface
+// ---------------------------------------------------------------------------
+
+export interface FetchResult {
+  games: NormalizedGame[];
+  /** One entry per sport/competition that failed this cycle. */
+  failures: string[];
+}
+
+/**
+ * What syncGames needs from a feed. An implementation must:
+ *  - namespace ids as `SPORT:providerEventId`
+ *  - set `priced: true` only when both sides carry a decimal price > 1
+ *  - tolerate partial failure (report it in `failures`, keep the rest)
+ */
+export interface SportsDataProvider {
+  readonly name: string;
+  fetchGames(): Promise<FetchResult>;
+}
+
+/** Free ESPN scoreboard. Moneylines only when ESPN's partner book posts one. */
+export const espnProvider: SportsDataProvider = {
+  name: "espn",
+  async fetchGames() {
+    const results = await Promise.allSettled(SPORT_CONFIGS.map(fetchSport));
+    const games: NormalizedGame[] = [];
+    const failures: string[] = [];
+
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") games.push(...r.value);
+      else failures.push(`${SPORT_CONFIGS[i]?.label ?? SPORT_CONFIGS[i]?.sport}: ${String(r.reason)}`);
+    });
+
+    return { games, failures };
+  },
+};
+
+/** The feed syncGames reads. Change this line to swap providers. */
+export const activeProvider: SportsDataProvider = espnProvider;
+
 /** One pass across every configured sport. Partial failures are tolerated. */
-export async function fetchGames(): Promise<{ games: NormalizedGame[]; failures: string[] }> {
-  const results = await Promise.allSettled(SPORT_CONFIGS.map(fetchSport));
-  const games: NormalizedGame[] = [];
-  const failures: string[] = [];
-
-  results.forEach((r, i) => {
-    if (r.status === "fulfilled") games.push(...r.value);
-    else failures.push(`${SPORT_CONFIGS[i]?.label ?? SPORT_CONFIGS[i]?.sport}: ${String(r.reason)}`);
-  });
-
-  return { games, failures };
+export function fetchGames(): Promise<FetchResult> {
+  return activeProvider.fetchGames();
 }

@@ -1,17 +1,22 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import KeyboardSheet from "@/components/KeyboardSheet";
 import { Linescore, MatchupInsights, ScoringTimeline, SituationCard } from "@/components/insights";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { useGameInsights } from "@/hooks/useGameInsights";
-import { fairProbabilities, formatPercent, kickoffLabel, margin, toAmerican, untilKickoff } from "@/lib/odds";
-import type { Game, Side, TeamSide } from "@/types/game";
+import { formatSpread, hasSpreadLine, hasTotalLine, SPREAD_TOTAL_ODDS, type Market, type Selection } from "@/lib/markets";
+import { fairProbabilities, formatDecimal, formatOdds, formatPercent, kickoffLabel, margin, NO_LINE, toAmerican, untilKickoff } from "@/lib/odds";
+import { useOddsFormat } from "@/lib/settings";
+import { isPriced, type Game, type Side, type TeamSide } from "@/types/game";
 
 export interface DetailBet {
   id: string;
-  side: Side;
+  side: Side | null;
+  label?: string;
+  teamAbbr?: string;
   stake: number;
   odds: number;
   potentialPayout: number;
@@ -23,34 +28,33 @@ export interface DetailBet {
 interface Props {
   game: Game | null;
   onClose: () => void;
-  onBet: (game: Game, side: Side) => void;
+  onBet: (game: Game, side: Side, market?: Market, selection?: Selection) => void;
+  /** Head-to-head with a friend on this pick: opens the slip in friend mode. */
+  onChallenge?: (game: Game, side: Side) => void;
   /** The user's bets on this fixture. */
   bets?: DetailBet[];
   /** Full-screen game center. The sheet closes first. */
   onOpenCenter?: (game: Game) => void;
 }
 
-/**
- * Everything about one fixture, one tap from the board.
- *
- * The board card has to stay scannable, so it carries the six facts that
- * change a decision. This sheet carries the rest: both teams side by side,
- * their form and season scoring, the market with the vig made explicit, and
- * whatever the user already has on the game.
- *
- * The vig line is deliberate. A user comparing 1.85 and 2.05 has no way to
- * know the pair implies 105%; stating the margin is the honest version of
- * showing odds at all, and it costs one row.
- */
-export default function GameDetailSheet({ game, onClose, onBet, bets = [], onOpenCenter }: Props) {
+export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bets = [], onOpenCenter }: Props) {
   const c = useColors();
-  // Before the early return: hooks can't be conditional. A null id is a no-op.
+  const oddsFormat = useOddsFormat();
+  const [vsFriend, setVsFriend] = useState(false);
+  useEffect(() => setVsFriend(false), [game?.id]);
   const insights = useGameInsights(game?.id ?? null, game?.status);
   if (!game) return null;
 
+  const priced = isPriced(game);
+  const canSpread = hasSpreadLine(game);
+  const canTotal = hasTotalLine(game);
   const prob = fairProbabilities(game.homeTeam.odds, game.awayTeam.odds);
   const vig = margin(game.homeTeam.odds, game.awayTeam.odds);
-  const canBet = game.status === "upcoming" && game.startsAt > Date.now();
+  const now = Date.now();
+  const canBet = game.status === "upcoming" && !game.disrupted && game.startsAt > now;
+  const underHour = canBet && game.startsAt - now <= 60 * 60_000;
+  const friendOnly = canBet && !priced && !canSpread && !canTotal && !!onChallenge;
+  const asFriend = vsFriend || friendOnly;
 
   return (
     <KeyboardSheet visible onClose={onClose} maxHeight="88%" style={styles.sheet} headerStyle={styles.header}>
@@ -60,23 +64,27 @@ export default function GameDetailSheet({ game, onClose, onBet, bets = [], onOpe
         </Text>
 
         <View style={styles.matchup}>
-          <TeamColumn team={game.awayTeam} score={game.awayScore} probability={prob.away} c={c} />
+          <TeamColumn team={game.awayTeam} score={game.awayScore} probability={priced ? prob.away : null} c={c} />
           <View style={styles.centre}>
             <Text style={[styles.at, { color: c.subtleForeground }]}>at</Text>
             <Text style={[styles.kickoff, { color: c.foreground }]}>
-              {game.status === "live"
-                ? game.clock ?? "Live"
-                : game.status === "final"
-                  ? "Final"
-                  : kickoffLabel(game.startsAt)}
+              {game.disrupted
+                ? game.disrupted === "canceled"
+                  ? "Cancelled"
+                  : "Postponed"
+                : game.status === "live"
+                  ? game.clock ?? "Live"
+                  : game.status === "final"
+                    ? "Final"
+                    : kickoffLabel(game.startsAt)}
             </Text>
-            {game.status === "upcoming" && (
-              <Text style={[styles.kicker, { color: c.subtleForeground }]}>
-                {untilKickoff(game.startsAt)}
+            {game.status === "upcoming" && !game.disrupted && (
+              <Text style={[styles.kicker, { color: underHour ? c.live : c.subtleForeground }]}>
+                {underHour ? `Locks ${untilKickoff(game.startsAt)}` : untilKickoff(game.startsAt)}
               </Text>
             )}
           </View>
-          <TeamColumn team={game.homeTeam} score={game.homeScore} probability={prob.home} c={c} />
+          <TeamColumn team={game.homeTeam} score={game.homeScore} probability={priced ? prob.home : null} c={c} />
         </View>
 
         {onOpenCenter ? (
@@ -95,10 +103,10 @@ export default function GameDetailSheet({ game, onClose, onBet, bets = [], onOpe
             />
             <Text style={[styles.calloutText, { color: c.cardForeground }]}>
               {game.status === "live"
-                ? "Live scoring, play-by-play and win probability"
+                ? "Live scoring, sweat tracker, play-by-play and win probability"
                 : game.status === "final"
                   ? "Full recap and box score"
-                  : "Full matchup: form, head-to-head, key players, injuries"}
+                  : "Full matchup: sweat tracker, form, head-to-head, key players"}
             </Text>
             <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} />
           </Pressable>
@@ -113,28 +121,48 @@ export default function GameDetailSheet({ game, onClose, onBet, bets = [], onOpe
         ) : null}
 
         <Section title="The market" c={c}>
-          <Row
-            label={game.awayTeam.abbreviation}
-            value={`${game.awayTeam.odds.toFixed(2)}x   ${toAmerican(game.awayTeam.odds)}`}
-            hint={`${formatPercent(prob.away, 1)} to win`}
-            c={c}
-          />
-          <Row
-            label={game.homeTeam.abbreviation}
-            value={`${game.homeTeam.odds.toFixed(2)}x   ${toAmerican(game.homeTeam.odds)}`}
-            hint={`${formatPercent(prob.home, 1)} to win`}
-            c={c}
-          />
-          {game.line?.spread ? <Row label="Spread" value={game.line.spread} c={c} /> : null}
-          {game.line?.overUnder ? (
-            <Row label="Total" value={String(game.line.overUnder)} c={c} />
+          {priced ? (
+            <>
+              <Row
+                label={game.awayTeam.abbreviation}
+                value={`${formatDecimal(game.awayTeam.odds)}   ${toAmerican(game.awayTeam.odds)}`}
+                hint={`${formatPercent(prob.away, 1)} to win`}
+                c={c}
+              />
+              <Row
+                label={game.homeTeam.abbreviation}
+                value={`${formatDecimal(game.homeTeam.odds)}   ${toAmerican(game.homeTeam.odds)}`}
+                hint={`${formatPercent(prob.home, 1)} to win`}
+                c={c}
+              />
+            </>
+          ) : (
+            <Row label="Moneyline" value={NO_LINE} hint="the book hasn't priced this game" c={c} />
+          )}
+          {game.line?.spread ? (
+            <Row
+              label="Spread"
+              value={game.line.spread}
+              hint={canSpread ? `Pays ${formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)} · land on exact line = push` : undefined}
+              c={c}
+            />
           ) : null}
-          <Row
-            label="Built-in edge"
-            value={formatPercent(vig, 1)}
-            hint="the house's cut, already in these odds"
-            c={c}
-          />
+          {game.line?.overUnder ? (
+            <Row
+              label="Total (O/U)"
+              value={String(game.line.overUnder)}
+              hint={canTotal ? `Pays ${formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)} · land on exact line = push` : undefined}
+              c={c}
+            />
+          ) : null}
+          {priced ? (
+            <Row
+              label="Built-in edge"
+              value={formatPercent(vig, 1)}
+              hint="the house's cut, already in these odds"
+              c={c}
+            />
+          ) : null}
         </Section>
 
         <MatchupInsights
@@ -148,13 +176,14 @@ export default function GameDetailSheet({ game, onClose, onBet, bets = [], onOpe
         {bets.length > 0 && (
           <Section title={`Your bets (${bets.length})`} c={c}>
             {bets.map((b) => {
-              const t = b.side === "home" ? game.homeTeam : game.awayTeam;
+              const t = b.side === "away" ? game.awayTeam : game.homeTeam;
+              const pickText = b.label ?? b.teamAbbr ?? t.abbreviation;
               return (
                 <Row
                   key={b.id}
-                  label={`${b.stake.toLocaleString()} on ${t.abbreviation}`}
+                  label={`${b.stake.toLocaleString()} on ${pickText}`}
                   value={b.potentialPayout.toLocaleString()}
-                  hint={`${b.wallet ? `${b.wallet} · league tokens` : "Credits"} · at ${b.odds.toFixed(2)}x · ${b.status}`}
+                  hint={`${b.wallet ? `${b.wallet} · league tokens` : "Credits"} · at ${formatOdds(b.odds, oddsFormat)} · ${b.status}`}
                   accent={c.primary}
                   c={c}
                 />
@@ -170,38 +199,119 @@ export default function GameDetailSheet({ game, onClose, onBet, bets = [], onOpe
         ) : null}
       </ScrollView>
 
-      {canBet ? (
-        <View style={[styles.actions, { borderTopColor: c.border }]}>
-          {(["away", "home"] as Side[]).map((side) => {
-            const t = side === "home" ? game.homeTeam : game.awayTeam;
-            return (
-              <Pressable
-                key={side}
-                style={({ pressed }) => [
-                  styles.action,
-                  {
-                    backgroundColor: c.alpha(t.color, pressed ? 0.32 : 0.2),
-                    borderColor: c.alpha(t.color, 0.6),
-                  },
-                ]}
-                onPress={() => onBet(game, side)}
-              >
-                <Text style={[styles.actionTeam, { color: c.foreground }]} numberOfLines={1}>
-                  Back {t.abbreviation}
-                </Text>
-                <Text style={[styles.actionOdds, { color: c.mutedForeground }]}>
-                  {t.odds.toFixed(2)}x
-                </Text>
-              </Pressable>
-            );
-          })}
+      {canBet && (priced || canSpread || canTotal || onChallenge) ? (
+        <View style={[styles.footer, { borderTopColor: c.border }]}>
+          {friendOnly ? (
+            <Text style={[styles.closedNote, { color: c.mutedForeground }]}>
+              {NO_LINE} — the book can't take this game, but you can challenge a friend on it.
+            </Text>
+          ) : onChallenge ? (
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{ checked: vsFriend }}
+              accessibilityLabel="Challenge a friend instead of betting the book"
+              onPress={() => setVsFriend((v) => !v)}
+              style={[styles.vsToggle, { backgroundColor: vsFriend ? c.alpha(c.accent, 0.14) : c.secondary, borderColor: vsFriend ? c.accent : c.border }]}
+            >
+              <MaterialCommunityIcons name="sword-cross" size={15} color={vsFriend ? c.accent : c.mutedForeground} />
+              <Text style={[styles.vsText, { color: vsFriend ? c.foreground : c.mutedForeground }]}>
+                {vsFriend ? "Challenging a friend — pick your side" : "Challenge a friend on this game"}
+              </Text>
+              <MaterialCommunityIcons name={vsFriend ? "toggle-switch" : "toggle-switch-off-outline"} size={26} color={vsFriend ? c.accent : c.subtleForeground} />
+            </Pressable>
+          ) : null}
+          <View style={styles.actionRow}>
+            {(["away", "home"] as Side[]).map((side) => {
+              const t = side === "home" ? game.homeTeam : game.awayTeam;
+              return (
+                <Pressable
+                  key={side}
+                  style={({ pressed }) => [
+                    styles.action,
+                    {
+                      backgroundColor: c.alpha(t.color, pressed ? 0.32 : 0.2),
+                      borderColor: c.alpha(t.color, 0.6),
+                    },
+                  ]}
+                  onPress={() => (asFriend && onChallenge ? onChallenge(game, side) : onBet(game, side, "ml", side))}
+                >
+                  <Text style={[styles.actionTeam, { color: c.foreground }]} numberOfLines={1}>
+                    {asFriend ? `Take ${t.abbreviation}` : `Back ${t.abbreviation}`}
+                  </Text>
+                  <Text style={[styles.actionOdds, { color: c.mutedForeground }]}>
+                    {asFriend ? "vs a friend" : formatOdds(t.odds, oddsFormat)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {!asFriend && (canSpread || canTotal) && (
+            <View style={styles.subActionRow}>
+              {canSpread && typeof game.line?.spreadHome === "number" ? (
+                <>
+                  <Pressable
+                    style={[styles.subAction, { backgroundColor: c.secondary, borderColor: c.border }]}
+                    onPress={() => onBet(game, "away", "spread", "away")}
+                  >
+                    <Text style={[styles.subActionTitle, { color: c.foreground }]}>
+                      {game.awayTeam.abbreviation} {formatSpread(-game.line.spreadHome)}
+                    </Text>
+                    <Text style={[styles.subActionOdds, { color: c.mutedForeground }]}>
+                      {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.subAction, { backgroundColor: c.secondary, borderColor: c.border }]}
+                    onPress={() => onBet(game, "home", "spread", "home")}
+                  >
+                    <Text style={[styles.subActionTitle, { color: c.foreground }]}>
+                      {game.homeTeam.abbreviation} {formatSpread(game.line.spreadHome)}
+                    </Text>
+                    <Text style={[styles.subActionOdds, { color: c.mutedForeground }]}>
+                      {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : null}
+              {canTotal && typeof game.line?.overUnder === "number" ? (
+                <>
+                  <Pressable
+                    style={[styles.subAction, { backgroundColor: c.secondary, borderColor: c.border }]}
+                    onPress={() => onBet(game, "home", "total", "over")}
+                  >
+                    <Text style={[styles.subActionTitle, { color: c.foreground }]}>
+                      Over {game.line.overUnder}
+                    </Text>
+                    <Text style={[styles.subActionOdds, { color: c.mutedForeground }]}>
+                      {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.subAction, { backgroundColor: c.secondary, borderColor: c.border }]}
+                    onPress={() => onBet(game, "away", "total", "under")}
+                  >
+                    <Text style={[styles.subActionTitle, { color: c.foreground }]}>
+                      Under {game.line.overUnder}
+                    </Text>
+                    <Text style={[styles.subActionOdds, { color: c.mutedForeground }]}>
+                      {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : null}
+            </View>
+          )}
         </View>
       ) : (
         <View style={[styles.actions, { borderTopColor: c.border }]}>
           <Text style={[styles.closedNote, { color: c.mutedForeground }]}>
-            {game.status !== "final"
-              ? "Betting closed once the game starts."
-              : "This game is over. Results settle on their own."}
+            {game.disrupted
+              ? `This game is ${game.disrupted}. Open bets are refunded automatically.`
+              : canBet
+                ? `${NO_LINE}. The book hasn't priced this game — check back closer to kickoff.`
+                : game.status !== "final"
+                  ? "Betting closed once the game starts."
+                  : "This game is over. Results settle on their own."}
           </Text>
         </View>
       )}
@@ -217,7 +327,7 @@ function TeamColumn({
 }: {
   team: TeamSide;
   score: number | null;
-  probability: number;
+  probability: number | null;
   c: Colors;
 }) {
   return (
@@ -235,7 +345,7 @@ function TeamColumn({
       {score !== null ? (
         <Text style={[styles.bigScore, { color: c.foreground }]}>{score}</Text>
       ) : (
-        <Text style={[styles.bigProb, { color: c.mutedForeground }]}>{formatPercent(probability)}</Text>
+        <Text style={[styles.bigProb, { color: c.mutedForeground }]}>{probability != null ? formatPercent(probability) : "—"}</Text>
       )}
     </View>
   );
@@ -306,6 +416,14 @@ const styles = StyleSheet.create({
   rowValue: { fontSize: 14, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
 
   actions: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 16, borderTopWidth: 1 },
+  footer: { gap: 10, paddingHorizontal: 16, paddingTop: 14, borderTopWidth: 1 },
+  actionRow: { flexDirection: "row", gap: 10 },
+  subActionRow: { flexDirection: "row", gap: 8 },
+  subAction: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center", gap: 1 },
+  subActionTitle: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  subActionOdds: { fontSize: 10, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
+  vsToggle: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6 },
+  vsText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   action: { flex: 1, borderWidth: 1, borderRadius: 14, paddingVertical: 12, alignItems: "center", gap: 2 },
   actionTeam: { fontSize: 15, fontFamily: "Inter_700Bold" },
   actionOdds: { fontSize: 12, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },

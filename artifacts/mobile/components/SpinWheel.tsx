@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Modal, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -262,7 +263,7 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
                 <Text style={[styles.prizeLabel, { color: c.mutedForeground }]}>YOU WON</Text>
                 <View style={styles.prizeRow}>
                   <MaterialCommunityIcons name="lightning-bolt" size={34} color={c.primary} />
-                  <RollingNumber value={shown} style={[styles.prizeValue, { color: c.foreground }]} duration={1100} flash={false} accessibilityLabel={`${rewardCredits.toLocaleString()} credits`} />
+                  <RollingNumber value={shown} style={[styles.prizeValue, { color: c.foreground }]} duration={1100} flash={false} haptics accessibilityLabel={`${rewardCredits.toLocaleString()} credits`} />
                 </View>
                 <Text style={[styles.prizeNote, { color: c.mutedForeground }]}>credits · already in your balance</Text>
               </Animated.View>

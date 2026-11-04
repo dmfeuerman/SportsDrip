@@ -3,13 +3,13 @@ import {
   InputAccessoryView,
   Keyboard,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
   type TextInputProps,
   View,
 } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import { useColors } from "@/hooks/useColors";
 
 /** TextInput for number/decimal pads. iOS pads have no return key, so attach a Done bar. */

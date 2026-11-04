@@ -12,7 +12,7 @@ import type { Framing } from "./spec";
 import { withTimeout } from "../devtrace";
 
 /** Bump when lighting/camera/assets change in a way that should re-render every cached portrait. */
-export const RENDER_VERSION = 4;
+export const RENDER_VERSION = 5;
 
 export type PortraitJob =
   | { kind: "avatar"; key: string; avatar: AvatarConfig; outfit: ResolvedOutfit; framing: Framing }
@@ -34,9 +34,16 @@ export const itemJob = (piece: OutfitPiece): PortraitJob => ({
 
 type Worker = (job: PortraitJob) => Promise<string>;
 
-const MAX = 240;
+// The store alone is 100+ item icons; with friends' portraits on top, 240
+// evicted icons that were still on screen and they re-rendered in a loop.
+const MAX = 600;
+/** Per-render cap. Asset loads share one native queue with the live stage, so this includes waiting for it. */
+const RENDER_TIMEOUT_MS = 45_000;
+/** Renders per key before giving up for the session (slot glyph from then on). */
+const MAX_ATTEMPTS = 3;
 const images = new Map<string, string>(); // insertion order = LRU order
 const failed = new Set<string>();
+const attempts = new Map<string, number>();
 const listeners = new Map<string, Set<() => void>>();
 const queue: PortraitJob[] = [];
 const queued = new Set<string>();
@@ -99,6 +106,7 @@ export function portraitFailed(key: string) {
 /** An image the OS cleared from its cache: forget it and render again. */
 export function invalidatePortrait(job: PortraitJob) {
   images.delete(job.key);
+  failed.delete(job.key);
   save();
   requestPortrait(job);
 }
@@ -124,6 +132,9 @@ export function requestPortrait(job: PortraitJob) {
 /** Called by the mounted studio. Returns an unregister function. */
 export function registerPortraitWorker(w: Worker) {
   worker = w;
+  // A new studio gets a fresh shot at anything the last one couldn't draw.
+  failed.clear();
+  attempts.clear();
   void pump();
   return () => {
     if (worker === w) worker = null;
@@ -142,9 +153,23 @@ async function pump() {
         emit(job.key);
         continue;
       }
+      const render = worker(job);
       try {
-        remember(job.key, await withTimeout(worker(job), 20000, `portrait ${job.key}`));
+        remember(job.key, await withTimeout(render, RENDER_TIMEOUT_MS, `portrait ${job.key}`));
+        attempts.delete(job.key);
       } catch (e) {
+        // The worker shares one rig and one GL context across jobs: never start
+        // the next render while a timed-out one may still be drawing.
+        await Promise.race([render.catch(() => {}), new Promise((r) => setTimeout(r, 15_000))]);
+        const n = (attempts.get(job.key) ?? 0) + 1;
+        attempts.set(job.key, n);
+        if (n < MAX_ATTEMPTS) {
+          // Back of the queue: whatever is on screen now goes first.
+          queue.push(job);
+          console.warn(`[avatar] portrait render failed (attempt ${n}), retrying`, e);
+          await new Promise((r) => setTimeout(r, 250 * n));
+          continue;
+        }
         failed.add(job.key);
         console.warn("[avatar] portrait render failed", e);
       }
@@ -162,6 +187,7 @@ async function pump() {
 export function _resetPortraits() {
   images.clear();
   failed.clear();
+  attempts.clear();
   queue.length = 0;
   queued.clear();
   worker = null;

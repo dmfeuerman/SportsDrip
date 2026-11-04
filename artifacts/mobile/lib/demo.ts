@@ -13,6 +13,7 @@ import type { BoxTier, PublicUser } from "@/lib/api";
 import type { CatalogItem } from "@/types/catalog";
 import type { AvatarConfig } from "@/types/avatar";
 import type { Game } from "@/types/game";
+import { devFlags } from "@/lib/devFlags";
 
 export const DEMO = process.env.EXPO_PUBLIC_DEMO === "1";
 
@@ -46,6 +47,10 @@ export const demoProfile: Profile = {
   avatar: avatar("#C68642", "fade", "#2B1B12"),
   equipped: { top: "top_mvp_jersey", bottom: "bottom_court_shorts", shoes: "shoes_fresh_kicks", hat: "hat_champion_snapback" },
   stats: { betsPlaced: 31, betsWon: 17, betsLost: 12, betsPush: 1, creditsWon: 2210, creditsStaked: 5400 },
+  xp: 1580,
+  level: 4,
+  background: "night_stadium",
+  referralCode: "DYL4N7",
   favoriteTeams: [
     { sport: "NBA", abbr: "BOS", name: "Boston Celtics", color: "#007A33" },
     { sport: "NFL", abbr: "NE", name: "New England Patriots", color: "#002244" },
@@ -55,13 +60,13 @@ export const demoProfile: Profile = {
 
 const team = (name: string, abbreviation: string, color: string, odds: number, record: string) => ({ name, abbreviation, color, odds, record });
 
-export const demoGames: Game[] = [
+export const demoGames: Game[] = ([] as Game[]).concat([
   { id: "NBA:1", sport: "NBA", sportIcon: "basketball", status: "live", startsAt: now - H, startTimeLabel: "Live", homeScore: 88, awayScore: 81, homeTeam: team("Boston Celtics", "BOS", "#007A33", 1.45, "9-3"), awayTeam: team("New York Knicks", "NYK", "#F58426", 2.75, "7-5"), updatedAt: now, clock: "Q4 · 6:12", period: 4 },
   { id: "NFL:2", sport: "NFL", sportIcon: "football", status: "upcoming", startsAt: now + 3 * H, startTimeLabel: "Today 8:20 PM", homeScore: null, awayScore: null, homeTeam: team("Kansas City Chiefs", "KC", "#E31837", 1.62, "6-1"), awayTeam: team("Buffalo Bills", "BUF", "#00338D", 2.35, "5-2"), updatedAt: now, venue: "Arrowhead Stadium" },
   { id: "NHL:3", sport: "NHL", sportIcon: "hockey-puck", status: "upcoming", startsAt: now + 5 * H, startTimeLabel: "Today 10:00 PM", homeScore: null, awayScore: null, homeTeam: team("Edmonton Oilers", "EDM", "#FF4C00", 1.9, "4-3"), awayTeam: team("Toronto Maple Leafs", "TOR", "#00205B", 1.95, "5-2"), updatedAt: now },
   { id: "Soccer:4", sport: "Soccer", sportIcon: "soccer", status: "upcoming", startsAt: now + 20 * H, startTimeLabel: "Tomorrow 3:00 PM", homeScore: null, awayScore: null, homeTeam: team("Arsenal", "ARS", "#EF0107", 1.85, "6-1-1"), awayTeam: team("Liverpool", "LIV", "#C8102E", 2.05, "5-2-1"), updatedAt: now },
   { id: "MLB:5", sport: "MLB", sportIcon: "baseball", status: "upcoming", startsAt: now + 26 * H, startTimeLabel: "Tomorrow 7:05 PM", homeScore: null, awayScore: null, homeTeam: team("Los Angeles Dodgers", "LAD", "#005A9C", 1.7, "98-64"), awayTeam: team("New York Yankees", "NYY", "#132448", 2.2, "94-68"), updatedAt: now },
-];
+]).map((g) => ({ ...g, priced: true }));
 
 export const demoBets: Bet[] = [
   { id: "b1", uid: demoUid, gameId: "NBA:1", sport: "NBA", side: "home", teamName: "Boston Celtics", teamAbbr: "BOS", teamColor: "#007A33", opponentAbbr: "NYK", stake: 250, odds: 1.45, potentialPayout: 363, status: "pending", opponentUid: null, placedAt: ts(now - 2 * H), settledAt: null },
@@ -70,7 +75,7 @@ export const demoBets: Bet[] = [
   { id: "b4", uid: demoUid, gameId: "NFL:8", sport: "NFL", side: "home", teamName: "Dallas Cowboys", teamAbbr: "DAL", teamColor: "#003594", opponentAbbr: "PHI", stake: 200, odds: 1.9, potentialPayout: 380, status: "lost", opponentUid: null, placedAt: ts(now - 2 * D), settledAt: ts(now - D), finalHomeScore: 17, finalAwayScore: 24 },
 ];
 
-export const demoInventory = ["tee_basic_white", "shorts_basic_navy", "shoes_basic_white", "top_mvp_jersey", "bottom_court_shorts", "shoes_fresh_kicks", "hat_champion_snapback", "hat_courtside_beanie", "top_stealth_hoodie", "bottom_track_joggers", "outerwear_bomber", "eyewear_shades_black", "accessory_sport_watch", "accessory_studio_headphones"];
+export const demoInventory = ["tee_basic_white", "shorts_basic_navy", "shoes_basic_white", "top_mvp_jersey", "bottom_court_shorts", "shoes_fresh_kicks", "hat_champion_snapback", "hat_courtside_beanie", "top_stealth_hoodie", "bottom_track_joggers", "outerwear_bomber", "eyewear_shades_black", "accessory_sport_watch", "accessory_studio_headphones", "hat_rookie_cap"];
 
 const box = (tier: BoxTier, state: PrizeBoxState["state"], readyAt: number | null): PrizeBoxState => ({ tier, state, openedAt: readyAt ? readyAt - H : null, readyAt, rewardCredits: null });
 export const demoPrizeBoxes: Record<BoxTier, PrizeBoxState> = {
@@ -107,6 +112,9 @@ export const demoCatalog: CatalogItem[] = [
   item("accessory_gold_chain", "Gold Chain", "accessory", "acc_chain", 40000, "legendary", "#FFD700", "#FFC107"),
   item("accessory_sport_watch", "Sport Watch", "accessory", "acc_watch", 3800, "uncommon", "#212121", "#9E9E9E"),
   item("accessory_studio_headphones", "Studio Headphones", "accessory", "acc_headphones", 9000, "rare", "#FAFAFA", "#212121"),
+  { ...item("hat_rookie_cap", "Rookie Cap", "hat", "hat_cap", 0, "uncommon", "#2FE38A", "#0E0F11"), description: "Earned, not bought. Reach level 3.", levelReward: 3 },
+  { ...item("top_level_up_tee", "Level Up Tee", "top", "top_tee", 0, "rare", "#4C9BFF", "#FFFFFF"), description: "Proof you put in the reps. Reach level 7.", levelReward: 7 },
+  { ...item("shoes_pro_highs", "Pro Hightops", "shoes", "shoes_hightop", 7800, "rare", "#111111", "#2FE38A"), description: "Pro-tier hightops. Level 5 and up.", levelRequired: 5 },
 ];
 
 export const demoFriends: PublicUser[] = [
@@ -198,3 +206,65 @@ export const demoNotifications: AppNotification[] = [
     bet: { betId: "b4", gameId: "NFL:8", sport: "NFL", side: "home", teamName: "Dallas Cowboys", teamAbbr: "DAL", teamColor: "#003594", opponentAbbr: "PHI", odds: 1.9, stake: 200, payout: 380, finalHomeScore: 17, finalAwayScore: 24 }, popup: false, read: true, createdAtMs: now - D, data: null },
   { id: "invite_x", type: "league_invite", title: "Theo K invited you to Fantasy Degens", body: "Free to join. Code TT4N8Q.", delta: 0, balanceAfter: null, wallet: "credits", leagueId: "lg_x", leagueName: "Fantasy Degens", bet: null, popup: false, read: true, createdAtMs: now - 2 * D, data: { code: "TT4N8Q", leagueId: "lg_x" } },
 ];
+
+// ── Dev launch flags in demo mode (lib/devFlags.ts) ─────────────────────────
+// Firebase is off here, so the flags reshape the fixtures instead of calling devTools.
+if (DEMO) {
+  const f = devFlags;
+  if (typeof f.cash === "number") demoProfile.balance = f.cash;
+  if (f.chests) {
+    for (const tier of ["bronze", "silver", "gold"] as BoxTier[]) demoPrizeBoxes[tier] = box(tier, "waiting", now - 60_000);
+  }
+  const names = ["Jordan", "Riley", "Avery", "Quinn", "Kai", "Nico", "Zoe", "Eli", "Luca", "Ivy", "Rowan", "Jade", "Milo", "Sage", "Remy", "Tess", "Omar"];
+  const skins = ["#8D5524", "#C68642", "#F1C27D", "#FFDBAC", "#5C3A21", "#E0AC69"];
+  const hair = ["fade", "braids", "curls", "buzz", "afro", "long", "ponytail", "short_crop"];
+  for (let i = demoFriends.length; i < (f.friends ?? 0); i++) {
+    const n = names[(i - 3) % names.length]!;
+    const u: PublicUser = {
+      uid: `bot${i}`,
+      username: `${n.toLowerCase()}${i}`,
+      displayName: `${n} ${String.fromCharCode(65 + (i % 26))}`,
+      avatar: avatar(skins[i % skins.length]!, hair[i % hair.length]!, "#2B1B12", { height: 0.35 + ((i * 13) % 40) / 100 }),
+      equipped: { top: "top_mvp_jersey", bottom: "bottom_court_shorts", shoes: "shoes_basic_white" },
+      balance: 1000 + i * 900,
+      stats: { betsPlaced: 10 + i, betsWon: 5 + (i % 6), betsLost: 5, betsPush: 0, creditsWon: 400 + i * 50, creditsStaked: 1500 },
+    };
+    demoFriends.push(u);
+    demoPublicProfiles[u.uid] = u;
+  }
+  for (let i = demoLeagues.length; i < (f.leagues ?? 0); i++) {
+    const id = `lg_dev_${i}`;
+    const mates = demoFriends.slice(i % demoFriends.length, (i % demoFriends.length) + 3);
+    const roster = [{ uid: demoUid, displayName: demoProfile.displayName }, ...mates];
+    demoLeagues.push({
+      ...demoLeagues[0]!,
+      id,
+      name: `Dev League ${i + 1}`,
+      code: `DEV${i}XY`.slice(0, 6),
+      creatorId: demoUid,
+      buyIn: 0,
+      pot: 0,
+      memberIds: roster.map((p) => p.uid),
+      members: Object.fromEntries(
+        roster.map((p, j) => [p.uid, member(p.uid, p.displayName, ["#E2564A", "#43C67F", "#5AA9E6", "#A57BE0"][j % 4]!, 10_000 + (j - 1) * 700, now - D, j, 2)])
+      ),
+      lastActivityAt: now - H,
+    });
+    demoLoans[id] = [];
+    demoLeagueBets[id] = [];
+    demoActivity[id] = [];
+  }
+  if (f.hitBet || f.loseBet) {
+    const lost = !f.hitBet;
+    const n = demoNotifications[0]!;
+    Object.assign(n, {
+      type: lost ? "bet_lost" : "bet_won",
+      title: lost ? "DEN fell short" : "DEN came through",
+      body: lost ? "Denver Nuggets lost to LAL (104–112). 300 credits staked." : "Denver Nuggets beat LAL (112–104). +630 credits.",
+      delta: lost ? -300 : 630,
+      popup: true,
+      read: false,
+      createdAtMs: Date.now(),
+    });
+  }
+}

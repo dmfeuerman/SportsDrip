@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   PanResponder,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -13,6 +12,7 @@ import {
   type LayoutChangeEvent,
   type ViewStyle,
 } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import * as THREE from "three";
 import AvatarSilhouette from "@/components/avatar/AvatarSilhouette";
 import { addStudioLights, AvatarRig, contactShadow, fitDepthRange, type AppearanceParts, type GarmentSource } from "@/lib/avatar3d/avatarRig";

@@ -1,7 +1,10 @@
+import { trackEvent } from "@/lib/analytics";
 import { callable } from "@/lib/firebase";
 
 import type { AvatarConfig, Slot } from "@/types/avatar";
 import type { GameInsights } from "@/types/insights";
+import type { LeagueDuration, LeagueMode, MatchupCadence, ReactionEmoji, TrophyItem } from "@/constants/leagueTypes";
+import type { Market, Selection } from "@/lib/markets";
 export type { AvatarConfig, Slot } from "@/types/avatar";
 
 export interface PublicUser {
@@ -10,6 +13,8 @@ export interface PublicUser {
   displayName: string;
   avatar: AvatarConfig;
   equipped: Partial<Record<Slot, string>>;
+  /** Dance-move loadout (constants/moves.ts). Absent on older profiles. */
+  moves?: string[];
   balance?: number;
   stats?: UserStats;
   favoriteTeams?: FavoriteTeam[];
@@ -32,10 +37,35 @@ export interface UserStats {
   creditsStaked: number;
 }
 
+export interface StreakInfo {
+  count: number;
+  longest: number;
+  lastDay: string;
+  /** Banked streak freezes (0–1); one covers a single missed day. */
+  freezes?: number;
+}
+
+export interface PunishmentInfo {
+  itemId: string;
+  slot: Slot;
+  leagueId: string;
+  leagueName?: string;
+  expiresAt: number;
+}
+
 // ── profile ────────────────────────────────────────────────────────────────
 export const createProfile = callable<
-  { username: string; displayName: string; avatar?: AvatarConfig },
-  { ok: true; username: string }
+  {
+    username: string;
+    displayName: string;
+    avatar?: AvatarConfig;
+    age?: number;
+    birthDate?: string;
+    phoneNumber?: string;
+    /** A friend's invite code. */
+    referralCode?: string;
+  },
+  { ok: true; username: string; referred?: boolean }
 >("createProfile");
 
 export const checkUsername = callable<
@@ -47,7 +77,28 @@ export const updateAvatar = callable<{ avatar: AvatarConfig }, { ok: true }>("up
 
 export const searchUsers = callable<{ q: string }, { results: PublicUser[] }>("searchUsers");
 
-export const updateFavoriteTeams = callable<{ teams: FavoriteTeam[] }, { ok: true; teams: FavoriteTeam[] }>(
+export const setPlayLimits = callable<{ dailyPicks?: number | null; breakDays?: 1 | 7 | 30 }, { ok: true }>("setPlayLimits");
+
+export interface WeeklyQuest {
+  id: string;
+  kind: "effort" | "social" | "skill" | "endowed";
+  title: string;
+  target: number;
+  xp: number;
+  progress: number;
+  claimed: boolean;
+}
+export const getWeeklyQuests = callable<Record<string, never>, { week: string; quests: WeeklyQuest[] }>("getWeeklyQuests");
+export const claimQuest = callable<{ questId: string }, { ok: true; xp: number; level: number }>("claimQuest");
+
+export const setAlertPrefs = callable<{ sweat: boolean }, { ok: true }>("setAlertPrefs");
+
+export const makeDailyPick = callable<
+  { side: "home" | "away" },
+  { ok: true; day: string; streak: number; freezes: number; milestone: number | null }
+>("makeDailyPick");
+
+export const updateFavoriteTeams = callable<{ teams: FavoriteTeam[]; reminders?: boolean }, { ok: true; teams: FavoriteTeam[] }>(
   "updateFavoriteTeams"
 );
 
@@ -57,6 +108,11 @@ export interface ProfileBet {
   gameId: string;
   sport: string | null;
   side: "home" | "away";
+  market?: Market;
+  selection?: Selection;
+  line?: number | null;
+  label?: string;
+  lock?: boolean;
   teamName: string;
   teamAbbr: string;
   teamColor: string;
@@ -80,8 +136,16 @@ export interface PlayerProfile {
     displayName: string;
     avatar: AvatarConfig | null;
     equipped: Partial<Record<Slot, string>>;
+    /** Their dance-move loadout (the default if they never set one). */
+    moves?: string[];
     favoriteTeams: FavoriteTeam[];
+    /** Their level and background (absent from older servers). */
+    level?: number;
+    background?: string | null;
     stats: UserStats | null;
+    streak?: StreakInfo | null;
+    punishment?: PunishmentInfo | null;
+    trophies?: TrophyItem[];
     memberSince: number | null;
     balance: number | null;
   };
@@ -95,12 +159,21 @@ export interface PlayerProfile {
     betsWon: number;
     betsLost: number;
     betsPush: number;
+    locksWon?: number;
+    locksLost?: number;
     joinedAt: number | null;
     bets: ProfileBet[];
+    rivalry?: { myWins: number; theirWins: number; pushes: number } | null;
   } | null;
 }
 
 export const getPlayerProfile = callable<{ uid: string; leagueId?: string }, PlayerProfile>("getPlayerProfile");
+
+// ── push ───────────────────────────────────────────────────────────────────
+export const registerPushToken = callable<
+  { token: string; enabled?: boolean; platform?: "ios" },
+  { ok: true; registered: boolean }
+>("registerPushToken");
 
 // ── game insights ──────────────────────────────────────────────────────────
 export const getGameInsights = callable<{ gameId: string }, { insights: GameInsights }>("getGameInsights");
@@ -123,22 +196,113 @@ export const listFriends = callable<Record<string, never>, { friends: PublicUser
 );
 
 // ── betting ────────────────────────────────────────────────────────────────
-export const placeBet = callable<
-  {
-    gameId: string;
-    side: "home" | "away";
-    stake: number;
-    idempotencyKey: string;
-    /** Decimal odds the user was shown, so a moved price fails loudly. */
-    expectedOdds?: number;
-    opponentUid?: string;
-  },
-  { ok: true; betId: string; duplicate: boolean; balance: number | null }
->("placeBet");
+export interface PlaceBetArgs {
+  gameId: string;
+  side?: "home" | "away";
+  market?: Market;
+  selection?: Selection;
+  stake: number;
+  idempotencyKey: string;
+  /** Decimal odds the user was shown, so a moved price fails loudly. */
+  expectedOdds?: number;
+  /** Spread or total line the user was shown. */
+  expectedLine?: number;
+  opponentUid?: string;
+}
+export interface PlaceBetResult {
+  ok: true;
+  betId: string;
+  duplicate: boolean;
+  balance: number | null;
+  streak?: number;
+}
+const placeBetCall = callable<PlaceBetArgs, PlaceBetResult>("placeBet");
+
+/** Every credits bet goes through here, so `bet_placed` is tracked exactly once per new bet. */
+export async function placeBet(args: PlaceBetArgs): Promise<PlaceBetResult> {
+  const res = await placeBetCall(args);
+  if (!res.duplicate) {
+    trackEvent("bet_placed", {
+      wallet: "credits",
+      game_id: args.gameId,
+      market: args.market ?? "ml",
+      side: args.selection ?? args.side ?? "home",
+      stake: args.stake,
+      odds: args.expectedOdds ?? null,
+    });
+  }
+  return res;
+}
 
 export const cancelBet = callable<{ betId: string }, { ok: true; balance: number | null }>(
   "cancelBet"
 );
+
+// ── friend challenges ──────────────────────────────────────────────────────
+export type ChallengeMode = "pot" | "odds";
+export type ChallengeStatus = "pending" | "accepted" | "declined" | "cancelled" | "expired" | "settled" | "void";
+
+export interface ChallengeTeam {
+  name: string;
+  abbreviation: string;
+  color: string;
+}
+
+/** challenges/{id}. Written only by the server; both players can read it. */
+export interface Challenge {
+  id: string;
+  gameId: string;
+  sport: string | null;
+  startsAt: number;
+  home: ChallengeTeam;
+  away: ChallengeTeam;
+  mode: ChallengeMode;
+  /** The challenger's price on their own pick (2.00 for a pot). */
+  odds: number;
+  creatorUid: string;
+  opponentUid: string;
+  participants: string[];
+  creatorName: string;
+  opponentName: string;
+  creatorSide: "home" | "away";
+  creatorStake: number;
+  opponentStake: number;
+  pot: number;
+  message: string | null;
+  status: ChallengeStatus;
+  outcome: "creator" | "opponent" | "push" | null;
+  winnerUid: string | null;
+  finalHomeScore: number | null;
+  finalAwayScore: number | null;
+  createdAtMs: number;
+  respondedAtMs: number | null;
+  closedAtMs: number | null;
+  settledAtMs: number | null;
+}
+
+export const createChallenge = callable<
+  {
+    gameId: string;
+    opponentUid: string;
+    side: "home" | "away";
+    mode: ChallengeMode;
+    stake: number;
+    odds?: number;
+    message?: string;
+    idempotencyKey: string;
+  },
+  { ok: true; challengeId: string; duplicate: boolean; balance: number | null }
+>("createChallenge");
+
+export const respondChallenge = callable<
+  { challengeId: string; accept: boolean },
+  { ok: true; status: "accepted" | "declined" | "expired"; balance: number | null }
+>("respondChallenge");
+
+export const cancelChallenge = callable<
+  { challengeId: string },
+  { ok: true; status: string; balance: number | null }
+>("cancelChallenge");
 
 // ── shop ───────────────────────────────────────────────────────────────────
 export const purchaseItem = callable<
@@ -155,6 +319,44 @@ export const equipItem = callable<{ slot: Slot; itemId: string | null }, { ok: t
   "equipItem"
 );
 
+// ── moves ──────────────────────────────────────────────────────────────────
+export const purchaseMove = callable<
+  { moveId: string; idempotencyKey: string },
+  { ok: true; balance: number | null; moveId: string; equipped: boolean }
+>("purchaseMove");
+
+export const setMoveLoadout = callable<{ moves: string[] }, { ok: true; moves: string[] }>("setMoveLoadout");
+
+// ── backgrounds ────────────────────────────────────────────────────────────
+export const purchaseBackground = callable<
+  { backgroundId: string; idempotencyKey: string },
+  { ok: true; balance: number | null; backgroundId: string }
+>("purchaseBackground");
+
+export const setBackground = callable<{ backgroundId: string | null }, { ok: true; backgroundId: string }>("setBackground");
+
+// ── levels & invites ───────────────────────────────────────────────────────
+export interface ReferralSummary {
+  code: string;
+  referralCount: number;
+  referrerCredits: number;
+  newUserCredits: number;
+  maxRewarded: number;
+  referrerXp: number;
+}
+
+export const getReferralCode = callable<Record<string, never>, ReferralSummary>("getReferralCode");
+
+export const checkReferralCode = callable<
+  { code: string },
+  { valid: false } | { valid: true; code: string; displayName: string; username: string | null; newUserCredits: number }
+>("checkReferralCode");
+
+export const syncProgression = callable<
+  Record<string, never>,
+  { ok: true; xp: number; level: number; unlocked: Array<{ kind: "item" | "background"; id: string; name: string; level: number }>; referralCode: string | null }
+>("syncProgression");
+
 // ── prize boxes ────────────────────────────────────────────────────────────
 export type BoxTier = "bronze" | "silver" | "gold";
 
@@ -165,7 +367,15 @@ export const openPrizeBox = callable<
 
 export const claimPrizeBox = callable<
   { tier: BoxTier },
-  { ok: true; duplicate: boolean; rewardCredits: number; balance: number | null }
+  {
+    ok: true;
+    duplicate: boolean;
+    rewardCredits: number;
+    baseCredits?: number;
+    streakBonus?: number;
+    streakDays?: number;
+    balance: number | null;
+  }
 >("claimPrizeBox");
 
 export const resetPrizeBox = callable<{ tier: BoxTier }, { ok: true }>("resetPrizeBox");
@@ -176,20 +386,22 @@ export const claimAdReward = callable<
 >("claimAdReward");
 
 // ── leagues ────────────────────────────────────────────────────────────────
-// Every league mutation is a callable. The client reads leagues/{id} and its
-// subcollections; it never writes them (firestore.rules denies it).
 export const createLeague = callable<
   {
     idempotencyKey: string;
     name: string;
     startingLeagueTokens: number;
-    duration: "1 Week" | "2 Weeks" | "1 Month" | "3 Months";
+    duration: LeagueDuration;
     sports: string[];
     buyIn: number;
     prizePreset: "winner-all" | "top-2" | "top-3";
     bankLoanEnabled: boolean;
     bankInterestRate: number;
     bankInterestIntervalHours: number;
+    mode?: LeagueMode;
+    matchupsEnabled?: boolean;
+    matchupCadence?: MatchupCadence;
+    stimulusEnabled?: boolean;
   },
   { ok: true; leagueId: string; code: string; duplicate: boolean }
 >("createLeague");
@@ -200,10 +412,30 @@ export const joinLeague = callable<{ code: string }, { ok: true; leagueId: strin
 
 export const leaveLeague = callable<{ leagueId: string }, { ok: true }>("leaveLeague");
 
-export const updateLeagueSettings = callable<
-  { leagueId: string; bankLoanEnabled: boolean; bankInterestRate: number; bankInterestIntervalHours: number },
-  { ok: true }
->("updateLeagueSettings");
+export interface UpdateLeagueSettingsArgs {
+  leagueId: string;
+  bankLoanEnabled?: boolean;
+  bankInterestRate?: number;
+  bankInterestIntervalHours?: number;
+  name?: string;
+  sports?: string[];
+  prizePreset?: "winner-all" | "top-2" | "top-3";
+  duration?: LeagueDuration;
+  mode?: LeagueMode;
+  matchupsEnabled?: boolean;
+  matchupCadence?: MatchupCadence;
+  stimulusEnabled?: boolean;
+}
+
+export const updateLeagueSettings = callable<UpdateLeagueSettingsArgs, { ok: true }>("updateLeagueSettings");
+
+export type LeagueStimulusArgs =
+  | { leagueId: string; action: "request"; pct: number }
+  | { leagueId: string; action: "vote"; requestId: string; approve: boolean }
+  | { leagueId: string; action: "cancel"; requestId: string };
+export const leagueStimulus = callable<LeagueStimulusArgs, { ok: true; status: "open" | "paid" | "cancelled"; amount: number }>(
+  "leagueStimulus"
+);
 
 export const inviteToLeague = callable<
   { leagueId: string; friendUid: string },
@@ -212,17 +444,124 @@ export const inviteToLeague = callable<
 
 export const endLeague = callable<{ leagueId: string }, { ok: true }>("endLeague");
 
-export const placeLeagueBet = callable<
+export const voteEndLeague = callable<
+  { leagueId: string; vote: boolean },
+  { ok: true; ended: boolean; votes: number; needed: number }
+>("voteEndLeague");
+
+export const reportResult = callable<
+  { leagueId: string; betId: string; reason: string },
+  { ok: true }
+>("reportResult");
+
+export const voidLeagueBet = callable<
+  { leagueId: string; betId: string; reason: string },
+  { ok: true; tokenDelta: number }
+>("voidLeagueBet");
+
+export const reactToItem = callable<
   {
     leagueId: string;
-    gameId: string;
-    side: "home" | "away";
-    stake: number;
-    idempotencyKey: string;
-    expectedOdds?: number;
+    targetType: "message" | "messages" | "activity" | "bet" | "leagueBets";
+    targetId: string;
+    emoji: ReactionEmoji;
   },
-  { ok: true; betId: string; duplicate: boolean; leagueTokens: number | null }
->("placeLeagueBet");
+  { ok: true; reactions: Record<string, number>; reactors: Record<string, string> }
+>("reactToItem");
+
+export const makePick = callable<
+  { leagueId: string; gameId: string; side: "home" | "away" },
+  { ok: true; pickId: string; week: string; teamAbbr: string }
+>("makePick");
+
+export const createGroupParlay = callable<
+  {
+    leagueId: string;
+    idempotencyKey: string;
+    stake?: number;
+    leg?: {
+      gameId: string;
+      side?: "home" | "away";
+      market?: Market;
+      selection?: Selection;
+      expectedOdds?: number;
+      expectedLine?: number;
+    };
+  },
+  { ok: true; parlayId: string; duplicate: boolean; combinedOdds?: number }
+>("createGroupParlay");
+
+export const addParlayLeg = callable<
+  {
+    leagueId: string;
+    parlayId: string;
+    gameId: string;
+    side?: "home" | "away";
+    market?: Market;
+    selection?: Selection;
+    expectedOdds?: number;
+    expectedLine?: number;
+    stake?: number;
+  },
+  { ok: true; combinedOdds: number; legCount: number }
+>("addParlayLeg");
+
+export const rideParlay = callable<
+  { leagueId: string; parlayId: string; stake: number },
+  { ok: true; leagueTokens: number }
+>("rideParlay");
+
+export const lockParlay = callable<
+  { leagueId: string; parlayId: string },
+  { ok: true; combinedOdds: number }
+>("lockParlay");
+
+export interface PlaceLeagueBetArgs {
+  leagueId: string;
+  gameId: string;
+  side?: "home" | "away";
+  market?: Market;
+  selection?: Selection;
+  stake: number;
+  idempotencyKey: string;
+  expectedOdds?: number;
+  expectedLine?: number;
+  /** Id of another member's pending league bet this one copies (same side). */
+  tailOf?: string;
+  /** Id of another member's pending league bet this one opposes (other side). */
+  fadeOf?: string;
+  /** Lock of the Week flag (one per member per week). */
+  lock?: boolean;
+  /** Hide pick from chat and sweat tracker until kickoff. */
+  hidden?: boolean;
+}
+export interface PlaceLeagueBetResult {
+  ok: true;
+  betId: string;
+  duplicate: boolean;
+  leagueTokens: number | null;
+}
+const placeLeagueBetCall = callable<PlaceLeagueBetArgs, PlaceLeagueBetResult>("placeLeagueBet");
+
+/** Every league bet goes through here; tails and fades are tracked on top of `bet_placed`. */
+export async function placeLeagueBet(args: PlaceLeagueBetArgs): Promise<PlaceLeagueBetResult> {
+  const res = await placeLeagueBetCall(args);
+  if (!res.duplicate) {
+    const params = {
+      wallet: "league",
+      league_id: args.leagueId,
+      game_id: args.gameId,
+      market: args.market ?? "ml",
+      side: args.selection ?? args.side ?? "home",
+      stake: args.stake,
+      odds: args.expectedOdds ?? null,
+    };
+    trackEvent("bet_placed", { ...params, follow: args.tailOf ? "tail" : args.fadeOf ? "fade" : "none" });
+    if (args.tailOf) trackEvent("bet_tailed", { ...params, source_bet_id: args.tailOf });
+    if (args.fadeOf) trackEvent("bet_faded", { ...params, source_bet_id: args.fadeOf });
+  }
+  return res;
+}
 
 export const takeBankLoan = callable<
   { leagueId: string; amount: number; idempotencyKey: string },
@@ -248,17 +587,11 @@ export const peerLoanAction = callable<
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-/**
- * Idempotency keys for every mutating call. A double-tap, a lost response, or a
- * retry after a dropped connection all reuse the same key, so the server treats
- * them as one operation (AUDIT B10).
- */
 export function newIdempotencyKey(): string {
   const rand = Math.random().toString(36).slice(2, 12);
   return `${Date.now().toString(36)}${rand}`;
 }
 
-/** Turns a Functions error into something worth showing a user. */
 export function friendlyError(err: unknown): string {
   const e = err as { code?: string; message?: string } | undefined;
   const code = e?.code ?? "";
@@ -272,8 +605,22 @@ export function friendlyError(err: unknown): string {
   if (code.includes("invalid-argument")) return e?.message ?? "Check the details and try again.";
   if (code.includes("unavailable") || code.includes("deadline-exceeded"))
     return "Network problem — check your connection and try again.";
-  // A callable that isn't deployed (or crashed before answering) surfaces as a bare "internal".
   if (code.includes("internal") && (!e?.message || e.message === "internal"))
     return "The server couldn't do that right now. Try again in a moment.";
   return e?.message ?? "Something went wrong. Try again.";
 }
+
+// ── dev tools (dev builds only; server-gated by DEV_TOOLS=1) ────────────────
+export const devTools = callable<
+  {
+    friends?: number;
+    requests?: number;
+    leagues?: number;
+    cash?: number;
+    chests?: boolean;
+    hitBet?: boolean;
+    loseBet?: boolean;
+    chat?: boolean;
+  },
+  { ok: true; done: string[] }
+>("devTools");

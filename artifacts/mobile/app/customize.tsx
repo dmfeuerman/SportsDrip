@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -7,19 +7,20 @@ import {
   ActivityIndicator,
   Animated,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import { Chips, Field, Stops, Swatches } from "@/components/avatar/EditorControls";
 import ItemIcon from "@/components/avatar/ItemIcon";
 import CartButton from "@/components/CartButton";
-import { Button, ChoiceDialog, ConfirmDialog, ErrorBanner } from "@/components/ui";
+import CartExitDialog from "@/components/CartExitDialog";
+import { Button, ConfirmDialog, ErrorBanner } from "@/components/ui";
 import {
   EYE_COLORS,
   EYE_SHAPES,
@@ -35,6 +36,7 @@ import {
 } from "@/constants/avatarOptions";
 import { useApp } from "@/context/AppContext";
 import { useCart } from "@/context/CartContext";
+import { useCartItems } from "@/hooks/useCartItems";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { applyEquip } from "@/lib/avatar3d/avatarRules";
@@ -80,8 +82,16 @@ export default function CustomizeScreen() {
     () => ({ avatar: normalizeAvatar(profile?.avatar), equipped: canon(profile?.equipped ?? {}) }),
     [profile?.avatar, profile?.equipped]
   );
-  const [avatar, setAvatar] = useState<AvatarConfig>(saved.avatar);
-  const [equipped, setEquipped] = useState<Equipped>(saved.equipped);
+  // Back with a look still in the cart: pick up where you left off (minus anything removed at checkout since).
+  const [resume] = useState(() => {
+    const d = cart.draft;
+    if (!d) return null;
+    const own = new Set(inventory);
+    const equipped = Object.fromEntries(Object.entries(d.equipped).filter(([, id]) => !!id && (own.has(id) || cart.has(id)))) as Equipped;
+    return { avatar: d.avatar, equipped };
+  });
+  const [avatar, setAvatar] = useState<AvatarConfig>(resume?.avatar ?? saved.avatar);
+  const [equipped, setEquipped] = useState<Equipped>(resume?.equipped ?? saved.equipped);
   const [cat, setCat] = useState<CatId>(() => (CATS.some((x) => x.id === params.category) ? (params.category as CatId) : "body"));
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -92,7 +102,7 @@ export default function CustomizeScreen() {
 
   // Follow the server copy until the user starts editing (first load, or a
   // save from another device).
-  const touched = useRef(false);
+  const touched = useRef(!!resume);
   useEffect(() => {
     if (touched.current) return;
     setAvatar(saved.avatar);
@@ -103,25 +113,46 @@ export default function CustomizeScreen() {
   const owned = useMemo(() => new Set(inventory), [inventory]);
   const unowned = Object.values(equipped).filter((id): id is string => !!id && !owned.has(id));
   const unownedKey = unowned.join(",");
-  const cartTotal = unowned.reduce((s, id) => s + (byId.get(id)?.price ?? 0), 0);
+  const cartView = useCartItems();
 
   // ── cart ─────────────────────────────────────────────────────────────────
-  // The cart is exactly the store items being tried on (one per slot), so the
-  // badge always matches what's on the character. Checkout gets the whole
-  // draft look, to save it once everything in it is bought.
+  // Trying on a store item puts it in the cart. Swapping it for another in the
+  // same session swaps it in the cart too; everything else (shop picks, earlier
+  // sessions) stays until it's bought or cleared at checkout.
+  const wasInCart = useRef(new Set<string>(cart.ids));
+  const triedOn = useRef(new Set<string>(resume ? Object.values(resume.equipped).filter((id): id is string => !!id && !owned.has(id)) : []));
   useEffect(() => {
-    cart.setIds(unowned);
+    const now = new Set(unowned);
+    for (const id of unowned) {
+      if (!cart.has(id)) {
+        cart.add(id);
+        triedOn.current.add(id);
+      }
+    }
+    for (const id of [...triedOn.current]) {
+      if (!now.has(id)) {
+        cart.remove(id);
+        triedOn.current.delete(id);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unownedKey]);
+  // Checkout gets the whole draft look, to save it once everything in it is bought.
   useEffect(() => {
+    if (!touched.current) return;
     cart.setDraft(unowned.length ? { avatar, equipped: canon(equipped) } : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [avatar, equipped, unownedKey]);
-  // Removed at checkout → take it off here too (back to what's saved for that slot, if owned).
+  // Removed (or cleared) at checkout → take it off here too (back to what's saved for that slot, if owned).
   const cartKey = cart.ids.join(",");
   useEffect(() => {
-    const gone = unowned.filter((id) => !cart.has(id));
+    for (const id of cart.ids) wasInCart.current.add(id);
+    const gone = unowned.filter((id) => !cart.has(id) && wasInCart.current.has(id));
     if (!gone.length) return;
+    for (const id of gone) {
+      wasInCart.current.delete(id);
+      triedOn.current.delete(id);
+    }
     setEquipped((e) => {
       const next = { ...e };
       for (const id of gone) {
@@ -158,7 +189,7 @@ export default function CustomizeScreen() {
 
   const wear = (slot: Slot, itemId: string | null) => {
     touched.current = true;
-    Haptics.selectionAsync().catch(() => {});
+    buzz.tick();
     const r = applyEquip(equipped, slot, itemId, (id) => byId.get(id));
     setEquipped(r.equipped);
     if (r.removed.length && itemId) {
@@ -168,7 +199,7 @@ export default function CustomizeScreen() {
   };
 
   const reset = () => {
-    Haptics.selectionAsync().catch(() => {});
+    buzz.tick();
     setAvatar(saved.avatar);
     setEquipped(saved.equipped);
     touched.current = false;
@@ -180,7 +211,7 @@ export default function CustomizeScreen() {
     const ok = await saveLook(avatar, canon(equipped));
     setSaving(false);
     if (!ok) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    buzz.success();
     touched.current = false;
     setLeaving(true);
     allowLeave();
@@ -189,7 +220,18 @@ export default function CustomizeScreen() {
   };
 
   // ── leaving with unsaved changes ─────────────────────────────────────────
-  const allowLeave = usePreventRemove(dirty && !leaving, ({ data }) => {
+  const allowLeave = usePreventRemove((dirty || cartView.count > 0) && !leaving, ({ data }) => {
+    // Checkout just bought everything and is navigating away: don't stop it.
+    if (cart.justCheckedOut()) {
+      allowLeave();
+      navigation.dispatch(data.action as never);
+      return;
+    }
+    if (!dirty && !cart.peekCount()) {
+      allowLeave();
+      navigation.dispatch(data.action as never);
+      return;
+    }
     pendingNav.current = data.action;
     setConfirm(true);
   });
@@ -198,11 +240,19 @@ export default function CustomizeScreen() {
   const checkout = () => {
     pendingNav.current = null;
     setConfirm(false);
-    router.push("/checkout");
+    router.push({ pathname: "/checkout", params: { from: "customize" } });
+  };
+  /** Leave with the cart (and the look it was tried on for) kept for later. */
+  const leaveForNow = () => {
+    setConfirm(false);
+    setLeaving(true);
+    allowLeave();
+    if (pendingNav.current) navigation.dispatch(pendingNav.current as never);
+    else close();
   };
   const discard = () => {
     setConfirm(false);
-    cart.clear();
+    cart.setDraft(null);
     setLeaving(true);
     allowLeave();
     if (pendingNav.current) navigation.dispatch(pendingNav.current as never);
@@ -228,7 +278,7 @@ export default function CustomizeScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Cancel"
-          onPress={() => (dirty ? setConfirm(true) : close())}
+          onPress={close}
           hitSlop={10}
           style={[styles.round, { backgroundColor: c.secondary, borderColor: c.border }]}
         >
@@ -255,7 +305,7 @@ export default function CustomizeScreen() {
           disabled={!dirty || unowned.length > 0 || saving}
           accessibilityHint={unowned.length ? "Check out the items in your cart first" : undefined}
         />
-        <CartButton />
+        <CartButton from="customize" />
       </View>
 
       {/* stage */}
@@ -301,7 +351,7 @@ export default function CustomizeScreen() {
               accessibilityState={{ selected: on }}
               accessibilityLabel={x.label}
               onPress={() => {
-                Haptics.selectionAsync().catch(() => {});
+                buzz.tick();
                 setCat(x.id);
               }}
               style={[styles.cat, { backgroundColor: on ? c.primarySoft : "transparent", borderColor: on ? c.primary : "transparent" }]}
@@ -362,29 +412,25 @@ export default function CustomizeScreen() {
 
       </ScrollView>
 
-      {unowned.length > 0 ? (
+      {cartView.count > 0 ? (
         <View style={[styles.cartBar, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.5), bottom: insets.bottom + 12 }]}>
           <MaterialCommunityIcons name="cart" size={18} color={c.primary} />
           <View style={{ flex: 1 }}>
             <Text style={[styles.buyName, { color: c.foreground }]} numberOfLines={1}>
-              {unowned.length} {unowned.length === 1 ? "item" : "items"} in your cart · {cartTotal.toLocaleString()}
+              {cartView.count} {cartView.count === 1 ? "item" : "items"} in your cart · {cartView.total.toLocaleString()}
             </Text>
-            <Text style={[styles.buySub, { color: balance < cartTotal ? c.negative : c.mutedForeground }]} numberOfLines={1}>
-              {balance < cartTotal ? `You have ${balance.toLocaleString()} credits` : "Buy them to save this look"}
+            <Text style={[styles.buySub, { color: balance < cartView.total ? c.negative : c.mutedForeground }]} numberOfLines={1}>
+              {balance < cartView.total ? `You have ${balance.toLocaleString()} credits` : unowned.length ? "Buy them to save this look" : "Ready when you are"}
             </Text>
           </View>
-          <Button label="Checkout" size="sm" onPress={() => router.push("/checkout")} />
+          <Button label="Checkout" size="sm" onPress={checkout} />
         </View>
       ) : null}
 
-      <ChoiceDialog
-        visible={confirm && unowned.length > 0}
-        title={`${unowned.length} ${unowned.length === 1 ? "item" : "items"} in your cart`}
-        body={`You're trying on ${unowned.map((id) => byId.get(id)?.name ?? "an item").join(", ")}. Check out to keep ${unowned.length === 1 ? "it" : "them"}, or discard your changes.`}
-        actions={[
-          { label: `Checkout · ${cartTotal.toLocaleString()}`, icon: "cart", onPress: checkout },
-          { label: "Discard", variant: "destructive", onPress: discard },
-        ]}
+      <CartExitDialog
+        visible={confirm && cartView.count > 0}
+        onCheckout={checkout}
+        onLeave={leaveForNow}
         onCancel={() => {
           pendingNav.current = null;
           setConfirm(false);
@@ -392,7 +438,7 @@ export default function CustomizeScreen() {
       />
 
       <ConfirmDialog
-        visible={confirm && unowned.length === 0}
+        visible={confirm && cartView.count === 0}
         title="Discard changes?"
         body="Your character goes back to how it was last saved."
         confirmLabel="Discard"

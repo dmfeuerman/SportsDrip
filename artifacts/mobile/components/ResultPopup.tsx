@@ -1,8 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Modal, Platform, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import Burst from "@/components/fx/Burst";
@@ -10,12 +10,16 @@ import ResultRecap from "@/components/ResultRecap";
 import { ActionChip, Amount, Button, Pill } from "@/components/ui";
 import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
+import { useLeague } from "@/context/LeagueContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useNotifications, type AppNotification } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
 import { trace } from "@/lib/devtrace";
-import { REWARD_RARITY } from "@/lib/motion";
+import { haptic, REWARD_RARITY } from "@/lib/motion";
 import { useShake } from "@/hooks/useMotion";
+import { formatOdds } from "@/lib/odds";
+import { useOddsFormat } from "@/lib/settings";
+import { shareViewOrText } from "@/lib/shareCard";
 
 /**
  * Win / loss popups.
@@ -101,8 +105,12 @@ function ResultPopup({
   onDismissAll: () => void;
 }) {
   const c = useColors();
-  const won = n.type === "bet_won" || n.type === "league_payout";
-  const lost = n.type === "bet_lost";
+  const fmt = useOddsFormat();
+  const cardRef = useRef<React.ComponentRef<typeof View> | null>(null);
+  const won = n.type === "bet_won" || n.type === "challenge_won" || n.type === "league_payout";
+  const lost = n.type === "bet_lost" || n.type === "challenge_lost";
+  // A head-to-head: the pot came from (or went to) a friend.
+  const friend = n.type.startsWith("challenge_") ? n.data?.friendName ?? "your friend" : null;
   const bet = n.bet;
   const profit = bet ? bet.payout - bet.stake : n.delta;
   const big = won && bet ? bet.payout >= bet.stake * 3 || profit >= 1000 : n.type === "league_payout";
@@ -127,11 +135,11 @@ function ResultPopup({
   useEffect(() => {
     if (fired.current) return;
     fired.current = true;
-    Haptics.notificationAsync(
-      won ? Haptics.NotificationFeedbackType.Success : lost ? Haptics.NotificationFeedbackType.Warning : Haptics.NotificationFeedbackType.Success
-    ).catch(() => {});
+    if (won) haptic.celebrate(big);
+    else if (lost) haptic.thud();
+    else haptic.success();
     AccessibilityInfo.announceForAccessibility(`${n.title}. ${n.body}`);
-  }, [won, lost, n.title, n.body]);
+  }, [won, lost, big, n.title, n.body]);
 
   // A jolt for a loss, a rattle for a big win, once the card has landed.
   useEffect(() => {
@@ -150,6 +158,7 @@ function ResultPopup({
         {/* Confetti for a win — gold for a big one. */}
         {won ? <Burst colors={big ? REWARD_RARITY.epic.confetti : [c.positive, "#FFFFFF", c.accent, c.positive]} count={big ? 64 : 36} power={big ? 1.5 : 1.05} originY={0.42} /> : null}
         <Animated.View style={[styles.shell, shakeStyle]}>
+        <View ref={cardRef} collapsable={false} style={{ width: "100%", alignItems: "center" }}>
         <Animated.View
           entering={ZoomIn.springify().damping(14).stiffness(160)}
           accessibilityViewIsModal
@@ -190,6 +199,7 @@ function ResultPopup({
                 icon={won ? "arrow-up-bold" : lost ? "arrow-down-bold" : undefined}
               />
               {n.leagueName ? <Pill label={n.leagueName} tone="league" icon="shield-star" /> : null}
+              {friend ? <Pill label={`vs ${friend}`} tone="accent" icon="sword-cross" /> : null}
             </View>
             <Text style={[styles.title, { color: c.foreground }]} accessibilityRole="header">
               {n.title}
@@ -212,9 +222,10 @@ function ResultPopup({
 
           {bet && (
             <View style={styles.rows}>
-              <Row label="Your pick" value={`${bet.teamName} · ${bet.odds.toFixed(2)}x`} />
-              <Row label="Stake" value={bet.stake.toLocaleString()} />
-              <Row label={won ? "Paid out" : "Returned"} value={(won ? bet.payout : 0).toLocaleString()} />
+              <Row label="Your pick" value={`${bet.teamName} · ${formatOdds(bet.odds, fmt)}`} />
+              <Row label={friend ? "Your stake" : "Stake"} value={bet.stake.toLocaleString()} />
+              {friend ? <Row label="Pot" value={bet.payout.toLocaleString()} /> : null}
+              <Row label={won ? "Paid out" : friend ? `Went to ${friend}` : "Returned"} value={(won ? bet.payout : friend ? bet.payout : 0).toLocaleString()} />
             </View>
           )}
           {n.balanceAfter !== null && (
@@ -227,19 +238,37 @@ function ResultPopup({
           )}
 
           <View style={styles.actions}>
-            {bet && (
+            {won && (
               <Button
-                label="My bets"
+                label="Share"
+                icon="share-variant"
+                variant="secondary"
+                style={{ flex: 0.9 }}
+                onPress={() => {
+                  void shareViewOrText({
+                    viewRef: cardRef,
+                    kind: "result_popup",
+                    id: n.id,
+                    message: `${n.title} — ${n.body} on SportDrip`,
+                  });
+                }}
+              />
+            )}
+            {bet && !won && (
+              <Button
+                label={friend ? "Challenges" : "My bets"}
                 variant="secondary"
                 style={{ flex: 1 }}
                 onPress={() => {
                   onDismiss();
-                  router.push(n.leagueId ? { pathname: "/league/[id]", params: { id: n.leagueId, tab: "bets" } } : "/bets");
+                  if (friend) router.push({ pathname: "/challenges", params: { tab: "history" } });
+                  else router.push(n.leagueId ? { pathname: "/league/[id]", params: { id: n.leagueId, tab: "bets" } } : "/bets");
                 }}
               />
             )}
             <Button label={won ? "Collect" : "Got it"} style={{ flex: 1 }} onPress={onDismiss} haptic={false} shimmer={won} />
           </View>
+          {bet && (won || lost) ? <SocialFollowUp n={n} won={won} friend={friend} onDismiss={onDismiss} /> : null}
           {waiting > 0 && (
             <View style={[styles.more, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
               <Text style={[styles.moreText, { color: c.mutedForeground }]}>
@@ -249,10 +278,59 @@ function ResultPopup({
             </View>
           )}
         </Animated.View>
+        </View>
         </Animated.View>
       </Animated.View>
     </Modal>
   );
+}
+
+/**
+ * The peak goes to the group: rub a win in league chat, run a lost H2H back,
+ * or share the bad beat. One tap each, never a nag.
+ */
+function SocialFollowUp({ n, won, friend, onDismiss }: { n: AppNotification; won: boolean; friend: string | null; onDismiss: () => void }) {
+  const { sendMessage } = useLeague();
+  const [posted, setPosted] = useState(false);
+  const bet = n.bet!;
+  const friendUid = n.data?.friendUid;
+  const chips: React.ReactNode[] = [];
+  if (n.leagueId && !posted) {
+    chips.push(
+      <ActionChip
+        key="post"
+        label={won ? "Rub it in" : "Post bad beat"}
+        icon={won ? "bullhorn-outline" : "emoticon-cry-outline"}
+        chevron={false}
+        onPress={() => {
+          sendMessage(
+            n.leagueId!,
+            won
+              ? `💰 Cashed ${bet.teamName} at ${bet.odds.toFixed(2)}x (+${(bet.payout - bet.stake).toLocaleString()}). Next.`
+              : `💀 Bad beat: ${bet.teamName} ${bet.finalHomeScore ?? ""}${bet.finalHomeScore !== null ? "–" : ""}${bet.finalAwayScore ?? ""}. I'll be back.`
+          );
+          haptic.success();
+          setPosted(true);
+        }}
+      />
+    );
+  }
+  if (!won && friend && friendUid) {
+    chips.push(
+      <ActionChip
+        key="back"
+        label={`Challenge ${friend} back`}
+        icon="sword-cross"
+        chevron={false}
+        onPress={() => {
+          onDismiss();
+          router.navigate({ pathname: "/(tabs)/games", params: { challenge: friendUid, challengeName: friend } });
+        }}
+      />
+    );
+  }
+  if (!chips.length) return null;
+  return <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 10 }}>{chips}</View>;
 }
 
 function Row({ label, value }: { label: string; value: string }) {

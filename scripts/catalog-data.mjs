@@ -13,6 +13,9 @@
  *   rarity      common | uncommon | rare | epic | legendary
  *   available   soft-delete / seasonal switch, read by purchaseItem
  *   releaseAt   epoch ms; purchaseItem rejects anything not yet dropped
+ *   levelRequired  optional; purchaseItem refuses below this player level
+ *   levelReward    optional; never sold — granted free on reaching this level
+ *                  (functions/src/lib/xp.ts). Price 0.
  */
 const item = (id, name, slot, model, price, rarity, color, secondaryColor, description, extra = {}) => ({
   id,
@@ -155,4 +158,16 @@ export const CATALOG = [
   item("accessory_gold_watch", "Gold Watch", "accessory", "acc_watch", 15000, "epic", "#FFD700", "#B8860B", "Gold case and bracelet."),
   item("accessory_rose_chain", "Rose Gold Chain", "accessory", "acc_chain", 16000, "epic", "#E8A598", "#D48A7A", "Rose gold rope chain."),
   item("accessory_iced_chain", "Iced-Out Chain", "accessory", "acc_chain", 60000, "legendary", "#E3F2FD", "#B3E5FC", "Fully iced. The flex of the season."),
+
+  // ── Level exclusives ── never sold; granted on reaching the level.
+  item("hat_rookie_cap", "Rookie Cap", "hat", "hat_cap", 0, "uncommon", "#2FE38A", "#0E0F11", "Earned, not bought. Reach level 3.", { levelReward: 3 }),
+  item("top_level_up_tee", "Level Up Tee", "top", "top_tee", 0, "rare", "#4C9BFF", "#FFFFFF", "Proof you put in the reps. Reach level 7.", { levelReward: 7 }),
+  item("outerwear_veteran_varsity", "Veteran Varsity", "outerwear", "outerwear_varsity", 0, "epic", "#0E0F11", "#FFC23D", "Black and gold for the long haul. Reach level 12.", { levelReward: 12 }),
+  item("accessory_hall_of_fame_chain", "Hall of Fame Chain", "accessory", "acc_chain", 0, "legendary", "#FFC23D", "#FFF3C4", "Only the dedicated wear this. Reach level 20.", { levelReward: 20 }),
+  item("hat_dynasty_crown", "Dynasty Crown", "hat", "hat_crown", 0, "legendary", "#B07BFF", "#FFC23D", "A crown for a dynasty. Reach level 30.", { levelReward: 30 }),
+
+  // ── Level-gated ── in the store, but only buyable at the level.
+  item("shoes_pro_highs", "Pro Hightops", "shoes", "shoes_hightop", 7800, "rare", "#111111", "#2FE38A", "Pro-tier hightops. Level 5 and up.", { levelRequired: 5 }),
+  item("top_elite_hoodie", "Elite Hoodie", "top", "top_hoodie", 17000, "epic", "#1B1B2F", "#B07BFF", "For players who've been around. Level 10 and up.", { levelRequired: 10 }),
+  item("eyewear_shades_diamond", "Diamond Shades", "eyewear", "eyewear_shades", 45000, "legendary", "#E3F2FD", "#FFFFFF", "Cut like the real thing. Level 15 and up.", { levelRequired: 15 }),
 ];

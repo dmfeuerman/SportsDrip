@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   PanResponder,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -13,6 +12,7 @@ import {
   type LayoutChangeEvent,
   type ViewStyle,
 } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import * as THREE from "three";
 import AvatarSilhouette from "@/components/avatar/AvatarSilhouette";
 import { addStudioLights, AvatarRig, contactShadow, fitDepthRange, type AppearanceParts, type GarmentSource } from "@/lib/avatar3d/avatarRig";
@@ -58,6 +58,8 @@ export interface AvatarStageProps {
   active?: boolean;
   /** Bet-result reaction: plays once per new `id` (win: hop + fist pumps; loss: hands to face, tears). */
   reaction?: { kind: ReactionKind; id: number } | null;
+  /** A move from the loadout (constants/moves.ts): plays once per new `n`. */
+  move?: { id: string; n: number } | null;
   /** Keeps the character centred and fully visible in the uncovered part of the stage. */
   insets?: React.MutableRefObject<StageInsets>;
   style?: ViewStyle;
@@ -111,7 +113,7 @@ const touchMid = (e: GestureResponderEvent): [number, number] => {
  * AvatarPortrait, which is rendered from the same rig offscreen.
  */
 const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function AvatarStage(
-  { avatar, outfit, focus = "full", interactive = true, controls, onGesture, autoRotate = false, cheerSignal = 0, reaction = null, active = true, insets, style },
+  { avatar, outfit, focus = "full", interactive = true, controls, onGesture, autoRotate = false, cheerSignal = 0, reaction = null, move = null, active = true, insets, style },
   ref
 ) {
   const assets = useAvatarAssets(avatar, outfit);
@@ -267,6 +269,7 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
             autoRotate={autoRotate}
             cheerSignal={cheerSignal}
             reaction={reaction}
+            move={move}
             zoomBy={zoomBy}
           />
         </Canvas>
@@ -375,6 +378,7 @@ function StageScene({
   autoRotate,
   cheerSignal,
   reaction,
+  move,
   zoomBy,
 }: {
   base: NonNullable<ReturnType<typeof useAvatarAssets>["base"]>;
@@ -388,6 +392,7 @@ function StageScene({
   autoRotate: boolean;
   cheerSignal: number;
   reaction: { kind: ReactionKind; id: number } | null;
+  move: { id: string; n: number } | null;
   zoomBy: (dz: number, snap: boolean) => void;
 }) {
   const scene = useThree((s) => s.scene);
@@ -423,6 +428,12 @@ function StageScene({
     if (reaction) rig.react(reaction.kind);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rig, reactionId]);
+
+  const moveN = move?.n;
+  useEffect(() => {
+    if (move) rig.playMove(move.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rig, moveN]);
 
   const firstCheer = useRef(cheerSignal);
   useEffect(() => {

@@ -1,28 +1,31 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import React, { useCallback, useMemo, useState } from "react";
+import { haptic as buzz } from "@/lib/motion";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Platform,
-  Pressable,
-  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
-import BetModal, { type BetWallet } from "@/components/BetModal";
+import BetModal, { type BetWallet, type SlipExtras } from "@/components/BetModal";
 import GameCard, { type MyPosition } from "@/components/GameCard";
 import GameDetailSheet, { type DetailBet } from "@/components/GameDetailSheet";
 import SponsoredCard from "@/components/ads/SponsoredCard";
 import TokenBalance from "@/components/TokenBalance";
-import { IconButton } from "@/components/ui";
+import { FilterPills, IconButton } from "@/components/ui";
+import { SPORT_COLORS } from "@/constants/colors";
+import { SPORT_ICONS } from "@/constants/leagueTypes";
 import { AD_POLICY } from "@/constants/ads";
 import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
-import { useLeague } from "@/context/LeagueContext";
+import { holdsMyStake, useChallenges, viewOf } from "@/context/ChallengeContext";
+import { useBoardLeagueSides, useLeague } from "@/context/LeagueContext";
+import { useNow } from "@/hooks/useNow";
 import { useToast } from "@/context/ToastContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
@@ -31,7 +34,8 @@ import { prefetchGameInsights } from "@/hooks/useGameInsights";
 import { openGameCenter } from "@/lib/gameCenter";
 import * as api from "@/lib/api";
 import { newIdempotencyKey } from "@/lib/api";
-import { SPORTS, type Game, type Side } from "@/types/game";
+import { quoteMarket, weekKey, type Market, type Selection } from "@/lib/markets";
+import { SPORTS, sideOdds, type Game, type Side } from "@/types/game";
 
 const ALL = "ALL";
 
@@ -40,23 +44,6 @@ type Row =
   | { kind: "game"; id: string; game: Game }
   | { kind: "ad"; id: string };
 
-/**
- * Rewritten games screen.
- *
- * Four things changed:
- *
- *  1. Virtualization. The old screen rendered every game inside
- *     `ListHeaderComponent` of a `FlatList` with `data={[]}`, so all ~100 cards
- *     mounted at once and nothing was ever recycled (AUDIT U1). Sections and
- *     games are now a single flat `data` array with sticky headers.
- *  2. Games come from Firestore, not a per-device ESPN poll with a silent mock
- *     fallback (A1, A3).
- *  3. `placeBet` takes `{gameId, side, stake}` and returns a promise. The
- *     server reads the odds and debits the balance; the client no longer knows
- *     how to move credits at all (S2).
- *  4. Real loading, empty and error states instead of a badge that quietly
- *     downgrades to "SAMPLE" (U2).
- */
 export default function GamesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -65,16 +52,33 @@ export default function GamesScreen() {
   const { leagues, activeLeagues, uid, placeLeagueBet, myLeagueBets } = useLeague();
   const { betLocked } = useToast();
   const { unreadCount } = useNotifications();
-  const { live, upcoming, loading, error: gamesError } = useGames();
+  const { live, upcoming, loading, error: gamesError, syncedAt } = useGames();
+  const boardSides = useBoardLeagueSides(uid);
+  const clock = useNow(15_000);
   const { enabled: adsOn } = useAds();
-  const params = useLocalSearchParams<{ wallet?: string }>();
+  const params = useLocalSearchParams<{ wallet?: string; challenge?: string; challengeName?: string }>();
+  const challenges = useChallenges();
+  const { show } = useToast();
+  const [target, setTarget] = useState<{ uid: string; name: string } | null>(null);
+  useEffect(() => {
+    if (params.challenge) {
+      setTarget({ uid: params.challenge, name: params.challengeName || "your friend" });
+      router.setParams({ challenge: undefined, challengeName: undefined });
+    }
+  }, [params.challenge, params.challengeName]);
   const [slipError, setSlipError] = useState<string | null>(null);
 
   const [sport, setSport] = useState<string>(ALL);
-  const [pending, setPending] = useState<{ game: Game; side: Side; key: string } | null>(null);
+  const [pending, setPending] = useState<{
+    game: Game;
+    side: Side;
+    market?: Market;
+    selection?: Selection;
+    key: string;
+    friend?: boolean;
+  } | null>(null);
   const [detail, setDetail] = useState<Game | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
 
   const topPad = Platform.OS === "web" ? 24 : insets.top;
   const bottomPad = Platform.OS === "web" ? 100 : insets.bottom + 84;
@@ -83,23 +87,46 @@ export default function GamesScreen() {
     bets.filter((b) => b.status === "pending").length +
     Object.values(myLeagueBets).reduce((n, list) => n + list.filter((b) => b.status === "pending").length, 0);
 
-  // One lookup for "do I already have money on this game?", built from the
-  // bets the context is already subscribed to. No extra reads.
   const positions = useMemo(() => {
     const map = new Map<string, MyPosition>();
     for (const b of bets) {
       if (b.status !== "pending" || map.has(b.gameId)) continue;
-      map.set(b.gameId, { side: b.side, stake: b.stake, potentialPayout: b.potentialPayout });
+      map.set(b.gameId, {
+        side: b.side,
+        label: b.label,
+        stake: b.stake,
+        potentialPayout: b.potentialPayout,
+      });
+    }
+    for (const lg of leagues) {
+      for (const b of myLeagueBets[lg.id] ?? []) {
+        if (b.status !== "pending" || map.has(b.gameId)) continue;
+        map.set(b.gameId, {
+          side: b.side,
+          label: b.label,
+          stake: b.stake,
+          potentialPayout: b.potentialPayout,
+        });
+      }
+    }
+    const me = challenges.uid;
+    if (me) {
+      for (const [gameId, list] of challenges.byGame) {
+        if (map.has(gameId)) continue;
+        const ch = list.find((x) => holdsMyStake(x, me));
+        if (!ch) continue;
+        const v = viewOf(ch, me);
+        map.set(gameId, { side: v.mySide, stake: v.myStake, potentialPayout: ch.pot });
+      }
     }
     return map;
-  }, [bets]);
+  }, [bets, leagues, myLeagueBets, challenges.byGame, challenges.uid]);
 
   const rows: Row[] = useMemo(() => {
     const match = (g: Game) => sport === ALL || g.sport === sport;
     const l = live.filter(match);
     const u = upcoming.filter(match);
     const out: Row[] = [];
-    // Sponsored cards sit between games at a fixed rhythm, never as the first row.
     let seen = 0;
     let ads = 0;
     const pushGame = (g: Game) => {
@@ -115,7 +142,6 @@ export default function GamesScreen() {
       out.push({ kind: "section", id: "sec-live", title: "Live now", live: true });
       l.forEach(pushGame);
     }
-    // Upcoming games grouped by local day, so the whole week reads as a schedule.
     let lastDay = "";
     for (const g of u) {
       const day = dayKey(g.startsAt);
@@ -128,17 +154,33 @@ export default function GamesScreen() {
     return out;
   }, [live, upcoming, sport, adsOn]);
 
-  // The idempotency key belongs to the *intent*, not to the request. Minting
-  // it when the sheet opens means a double tap, a retry, or a remount all
-  // resolve to the same bet server-side.
-  const openBetSheet = useCallback((game: Game, side: Side) => {
-    prefetchGameInsights(game.id);
-    setSlipError(null);
-    setPending({ game, side, key: newIdempotencyKey() });
-  }, []);
+  const openBetSheet = useCallback(
+    (game: Game, side: Side, friend?: boolean, market?: Market, selection?: Selection) => {
+      prefetchGameInsights(game.id);
+      setSlipError(null);
+      setPending({ game, side, market, selection, key: newIdempotencyKey(), friend: friend || !!target });
+    },
+    [target]
+  );
 
-  // Credits, plus every league that allows this sport and is still running
-  // when the game starts — the same checks placeLeagueBet makes.
+  const onChallengeSent = useCallback(
+    (sent: { friendName: string; teamAbbr: string; teamColor: string; stake: number; pot: number }) => {
+      setPending(null);
+      setTarget(null);
+      show({
+        id: `chsent_${Date.now()}`,
+        kind: "social",
+        icon: "sword-cross",
+        color: sent.teamColor,
+        title: `Challenge sent to ${sent.friendName}`,
+        body: `${sent.stake.toLocaleString()} on ${sent.teamAbbr} is in the pot. Winner takes ${sent.pot.toLocaleString()} once they accept.`,
+        cta: "View",
+        href: "/challenges",
+      });
+    },
+    [show]
+  );
+
   const wallets: BetWallet[] = useMemo(() => {
     const out: BetWallet[] = [{ id: "credits", label: "Credits", balance, kind: "credits" }];
     if (!pending || !uid) return out;
@@ -152,16 +194,44 @@ export default function GamesScreen() {
     return out;
   }, [pending, activeLeagues, uid, balance]);
 
+  const lockUsedMap: Record<string, boolean> = useMemo(() => {
+    const wk = weekKey();
+    const out: Record<string, boolean> = {};
+    for (const lg of activeLeagues) {
+      const me = uid ? lg.members[uid] : undefined;
+      out[lg.id] =
+        me?.lastLockWeek === wk ||
+        (myLeagueBets[lg.id] ?? []).some((b) => b.lockWeek === wk && b.status !== "cancelled");
+    }
+    return out;
+  }, [activeLeagues, uid, myLeagueBets]);
+
   const confirmBet = useCallback(
-    async (stake: number, walletId: string) => {
+    async (stake: number, walletId: string, extras?: SlipExtras) => {
       if (!pending) return;
+      const m: Market = pending.market ?? "ml";
+      const sel: Selection = pending.selection ?? pending.side;
+      const q = quoteMarket(pending.game, m, sel);
+      if (!q || !q.odds) {
+        setSlipError("No line yet for this game. Check back closer to kickoff.");
+        return;
+      }
+      const oddsVal = q.odds;
       setSubmitting(true);
       setSlipError(null);
-      const expectedOdds = pending.side === "home" ? pending.game.homeTeam.odds : pending.game.awayTeam.odds;
       let failure: string | null = null;
       if (walletId === "credits") {
         try {
-          await api.placeBet({ gameId: pending.game.id, side: pending.side, stake, idempotencyKey: pending.key, expectedOdds });
+          await api.placeBet({
+            gameId: pending.game.id,
+            side: q.side ?? undefined,
+            market: m,
+            selection: sel,
+            expectedLine: q.line ?? undefined,
+            stake,
+            idempotencyKey: pending.key,
+            expectedOdds: oddsVal,
+          });
         } catch (err) {
           failure = api.friendlyError(err);
         }
@@ -169,32 +239,39 @@ export default function GamesScreen() {
         failure = await placeLeagueBet({
           leagueId: walletId,
           gameId: pending.game.id,
-          side: pending.side,
+          side: q.side ?? undefined,
+          market: m,
+          selection: sel,
+          expectedLine: q.line ?? undefined,
+          lock: extras?.lock,
+          hidden: extras?.hidden,
           stake,
-          // A different wallet is a different intent: never reuse the key.
           idempotencyKey: `${pending.key}${walletId.slice(-4)}`,
-          expectedOdds,
+          expectedOdds: oddsVal,
         });
       }
       setSubmitting(false);
       if (failure) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        buzz.error();
         setSlipError(failure);
         return;
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      buzz.success();
       {
-        const t = pending.side === "home" ? pending.game.homeTeam : pending.game.awayTeam;
+        const t = (q.side ?? pending.side) === "home" ? pending.game.homeTeam : pending.game.awayTeam;
         const w = wallets.find((x) => x.id === walletId);
         betLocked({
-          teamName: t.name,
+          teamName: q.label || t.name,
           teamAbbr: t.abbreviation,
           teamColor: t.color,
-          odds: expectedOdds,
+          odds: oddsVal,
           stake,
-          payout: Math.round(stake * expectedOdds),
+          payout: Math.round(stake * oddsVal),
           currency: walletId === "credits" ? "credits" : "league",
           walletLabel: w?.label,
+          leagueId: walletId === "credits" ? undefined : walletId,
+          gameId: pending.game.id,
+          hidden: !!extras?.hidden,
         });
       }
       setPending(null);
@@ -202,15 +279,7 @@ export default function GamesScreen() {
     [pending, placeLeagueBet, wallets, betLocked]
   );
 
-  // The Firestore listener is already live, so "refresh" is only a UX
-  // affordance — it gives the user something to do while the 2-minute server
-  // sync catches up. No extra reads are issued.
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 600);
-  }, []);
 
-  // Both wallets, each labelled, so the sheet says where every stake came from.
   const detailBets: DetailBet[] = useMemo(() => {
     if (!detail) return [];
     const out: DetailBet[] = bets.filter((b) => b.gameId === detail.id);
@@ -222,14 +291,11 @@ export default function GamesScreen() {
     return out;
   }, [detail, bets, leagues, myLeagueBets]);
 
-  // iOS can't present a Modal while another is still animating out; doing so
-  // leaves the bet slip invisible or unresponsive. Let the detail sheet finish
-  // dismissing before the slip presents.
   const betFromDetail = useCallback(
-    (game: Game, side: Side) => {
+    (game: Game, side: Side, friend?: boolean, market?: Market, selection?: Selection) => {
       setDetail(null);
-      if (Platform.OS === "ios") setTimeout(() => openBetSheet(game, side), 350);
-      else openBetSheet(game, side);
+      if (Platform.OS === "ios") setTimeout(() => openBetSheet(game, side, friend, market, selection), 350);
+      else openBetSheet(game, side, friend, market, selection);
     },
     [openBetSheet]
   );
@@ -238,6 +304,9 @@ export default function GamesScreen() {
     ? pending.side === "home"
       ? pending.game.homeTeam
       : pending.game.awayTeam
+    : null;
+  const pendingQuote = pending
+    ? quoteMarket(pending.game, pending.market ?? "ml", pending.selection ?? pending.side)
     : null;
 
   return (
@@ -266,38 +335,27 @@ export default function GamesScreen() {
           </View>
         </View>
 
-        <FlatList
-          horizontal
-          data={[ALL, ...SPORTS]}
-          keyExtractor={(x) => x}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterList}
-          renderItem={({ item }) => {
-            const active = sport === item;
-            return (
-              <Pressable
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: active ? colors.primary : colors.secondary,
-                    borderColor: active ? colors.primary : colors.border,
-                  },
-                ]}
-                onPress={() => setSport(item)}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    { color: active ? colors.primaryForeground : colors.mutedForeground },
-                  ]}
-                >
-                  {item}
-                </Text>
-              </Pressable>
-            );
-          }}
+        <FilterPills
+          value={sport}
+          onChange={setSport}
+          options={[
+            { value: ALL, label: "All", icon: "trophy-outline" as const },
+            ...SPORTS.map((sp) => ({ value: sp, label: sp, icon: SPORT_ICONS[sp] as never, color: SPORT_COLORS[sp] })),
+          ]}
         />
       </View>
+
+      {target && (
+        <View style={[styles.banner, { backgroundColor: colors.alpha(colors.accent, 0.12), borderColor: colors.alpha(colors.accent, 0.6) }]}>
+          <MaterialCommunityIcons name="sword-cross" size={16} color={colors.accent} />
+          <Text style={[styles.bannerText, { color: colors.foreground }]} numberOfLines={2}>
+            Tap a team on any upcoming game to challenge {target.name}.
+          </Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Cancel challenge" hitSlop={10} onPress={() => setTarget(null)}>
+            <MaterialCommunityIcons name="close" size={16} color={colors.mutedForeground} />
+          </Pressable>
+        </View>
+      )}
 
       {error && (
         <Pressable
@@ -334,16 +392,21 @@ export default function GamesScreen() {
             ) : (
               <GameCard
                 game={item.game}
-                onBet={openBetSheet}
+                onBet={(g, s, m, sel) => openBetSheet(g, s, false, m, sel)}
                 onOpenDetail={setDetail}
                 position={positions.get(item.game.id) ?? null}
+                leagueMembers={boardSides.get(item.game.id)}
               />
             )
           }
           contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
           showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          ListHeaderComponent={
+            syncedAt ? (
+              <Text style={{ color: colors.subtleForeground, fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center", paddingVertical: 4 }}>
+                Scores live · updated {ago(syncedAt, clock)}
+              </Text>
+            ) : undefined
           }
           initialNumToRender={8}
           maxToRenderPerBatch={8}
@@ -360,11 +423,11 @@ export default function GamesScreen() {
         />
       )}
 
-      {/* Renders nothing while `game` is null, so it can live here unguarded. */}
       <GameDetailSheet
         game={detail}
         onClose={() => setDetail(null)}
-        onBet={betFromDetail}
+        onBet={(g, side, market, selection) => betFromDetail(g, side, false, market, selection)}
+        onChallenge={(g, side) => betFromDetail(g, side, true)}
         bets={detailBets}
         onOpenCenter={(game) => {
           setDetail(null);
@@ -380,13 +443,24 @@ export default function GamesScreen() {
           teamName={team.name}
           teamAbbr={team.abbreviation}
           teamColor={team.color}
-          odds={team.odds}
+          pickTitle={pendingQuote?.label}
+          lockUsed={lockUsedMap}
+          odds={pendingQuote ? pendingQuote.odds : sideOdds(pending.game, pending.side)}
           game={pending.game}
           side={pending.side}
           wallets={wallets}
           defaultWallet={params.wallet}
           error={slipError}
           submitting={submitting}
+          challenge={{
+            initial: pending.friend,
+            friendUid: target?.uid,
+            onSent: onChallengeSent,
+            onFindFriends: () => {
+              setPending(null);
+              router.navigate("/(tabs)/friends");
+            },
+          }}
           gameSummary={`${pending.game.awayTeam.abbreviation} @ ${pending.game.homeTeam.abbreviation} · ${pending.game.sport}`}
         />
       )}
@@ -521,3 +595,10 @@ const styles = StyleSheet.create({
   emptyBtn: { borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, minHeight: 38, justifyContent: "center", marginTop: 4 },
   emptyBtnText: { fontSize: 14, fontFamily: "Inter_800ExtraBold" },
 });
+
+function ago(t: number, now: number): string {
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 60) return s < 10 ? "just now" : `${s}s ago`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+}

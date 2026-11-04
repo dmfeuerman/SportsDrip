@@ -16,6 +16,9 @@
     "../artifacts/mobile/lib/avatar3d/outfit.ts",
     "../artifacts/mobile/lib/avatar3d/outfitPresets.ts",
     "../artifacts/mobile/lib/avatar3d/attach.ts",
-    "../artifacts/mobile/lib/avatar3d/rigNames.ts"
+    "../artifacts/mobile/lib/avatar3d/rigNames.ts",
+    "../artifacts/mobile/constants/moves.ts",
+    "../artifacts/mobile/constants/progression.ts",
+    "../artifacts/mobile/constants/backgrounds.ts"
   ]
 }

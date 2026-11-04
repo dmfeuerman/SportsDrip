@@ -111,8 +111,12 @@ function startStudio(gl: THREE.WebGLRenderer, scene: THREE.Scene, shoot: Shoot) 
     try {
       rig.root.updateMatrixWorld(true);
       const box = rig.garmentBounds();
+      if (box.isEmpty()) throw new Error(`empty bounds for ${job.piece.itemId}`);
       const centre = box.getCenter(new THREE.Vector3());
       const dims = box.getSize(new THREE.Vector3());
+      if (![centre.x, centre.y, centre.z, dims.x, dims.y, dims.z].every(Number.isFinite)) {
+        throw new Error(`bad bounds for ${job.piece.itemId}`);
+      }
       const radius = Math.max(dims.x, dims.y / 1.25, dims.z) * 0.62;
       const dist = radius / Math.tan(THREE.MathUtils.degToRad(CAMERA_FOV / 2));
       camera.position.set(centre.x + dist * 0.12, centre.y + dist * 0.18, centre.z + dist);

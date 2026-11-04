@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { AccessibilityInfo, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Modal, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn } from "react-native-reanimated";
 import Burst from "@/components/fx/Burst";
 import LightBeams from "@/components/fx/LightBeams";
@@ -15,8 +16,8 @@ import { haptic, REWARD_RARITY } from "@/lib/motion";
 type Outcome = "won" | "lost" | "push" | "payout";
 
 function outcomeOf(n: AppNotification): Outcome {
-  if (n.type === "bet_won") return "won";
-  if (n.type === "bet_lost") return "lost";
+  if (n.type === "bet_won" || n.type === "challenge_won") return "won";
+  if (n.type === "bet_lost" || n.type === "challenge_lost") return "lost";
   if (n.type === "league_payout") return "payout";
   return "push";
 }
@@ -101,6 +102,7 @@ export default function ResultRecap({ items, onDismiss }: { items: AppNotificati
                 style={[styles.net, { color: accent }]}
                 duration={1000}
                 flash={false}
+                haptics={net > 0}
                 accessibilityLabel={`Net ${net >= 0 ? "plus" : "minus"} ${Math.abs(net)}`}
               />
             </View>

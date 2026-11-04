@@ -10,20 +10,23 @@ import {
   type BoxTier,
 } from "../lib/economy";
 
+/** Claims in a row without the top prize before it is guaranteed (shown in the app). */
+export const PITY_AFTER = 15;
+import { activeStreakCount, streakBonusFor, type StreakState } from "../lib/streak";
+
 const TierInput = z.object({ tier: z.enum(["bronze", "silver", "gold"]) });
 
 /**
  * Prize box state lives at users/{uid}/prizeBoxes/{tier} and is written only by
- * these two functions. That fixes every branch of B8 at once:
+ * these functions.
  *
  *  - `readyAt` is computed from the *server* clock, so changing the phone's
  *    time does nothing
  *  - state is in Firestore, not AsyncStorage, so it survives reinstall, logout,
  *    and follows the user to a second device
- *  - the box goes `waiting -> ready -> claimed -> idle` explicitly, instead of
- *    the old code deleting the claim and losing both the `spun` flag and the
- *    cooldown record
- *  - the reward is drawn on the server (S3), not passed in from the wheel
+ *  - the box goes `waiting -> ready -> claimed -> idle` explicitly
+ *  - the reward is drawn on the server (S3) and includes a small daily pick
+ *    streak bonus when the user has an active streak (America/New_York)
  */
 
 export const openPrizeBox = onCall({ region: "us-central1" }, async (req) => {
@@ -44,8 +47,6 @@ export const openPrizeBox = onCall({ region: "us-central1" }, async (req) => {
         throw new HttpsError("failed-precondition", "That box is still on cooldown.");
       }
       if (state === "waiting" || state === "ready") {
-        // Timer elapsed. Persist the transition instead of only reporting it,
-        // so the stored document and the response agree.
         if (state === "waiting") {
           tx.update(ref, { state: "ready", updatedAt: FieldValue.serverTimestamp() });
         }
@@ -73,52 +74,74 @@ export const claimPrizeBox = onCall({ region: "us-central1" }, async (req) => {
   const { tier } = TierInput.parse(req.data);
   const def = PRIZE_BOXES[tier as BoxTier];
 
-  const ref = db.collection("users").doc(uid).collection("prizeBoxes").doc(tier);
+  const userRef = db.collection("users").doc(uid);
+  const ref = userRef.collection("prizeBoxes").doc(tier);
 
   return db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
+    const [snap, userSnap] = await Promise.all([tx.get(ref), tx.get(userRef)]);
     if (!snap.exists) throw new HttpsError("failed-precondition", "That box isn't open yet.");
 
     const state = snap.get("state") as string;
     const readyAt = (snap.get("readyAt") as number | undefined) ?? 0;
     const openedAt = (snap.get("openedAt") as number | undefined) ?? 0;
+    const now = Date.now();
 
     if (state === "claimed") {
-      // Idempotent replay: return what was already awarded rather than paying twice.
       return {
         ok: true,
         duplicate: true,
         rewardCredits: snap.get("rewardCredits") as number,
+        baseCredits: (snap.get("baseCredits") as number | undefined) ?? (snap.get("rewardCredits") as number),
+        streakBonus: (snap.get("streakBonus") as number | undefined) ?? 0,
+        streakDays: (snap.get("streakDays") as number | undefined) ?? 0,
         balance: null,
       };
     }
     if (state !== "waiting" && state !== "ready") {
       throw new HttpsError("failed-precondition", "That box isn't ready.");
     }
-    if (Date.now() < readyAt) {
+    if (now < readyAt) {
       throw new HttpsError("failed-precondition", "That box isn't ready yet.");
     }
 
-    const rewardCredits = pickWeighted(def.segments);
+    // Pity: the top prize is guaranteed by the PITY_AFTER-th claim without one.
+    const top = Math.max(...def.segments.map((s) => s.credits));
+    const sinceTop = (userSnap.get(`boxPity.${tier}`) as number | undefined) ?? 0;
+    const baseCredits = sinceTop + 1 >= PITY_AFTER ? top : pickWeighted(def.segments);
 
-    // openedAt is part of the key so the next cycle of the same box gets its
-    // own ledger row, but a retry of *this* claim does not.
+    const streakState = userSnap.get("streak") as Partial<StreakState> | undefined;
+    const streakDays = activeStreakCount(streakState, now);
+    const streakBonus = streakBonusFor(tier as BoxTier, streakDays);
+    const rewardCredits = baseCredits + streakBonus;
+
     const balance = await applyCredits(tx, uid, {
       delta: rewardCredits,
       type: "prize_box",
       idempotencyKey: `prize_${tier}_${openedAt}`,
       ref: tier,
-      note: `${tier} box`,
+      note: streakBonus > 0 ? `${tier} box (+${streakBonus} streak)` : `${tier} box`,
     });
 
+    tx.update(userRef, { [`boxPity.${tier}`]: baseCredits === top ? 0 : sinceTop + 1 });
     tx.update(ref, {
       state: "claimed",
       rewardCredits,
-      claimedAt: Date.now(),
+      baseCredits,
+      streakBonus,
+      streakDays,
+      claimedAt: now,
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    return { ok: true, duplicate: false, rewardCredits, balance };
+    return {
+      ok: true,
+      duplicate: false,
+      rewardCredits,
+      baseCredits,
+      streakBonus,
+      streakDays,
+      balance,
+    };
   });
 });
 
@@ -131,14 +154,15 @@ export const resetPrizeBox = onCall({ region: "us-central1" }, async (req) => {
   const { tier } = TierInput.parse(req.data);
   const ref = db.collection("users").doc(uid).collection("prizeBoxes").doc(tier);
 
-  // Clear the spent cycle rather than merging one field over stale data, so
-  // a box in the database is self-describing.
   await ref.set(
     {
       state: "idle",
       openedAt: null,
       readyAt: null,
       rewardCredits: null,
+      baseCredits: null,
+      streakBonus: null,
+      streakDays: null,
       claimedAt: null,
       updatedAt: FieldValue.serverTimestamp(),
     },

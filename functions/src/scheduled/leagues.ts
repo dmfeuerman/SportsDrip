@@ -2,6 +2,8 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
 import { db } from "../lib/economy";
 import { finalizeLeague, payoutLeague } from "../lib/leagueLifecycle";
+import { expirePunishments } from "../lib/awards";
+import { closeMatchups } from "./weekly";
 
 /**
  * Ends leagues whose season is over and pays out anything still owed. Before
@@ -18,6 +20,10 @@ export async function sweepLeagues(now: number): Promise<{ ended: number; paid: 
   let paid = 0;
   for (const d of expired.docs) {
     try {
+      // The last week of head-to-head (the playoff) closes at the season end.
+      if (d.get("openMatchupWeek")) {
+        await closeMatchups(d.id, Math.min(now, d.get("endsAt") as number));
+      }
       await finalizeLeague(d.id, now);
       ended++;
       paid += await payoutLeague(d.id);
@@ -26,6 +32,7 @@ export async function sweepLeagues(now: number): Promise<{ ended: number; paid: 
     }
   }
   for (const d of unpaid.docs) paid += await payoutLeague(d.id);
+  await expirePunishments(now);
   return { ended, paid };
 }
 

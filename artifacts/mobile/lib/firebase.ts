@@ -80,13 +80,18 @@ export function getDb(): Firestore | null {
   if (!app) return null;
   if (!dbRef) {
     if (Platform.OS === "web") {
-      dbRef = getFirestore(app);
+      try {
+        dbRef = initializeFirestore(app, { ignoreUndefinedProperties: true });
+      } catch {
+        dbRef = getFirestore(app);
+      }
     } else {
       // React Native's XHR can't stream, so WebChannel's streaming listen
       // channel can stall with no snapshot and no error. Long polling always
-      // completes each response.
+      // completes each response. Optional fields left undefined (e.g. a reply
+      // quote without a payout) are dropped instead of rejecting the write.
       try {
-        dbRef = initializeFirestore(app, { experimentalForceLongPolling: true });
+        dbRef = initializeFirestore(app, { experimentalForceLongPolling: true, ignoreUndefinedProperties: true });
       } catch {
         dbRef = getFirestore(app); // already initialised (Fast Refresh)
       }
@@ -103,6 +108,28 @@ export function getFns(): Functions | null {
 }
 
 /**
+ * Recursively strips keys with `undefined` values before passing payloads to
+ * Firebase `httpsCallable`. In `@firebase/functions`, `encode({ k: undefined })`
+ * serializes `undefined` property values as `null` (`{ k: null }`), which trips
+ * server-side `.optional()` Zod schemas.
+ */
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(stripUndefined) as unknown as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v !== undefined) {
+        out[k] = stripUndefined(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
+}
+
+/**
  * Typed wrapper around a callable. Every economy mutation goes through one of
  * these — the client no longer writes balances, bets, inventory or prize state
  * directly (AUDIT S2).
@@ -111,7 +138,7 @@ export function callable<TReq, TRes>(name: string) {
   return async (data: TReq): Promise<TRes> => {
     const fns = getFns();
     if (!fns) throw new Error("Firebase is not configured.");
-    const res = await httpsCallable<TReq, TRes>(fns, name)(data);
+    const res = await httpsCallable<TReq, TRes>(fns, name)(stripUndefined(data));
     return res.data;
   };
 }

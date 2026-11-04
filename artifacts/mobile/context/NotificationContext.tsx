@@ -10,8 +10,18 @@ import {
   writeBatch,
   type QuerySnapshot,
 } from "firebase/firestore";
+import * as Notifications from "expo-notifications";
+import { router, type Href } from "expo-router";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AppState, Platform } from "react-native";
 import { usePolling } from "@/hooks/usePolling";
+import {
+  configurePushPresentation,
+  registerForPush,
+  routeFromResponse,
+  setAppBadge,
+  type PushStatus,
+} from "@/lib/push";
 import { firebaseConfigured, getDb } from "@/lib/firebase";
 import { DEMO, demoNotifications } from "@/lib/demo";
 import {
@@ -50,7 +60,26 @@ export interface AppNotification {
     | "loan_countered"
     | "loan_request"
     | "friend_request"
-    | "friend_accepted";
+    | "friend_accepted"
+    | "challenge_received"
+    | "challenge_accepted"
+    | "challenge_declined"
+    | "challenge_cancelled"
+    | "challenge_expired"
+    | "challenge_won"
+    | "challenge_lost"
+    | "challenge_push"
+    | "challenge_refunded"
+    | "bet_tailed"
+    | "bet_faded"
+    | "stimulus_request"
+    | "stimulus_approved"
+    | "level_up"
+    | "team_reminder"
+    | "reaction"
+    | "sweat_alert"
+    | "achievement"
+    | "referral_bonus";
   title: string;
   body: string;
   delta: number;
@@ -93,7 +122,24 @@ export const SOCIAL_TYPES: ReadonlySet<AppNotification["type"]> = new Set([
   "loan_funded",
   "loan_repaid",
   "bet_refunded",
+  "challenge_received",
+  "challenge_accepted",
+  "challenge_declined",
+  "challenge_cancelled",
+  "challenge_expired",
+  "challenge_push",
+  "challenge_refunded",
+  "bet_tailed",
+  "bet_faded",
+  "stimulus_request",
+  "stimulus_approved",
+  "referral_bonus",
 ]);
+
+/** A settled head-to-head carries a `bet` from the player's side, so it renders like a bet result. */
+export const isWin = (n: AppNotification) => n.type === "bet_won" || n.type === "challenge_won";
+export const isLoss = (n: AppNotification) => n.type === "bet_lost" || n.type === "challenge_lost";
+export const isChallenge = (n: AppNotification) => n.type.startsWith("challenge_");
 const isSocial = (n: AppNotification) => SOCIAL_TYPES.has(n.type);
 
 function isPermanent(err: { code?: string }) {
@@ -122,12 +168,27 @@ interface NotificationContextType {
   refresh: () => Promise<void>;
   markRead: (ids: string[]) => void;
   markAllRead: () => void;
+  /** iOS push permission for this device. */
+  pushStatus: PushStatus;
+  /** Asks for permission if it hasn't been asked, then registers the token. */
+  enablePush: () => Promise<PushStatus>;
 }
 
 const Ctx = createContext<NotificationContextType | null>(null);
 const NONE: AppNotification[] = [];
 
-export function NotificationProvider({ uid, children }: { uid: string | null; children: React.ReactNode }) {
+configurePushPresentation();
+
+export function NotificationProvider({
+  uid,
+  promptForPush = false,
+  children,
+}: {
+  uid: string | null;
+  /** Allowed to show the iOS permission prompt (false during onboarding). */
+  promptForPush?: boolean;
+  children: React.ReactNode;
+}) {
   const [notifications, setNotifications] = useState<AppNotification[]>(DEMO ? demoNotifications : NONE);
   const [boot] = useState(() => (DEMO ? coldStart(EMPTY_QUEUE, demoNotifications.filter((n) => !isSocial(n)), Date.now()) : null));
   const [queue, setQueue] = useState<QueueState>(boot?.state ?? EMPTY_QUEUE);
@@ -224,6 +285,65 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
     [uid]
   );
 
+  // ── push ────────────────────────────────────────────────────────────────
+  const [pushStatus, setPushStatus] = useState<PushStatus>("undetermined");
+  const enablePush = useCallback(async () => {
+    if (!uid) return "unsupported" as const;
+    const s = await registerForPush({ prompt: true, uid });
+    setPushStatus(s);
+    return s;
+  }, [uid]);
+
+  // Register on sign-in, prompt once onboarding is behind the user, and refresh
+  // silently whenever the app comes back (they may have flipped it on in Settings).
+  useEffect(() => {
+    if (!enabled || !uid || Platform.OS !== "ios") return;
+    let alive = true;
+    const run = (prompt: boolean) =>
+      registerForPush({ prompt, uid }).then((s) => {
+        if (alive) setPushStatus(s);
+      });
+    void run(promptForPush);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void run(false);
+    });
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, [enabled, uid, promptForPush]);
+
+  // Tapping a push opens the screen it's about and marks it read. Covers both a
+  // running app and a cold start from the notification.
+  const handledResponse = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled || Platform.OS !== "ios") return;
+    const open = (response: Notifications.NotificationResponse | null) => {
+      const target = routeFromResponse(response);
+      const key = response?.notification.request.identifier ?? null;
+      if (!target || !key || handledResponse.current === key) return;
+      handledResponse.current = key;
+      if (target.notificationId) markRead([target.notificationId]);
+      // Let the navigator finish mounting on a cold start.
+      setTimeout(() => {
+        try {
+          router.push(target.url as Href);
+        } catch (err) {
+          if (__DEV__) console.warn("[push] couldn't open", target.url, err);
+        }
+      }, 250);
+      Notifications.clearLastNotificationResponseAsync().catch(() => {});
+    };
+    Notifications.getLastNotificationResponseAsync().then(open).catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    return () => sub.remove();
+  }, [enabled, markRead]);
+
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+  useEffect(() => {
+    if (enabled) void setAppBadge(unreadCount);
+  }, [enabled, unreadCount]);
+
   const currentId = current(queue);
   const popup = useMemo(
     () => (currentId ? notifications.find((n) => n.id === currentId) ?? null : null),
@@ -268,7 +388,7 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
   const value = useMemo<NotificationContextType>(
     () => ({
       notifications,
-      unreadCount: notifications.filter((n) => !n.read).length,
+      unreadCount,
       popup,
       waiting: Math.max(0, queue.queue.length - 1),
       recap,
@@ -280,8 +400,10 @@ export function NotificationProvider({ uid, children }: { uid: string | null; ch
       refresh,
       markRead,
       markAllRead,
+      pushStatus,
+      enablePush,
     }),
-    [notifications, popup, queue.queue.length, recap, dismissRecap, dismissPopup, dismissAllPopups, toast, dismissToast, refresh, markRead, markAllRead]
+    [notifications, unreadCount, popup, queue.queue.length, recap, dismissRecap, dismissPopup, dismissAllPopups, toast, dismissToast, refresh, markRead, markAllRead, pushStatus, enablePush]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

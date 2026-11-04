@@ -2,7 +2,8 @@
  * SportDrip palette — "Prime Time".
  *
  * Modelled on how the leading sportsbook and fantasy apps present a board:
- * a near-black blue-slate base that lets team colours and logos carry the
+ * a neutral charcoal base (ESPN Fantasy-style: no colour cast, so team
+ * colours, jerseys and logos are the only hues on screen) that lets them carry the
  * content; one saturated action colour for money, CTAs and wins (the green
  * DraftKings-style "go" every bettor already reads as "place it / you won");
  * a hot red reserved for live and losses; an electric violet for league /
@@ -15,23 +16,23 @@
  */
 
 const dark = {
-  // base: blue-slate night, three steps of lift
-  background: "#090C12",
-  card: "#121722",
-  elevated: "#19202E", // sheets, modals, anything floating above a card
-  secondary: "#1A2130", // odds tiles, inputs, chips
-  muted: "#1A2130",
-  border: "#252E40",
-  input: "#1A2130",
-  overlay: "rgba(4, 6, 10, 0.78)",
+  // base: neutral charcoal, three steps of lift
+  background: "#0E0F11",
+  card: "#1A1B1E",
+  elevated: "#222327", // sheets, modals, anything floating above a card
+  secondary: "#26272B", // odds tiles, inputs, chips
+  muted: "#26272B",
+  border: "#2E3035",
+  input: "#26272B",
+  overlay: "rgba(5, 5, 7, 0.8)",
 
   // text
-  text: "#F4F7FB",
-  foreground: "#F4F7FB",
-  cardForeground: "#E9EEF6",
-  secondaryForeground: "#F4F7FB",
-  mutedForeground: "#8D99AE",
-  subtleForeground: "#5F6B80", // timestamps, disabled captions
+  text: "#F5F6F7",
+  foreground: "#F5F6F7",
+  cardForeground: "#ECEDEF",
+  secondaryForeground: "#F5F6F7",
+  mutedForeground: "#9C9FA6",
+  subtleForeground: "#6D7078", // timestamps, disabled captions
 
   // brand — the action green: balance, stakes, payouts, the primary CTA
   primary: "#2FE38A",
@@ -48,7 +49,7 @@ const dark = {
   positiveSoft: "rgba(47, 227, 138, 0.14)",
   negative: "#FF4D63",
   negativeSoft: "rgba(255, 77, 99, 0.14)",
-  push: "#8D99AE",
+  push: "#9C9FA6",
   destructive: "#FF4D63",
   destructiveForeground: "#FFF5F6",
 
@@ -59,7 +60,8 @@ const dark = {
   debtSoft: "rgba(255, 159, 67, 0.15)",
 
   // state
-  live: "#FF3B4E",
+  // Live is its own hue (amber), never the loss red: a live ticket must not read as losing.
+  live: "#FF5FD2",
   warning: "#FFC23D",
   shadow: "rgba(0, 0, 0, 0.55)",
   scrim: "rgba(0, 0, 0, 0.5)",
@@ -103,7 +105,7 @@ const light = {
   debt: "#C9640F",
   debtSoft: "rgba(201, 100, 15, 0.12)",
 
-  live: "#E1253A",
+  live: "#C2188F",
   warning: "#A86A00",
   shadow: "rgba(11, 18, 32, 0.14)",
   scrim: "rgba(11, 18, 32, 0.35)",

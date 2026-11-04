@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import React, { useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import KeyboardSheet from "@/components/KeyboardSheet";
 import { Button } from "@/components/ui";
 import { MAX_FAVORITE_TEAMS, onColor, teamKey, TEAMS } from "@/constants/teams";
@@ -20,11 +21,17 @@ export default function FavoriteTeamsSheet({
   initial,
   onClose,
   uid,
+  initialReminders = false,
+  onSaved,
+  saveLabel,
 }: {
   visible: boolean;
   initial: FavoriteTeam[];
   onClose: () => void;
   uid?: string | null;
+  initialReminders?: boolean;
+  onSaved?: () => void;
+  saveLabel?: string;
 }) {
   const c = useColors();
   const [picked, setPicked] = useState<FavoriteTeam[]>(initial);
@@ -32,10 +39,12 @@ export default function FavoriteTeamsSheet({
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [reminders, setReminders] = useState(initialReminders);
 
   useEffect(() => {
     if (!visible) return;
     setPicked(initial);
+    setReminders(initialReminders);
     setErr(null);
     setQ("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,7 +65,7 @@ export default function FavoriteTeamsSheet({
     const k = teamKey(t);
     if (pickedKeys.has(k)) setPicked((p) => p.filter((x) => teamKey(x) !== k));
     else if (!full) {
-      Haptics.selectionAsync().catch(() => {});
+      buzz.tick();
       setPicked((p) => [...p, t]);
     }
   };
@@ -162,19 +171,35 @@ export default function FavoriteTeamsSheet({
         ListEmptyComponent={<Text style={[styles.sub, { color: c.mutedForeground, textAlign: "center", marginTop: 16 }]}>No teams match.</Text>}
       />
 
+      <Pressable
+        accessibilityRole="switch"
+        accessibilityState={{ checked: reminders }}
+        accessibilityLabel="Remind me before my teams play"
+        onPress={() => {
+          buzz.tick();
+          setReminders((r) => !r);
+        }}
+        style={styles.remindRow}
+      >
+        <MaterialCommunityIcons name={reminders ? "bell-ring" : "bell-outline"} size={20} color={reminders ? c.primary : c.mutedForeground} />
+        <Text style={[styles.sub, { color: c.foreground, flex: 1 }]}>Remind me before my teams play</Text>
+        <MaterialCommunityIcons name={reminders ? "toggle-switch" : "toggle-switch-off-outline"} size={34} color={reminders ? c.primary : c.subtleForeground} />
+      </Pressable>
+
       {err ? <Text style={[styles.sub, { color: c.negative }]}>{err}</Text> : null}
       <Button
-        label={dirty ? "Save teams" : "Done"}
+        label={saveLabel ?? (dirty || reminders !== initialReminders ? "Save teams" : "Done")}
         size="lg"
         loading={busy}
         onPress={async () => {
-          if (!dirty) return onClose();
+          if (!dirty && reminders === initialReminders) return onClose();
           setBusy(true);
           setErr(null);
           try {
-            await api.updateFavoriteTeams({ teams: picked });
+            await api.updateFavoriteTeams({ teams: picked, reminders });
             if (uid) invalidatePlayerProfile(uid);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            buzz.success();
+            onSaved?.();
             onClose();
           } catch (e) {
             setErr(api.friendlyError(e));
@@ -191,6 +216,7 @@ const styles = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
   title: { fontSize: 20, fontFamily: "Inter_900Black" },
   count: { fontSize: 13, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
+  remindRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 },
   sub: { fontSize: 13, fontFamily: "Inter_400Regular" },
   pickedRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   pickedChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },

@@ -6,6 +6,7 @@ import type { AvatarConfig } from "../../types/avatar";
 import { mergeAttach, resolveAttach, type AttachSpec } from "./attach";
 import { BODY_REGIONS, SLOT_LAYER, type BodyRegion } from "./avatarRules";
 import type { OutfitPiece, ResolvedOutfit } from "./outfit";
+import { buildDanceClip, isDanceId, type DanceFace } from "./dances";
 import { buildReactionClips, type ReactionKind } from "./reactions";
 import type { HairMode } from "./spec";
 
@@ -159,8 +160,12 @@ export class AvatarRig {
   private face: Record<Expression, number> = { ...NEUTRAL };
   private faceOverride: Partial<Record<Expression, number>> = {};
   private blink = { next: 1.5 + Math.random() * 3, t: -1, double: false };
-  private reaction: { t: number; dur: number; kind: "cheer" | ReactionKind } | null = null;
+  private reaction: { t: number; dur: number; kind: "cheer" | ReactionKind | "dance"; face?: DanceFace } | null = null;
   private reactionClips?: Record<ReactionKind, THREE.AnimationClip> | null;
+  /** Dance clips, built on first use per move (null: this rig can't play it). */
+  private danceClips = new Map<string, { clip: THREE.AnimationClip; face: DanceFace } | null>();
+  /** The one-shot (cheer, reaction or dance) playing over the idle, if any. */
+  private current: THREE.AnimationAction | null = null;
   private tears: THREE.Mesh[] = [];
   /** Procedural life on top of the idle clip: breathing, weight shifts, glances. */
   private life = {
@@ -507,13 +512,51 @@ export class AvatarRig {
   cheer() {
     const clip = this.clips.find((c) => c.name === "cheer");
     if (!clip) return;
-    const a = this.mixer.clipAction(clip);
+    this.startOneShot(this.mixer.clipAction(clip), 0.15);
+    this.reaction = { t: 0, dur: clip.duration, kind: "cheer" };
+  }
+
+  /**
+   * Plays a move from the player's loadout: "cheer" (the base clip),
+   * "fist_pump" (the win reaction, without the result face) or a dance from
+   * dances.ts. Unknown ids — a move added server-side that this build has no
+   * animation for — fall back to the cheer rather than doing nothing.
+   */
+  playMove(id: string) {
+    if (id === "fist_pump") return this.react("win");
+    if (!isDanceId(id)) return this.cheer();
+    let built = this.danceClips.get(id);
+    if (built === undefined) {
+      const { rest, parents } = this.restSkeleton();
+      built = buildDanceClip(id, rest, parents);
+      this.danceClips.set(id, built);
+    }
+    if (!built) return this.cheer();
+    this.startOneShot(this.mixer.clipAction(built.clip), 0.25);
+    this.reaction = { t: 0, dur: built.clip.duration, kind: "dance", face: built.face };
+  }
+
+  /** Rest pose as local positions and parents by bone name (what the clip builders solve against). */
+  private restSkeleton() {
+    const rest = new Map<string, THREE.Vector3>();
+    const parents = new Map<string, string | null>();
+    for (const [name, b] of this.bones) {
+      rest.set(name, this.rest.get(b)!.p.clone());
+      parents.set(name, b.parent && this.bones.has(b.parent.name) ? b.parent.name : null);
+    }
+    return { rest, parents };
+  }
+
+  /** Cross-fades a one-shot in over the idle (and over whatever one-shot was already playing). */
+  private startOneShot(a: THREE.AnimationAction, fade: number) {
+    const prev = this.current;
+    if (prev && prev !== a) prev.fadeOut(fade);
     a.reset();
     a.setLoop(THREE.LoopOnce, 1);
     a.clampWhenFinished = false;
-    a.fadeIn(0.15).play();
-    this.idle?.fadeOut(0.15);
-    this.reaction = { t: 0, dur: clip.duration, kind: "cheer" };
+    a.fadeIn(fade).play();
+    this.idle?.fadeOut(fade);
+    this.current = a;
     this.playOnce(a);
   }
 
@@ -523,35 +566,23 @@ export class AvatarRig {
    */
   react(kind: ReactionKind) {
     if (this.reactionClips === undefined) {
-      const rest = new Map<string, THREE.Vector3>();
-      const parents = new Map<string, string | null>();
-      for (const [name, b] of this.bones) {
-        rest.set(name, this.rest.get(b)!.p.clone());
-        parents.set(name, b.parent && this.bones.has(b.parent.name) ? b.parent.name : null);
-      }
+      const { rest, parents } = this.restSkeleton();
       this.reactionClips = buildReactionClips(rest, parents);
     }
     const clip = this.reactionClips?.[kind];
     if (!clip) return kind === "win" ? this.cheer() : undefined;
-    // A new result interrupts whatever reaction is playing; the idle keeps running underneath.
-    for (const c of [...Object.values(this.reactionClips!), ...this.clips.filter((x) => x.name === "cheer")]) {
-      const other = this.mixer.existingAction(c);
-      if (other && other.isRunning()) other.stop();
-    }
-    const a = this.mixer.clipAction(clip);
-    a.reset();
-    a.setLoop(THREE.LoopOnce, 1);
-    a.clampWhenFinished = false;
-    a.fadeIn(0.2).play();
-    this.idle?.fadeOut(0.2);
+    // A new result interrupts whatever is playing; the idle keeps running underneath.
+    this.startOneShot(this.mixer.clipAction(clip), 0.2);
     this.reaction = { t: 0, dur: clip.duration, kind };
-    this.playOnce(a);
   }
 
   private playOnce(a: THREE.AnimationAction) {
     const done = (e: { action: THREE.AnimationAction }) => {
       if (e.action !== a) return;
       this.mixer.removeEventListener("finished", done as never);
+      // Interrupted by a newer one-shot: that one owns the idle now.
+      if (this.current !== a) return;
+      this.current = null;
       a.fadeOut(0.25);
       this.idle?.reset().fadeIn(0.25).play();
     };
@@ -583,6 +614,7 @@ export class AvatarRig {
       b.quaternion.copy(r.q);
     }
     this.reaction = null;
+    this.current = null;
     this.updateTears(-1, 0);
     this.face = { ...NEUTRAL };
     this.applyFace();
@@ -661,6 +693,10 @@ export class AvatarRig {
       if (r.kind === "loss") {
         sad = env;
         jaw = env * (0.12 + 0.1 * Math.max(0, Math.sin(r.t * Math.PI * 2 * 2.2)));
+      } else if (r.kind === "dance") {
+        // Grin: open, laughing; smile: closed-mouth; cool: a smirk, mouth shut.
+        grin = env * (r.face === "grin" ? 0.9 : r.face === "smile" ? 0.6 : 0.3);
+        jaw = r.face === "grin" ? env * (0.28 + 0.08 * Math.sin(r.t * 9)) : 0;
       } else {
         grin = env;
         jaw = env * (0.55 + 0.1 * Math.sin(r.t * 14));

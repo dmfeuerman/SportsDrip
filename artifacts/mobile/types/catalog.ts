@@ -45,6 +45,10 @@ export interface CatalogItem {
   attach?: AttachSpec | null;
   available: boolean;
   releaseAt: number | null;
+  /** Only buyable at or above this player level (purchaseItem enforces it). */
+  levelRequired?: number | null;
+  /** Never sold: granted free on reaching this level. */
+  levelReward?: number | null;
   /**
    * Variant within a slot's default silhouette ("hoodie", "beanie", "boot"…).
    * Free text on the document; the renderer falls back to the slot default.

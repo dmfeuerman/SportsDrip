@@ -1,32 +1,45 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { applyCredits, db, FieldValue, requireAuth } from "../lib/economy";
+import { requirePricedMarket } from "../lib/pricing";
+import { checkPlayLimits } from "../lib/playLimits";
+import { advanceStreak, type StreakState } from "../lib/streak";
 
 const MIN_STAKE = 10;
 const MAX_STAKE = 100_000;
 
-const PlaceBetInput = z.object({
-  gameId: z.string().min(1),
-  side: z.enum(["home", "away"]),
-  stake: z.number().int().min(MIN_STAKE).max(MAX_STAKE),
-  /** Client-generated UUID. Same key = same bet, however many times it's sent. */
-  idempotencyKey: z.string().min(8).max(64),
-  /** Decimal odds the user was shown. Optional so older clients keep working. */
-  expectedOdds: z.number().positive().max(100).optional(),
-  /** Optional head-to-head challenge against a friend. */
-  opponentUid: z.string().min(1).optional(),
-});
+const PlaceBetInput = z
+  .object({
+    gameId: z.string().min(1),
+    side: z.enum(["home", "away"]).optional(),
+    market: z.enum(["ml", "spread", "total"]).optional(),
+    selection: z.enum(["home", "away", "over", "under"]).optional(),
+    stake: z.number().int().min(MIN_STAKE).max(MAX_STAKE),
+    /** Client-generated UUID. Same key = same bet, however many times it's sent. */
+    idempotencyKey: z.string().min(8).max(64),
+    /** Decimal odds the user was shown. Optional so older clients keep working. */
+    expectedOdds: z.number().positive().max(100).optional(),
+    /** Spread or total line the user was shown. Rejects if it moved > 0.5. */
+    expectedLine: z.number().finite().optional(),
+    /** Optional head-to-head challenge against a friend. */
+    opponentUid: z.string().min(1).optional(),
+  })
+  .refine((v) => !!(v.selection || v.side), {
+    message: "Pick a side or selection.",
+  });
 
 /**
  * Places a bet. Everything that used to be decided on the device is decided
  * here (S2):
  *
  *  - the stake is debited inside a transaction that cannot go negative (B9)
- *  - the odds are read from the server's cached game document, not sent by the
- *    client, so a patched bundle can't claim 50x
- *  - the game must exist and still be `upcoming`, which also kills betting
- *    against the mock-data fallback (A3)
+ *  - the odds and line are read from the server's cached game document, not
+ *    sent by the client, so a patched bundle can't claim 50x
+ *  - supports moneyline ("ml"), point spread ("spread", 1.91x), and game total
+ *    ("total", 1.91x), with a 0.5-point line freeze guard
+ *  - the game must exist, not be disrupted, and still be `upcoming`
  *  - `idempotencyKey` makes a double-tap or a network retry a no-op (B10)
+ *  - updates the user's America/New_York daily pick streak
  */
 export const placeBet = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
@@ -35,9 +48,14 @@ export const placeBet = onCall({ region: "us-central1" }, async (req) => {
   const betId = `${uid}_${input.idempotencyKey}`;
   const betRef = db.collection("bets").doc(betId);
   const gameRef = db.collection("games").doc(input.gameId);
+  const userRef = db.collection("users").doc(uid);
 
   return db.runTransaction(async (tx) => {
-    const [existing, gameSnap] = await Promise.all([tx.get(betRef), tx.get(gameRef)]);
+    const [existing, gameSnap, userSnap] = await Promise.all([
+      tx.get(betRef),
+      tx.get(gameRef),
+      tx.get(userRef),
+    ]);
 
     if (existing.exists) {
       return { ok: true, betId, duplicate: true, balance: null };
@@ -50,30 +68,14 @@ export const placeBet = onCall({ region: "us-central1" }, async (req) => {
       throw new HttpsError("failed-precondition", "Betting is closed for this game.");
     }
 
+    const now = Date.now();
+    const limitUpdate = checkPlayLimits(userSnap, now);
     const startsAt = (gameSnap.get("startsAt") as number | undefined) ?? 0;
-    if (startsAt && startsAt < Date.now()) {
+    if (startsAt && startsAt < now) {
       throw new HttpsError("failed-precondition", "This game has already started.");
     }
 
-    const team = gameSnap.get(input.side === "home" ? "homeTeam" : "awayTeam") as {
-      name: string;
-      abbreviation: string;
-      color: string;
-      odds: number;
-    };
-    const opponent = gameSnap.get(input.side === "home" ? "awayTeam" : "homeTeam") as {
-      abbreviation: string;
-    };
-
-    // Prices track a real moneyline now, so they move between syncs. Drift in
-    // the user's favour applies silently; drift against them fails loudly
-    // rather than quietly shrinking the payout they were shown.
-    if (input.expectedOdds && team.odds < input.expectedOdds * 0.95) {
-      throw new HttpsError(
-        "aborted",
-        `The price moved to ${team.odds.toFixed(2)}x before this went through. Tap again to take it.`
-      );
-    }
+    const priced = requirePricedMarket(gameSnap, input);
 
     if (input.opponentUid) {
       const friendship = await tx.get(
@@ -91,34 +93,44 @@ export const placeBet = onCall({ region: "us-central1" }, async (req) => {
       type: "bet_stake",
       idempotencyKey: `bet_stake_${input.idempotencyKey}`,
       ref: betId,
-      note: `${team.abbreviation} vs ${opponent.abbreviation}`,
+      note: `${priced.label} vs ${priced.opponentAbbr}`,
     });
+
+    const prevStreak = userSnap.get("streak") as Partial<StreakState> | undefined;
+    const streak = advanceStreak(prevStreak, now);
 
     tx.set(betRef, {
       id: betId,
       uid,
       gameId: input.gameId,
       sport: gameSnap.get("sport"),
-      side: input.side,
-      teamName: team.name,
-      teamAbbr: team.abbreviation,
-      teamColor: team.color,
-      opponentAbbr: opponent.abbreviation,
+      market: priced.market,
+      selection: priced.selection,
+      side: priced.side,
+      line: priced.line,
+      label: priced.label,
+      teamName: priced.teamName,
+      teamAbbr: priced.teamAbbr,
+      teamColor: priced.teamColor,
+      opponentAbbr: priced.opponentAbbr,
       stake: input.stake,
-      odds: team.odds,
-      potentialPayout: Math.round(input.stake * team.odds),
+      odds: priced.odds,
+      potentialPayout: Math.round(input.stake * priced.odds),
       status: "pending",
+      startsAt: startsAt || null,
       opponentUid: input.opponentUid ?? null,
       placedAt: FieldValue.serverTimestamp(),
       settledAt: null,
     });
 
-    tx.update(db.collection("users").doc(uid), {
+    tx.update(userRef, {
       "stats.betsPlaced": FieldValue.increment(1),
       "stats.creditsStaked": FieldValue.increment(input.stake),
+      streak,
+      ...limitUpdate,
     });
 
-    return { ok: true, betId, duplicate: false, balance };
+    return { ok: true, betId, duplicate: false, balance, streak: streak.count };
   });
 });
 

@@ -17,27 +17,16 @@ import React, {
   useState,
 } from "react";
 import * as api from "@/lib/api";
-import type { AvatarConfig, BoxTier, FavoriteTeam, Slot, UserStats } from "@/lib/api";
+import type { AvatarConfig, BoxTier, FavoriteTeam, PunishmentInfo, Slot, StreakInfo, UserStats } from "@/lib/api";
+import type { TrophyItem } from "@/constants/leagueTypes";
+import type { Market, Selection } from "@/lib/markets";
 import { firebaseConfigured, getDb } from "@/lib/firebase";
 import { firstAnswer } from "@/lib/devtrace";
 import { SLOTS } from "@/lib/avatar3d/avatarRules";
 import { DEMO, demoBets, demoCatalog, demoInventory, demoPrizeBoxes, demoProfile } from "@/lib/demo";
-
-/**
- * Replaces the old AsyncStorage-backed AppContext.
- *
- * What changed and why:
- *  - Firestore is now the only source of truth. The old provider kept the
- *    balance in useState, mirrored it to AsyncStorage, and let
- *    FirebaseSyncProvider push it to the cloud with a non-merging setDoc every
- *    2s. That was the root of AUDIT S2, B5, B6 and B7 at once.
- *  - Every mutation is a callable. The client cannot write balance, inventory,
- *    bets or prize state — the rules deny it outright.
- *  - Reads are realtime listeners, so a settle that happens while the app is
- *    open lands on screen with no polling and no refresh.
- *  - There is no local write path left, so multi-device is consistent by
- *    construction rather than by last-writer-wins.
- */
+import { FREE_MOVES, loadoutOf, MAX_LOADOUT, MOVES_BY_ID } from "@/constants/moves";
+import { backgroundOf, BACKGROUNDS_BY_ID, FREE_BACKGROUNDS } from "@/constants/backgrounds";
+import { progressOf, type LevelProgress } from "@/constants/progression";
 
 export interface Bet {
   id: string;
@@ -45,6 +34,12 @@ export interface Bet {
   gameId: string;
   sport: string;
   side: "home" | "away";
+  market?: Market;
+  selection?: Selection;
+  line?: number | null;
+  label?: string;
+  startsAt?: number | null;
+  voidReason?: string | null;
   teamName: string;
   teamAbbr: string;
   teamColor: string;
@@ -66,6 +61,9 @@ export interface PrizeBoxState {
   openedAt: number | null;
   readyAt: number | null;
   rewardCredits: number | null;
+  baseCredits?: number | null;
+  streakBonus?: number | null;
+  streakDays?: number | null;
 }
 
 export interface Profile {
@@ -77,8 +75,29 @@ export interface Profile {
   avatar: AvatarConfig;
   equipped: Partial<Record<Slot, string>>;
   stats: UserStats;
+  streak?: StreakInfo | null;
+  punishment?: PunishmentInfo | null;
   /** Teams this player follows (updateFavoriteTeams). Absent on older docs. */
   favoriteTeams?: FavoriteTeam[];
+  /** Opt-in "your team plays soon" push (updateFavoriteTeams). */
+  teamReminders?: boolean;
+  /** Opt-in live lead-change pushes (setAlertPrefs). */
+  sweatAlerts?: boolean;
+  /** Player-set play limits (setPlayLimits). */
+  limits?: { dailyPicks?: number | null; breakUntil?: number | null };
+  /** Picks placed today, for the daily limit and the reality check. */
+  picksToday?: { day: string; count: number };
+  /** Dance-move loadout, in button order (setMoveLoadout). Absent until first set. */
+  moves?: string[];
+  /** Lifetime XP (server-written; constants/progression.ts turns it into a level). */
+  xp?: number;
+  level?: number;
+  /** Background behind the character (constants/backgrounds.ts). Absent = Locker Room. */
+  background?: string;
+  /** Their invite code, and how many players have joined with it. */
+  referralCode?: string;
+  referralCount?: number;
+  referredBy?: string;
   onboarded: boolean;
 }
 
@@ -89,22 +108,39 @@ interface AppContextType {
   balance: number;
   bets: Bet[];
   inventory: string[];
+  trophies: TrophyItem[];
+  /** Moves this player can dance: the free ones plus everything bought. */
+  ownedMoves: Set<string>;
+  /** Up to four moves on the dance button, in order (the default if never set). */
+  loadout: string[];
+  /** Level, XP into it and XP it takes, from profile.xp. */
+  progress: LevelProgress;
+  /** Backgrounds this player can use: the free ones plus bought and earned ones. */
+  ownedBackgrounds: Set<string>;
+  /** The background in use (always a known id). */
+  background: string;
   prizeBoxes: Record<BoxTier, PrizeBoxState>;
   error: string | null;
   clearError: () => void;
 
   placeBet: (args: {
     gameId: string;
-    side: "home" | "away";
+    side?: "home" | "away";
+    market?: Market;
+    selection?: Selection;
     stake: number;
     idempotencyKey: string;
-    /** Decimal odds the user was shown, so a moved price fails loudly. */
     expectedOdds?: number;
+    expectedLine?: number;
     opponentUid?: string;
   }) => Promise<boolean>;
   cancelBet: (betId: string) => Promise<boolean>;
   purchaseItem: (itemId: string) => Promise<boolean>;
   equip: (slot: Slot, itemId: string | null) => Promise<boolean>;
+  purchaseMove: (moveId: string) => Promise<boolean>;
+  setLoadout: (moves: string[]) => Promise<boolean>;
+  purchaseBackground: (backgroundId: string) => Promise<boolean>;
+  setBackground: (backgroundId: string) => Promise<boolean>;
   openBox: (tier: BoxTier) => Promise<boolean>;
   claimBox: (tier: BoxTier) => Promise<number | null>;
   resetBox: (tier: BoxTier) => Promise<void>;
@@ -136,13 +172,13 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
   const [profile, setProfile] = useState<Profile | null>(DEMO ? demoProfile : null);
   const [bets, setBets] = useState<Bet[]>(DEMO ? demoBets : []);
   const [inventory, setInventory] = useState<string[]>(DEMO ? demoInventory : []);
+  const [trophies, setTrophies] = useState<TrophyItem[]>([]);
+  const [boughtMoves, setBoughtMoves] = useState<string[]>([]);
+  const [boughtBackgrounds, setBoughtBackgrounds] = useState<string[]>(DEMO ? ["night_stadium"] : []);
   const [prizeBoxes, setPrizeBoxes] = useState<Record<BoxTier, PrizeBoxState>>(DEMO ? demoPrizeBoxes : DEFAULT_BOXES);
   const [profileLoaded, setProfileLoaded] = useState(DEMO);
   const [error, setError] = useState<string | null>(null);
 
-  // Guards every mutating call so a rapid double-tap can't fire twice before
-  // the first response lands. The server is idempotent regardless; this just
-  // keeps the UI honest.
   const inFlight = useRef<Set<string>>(new Set());
   const profileRef = useRef(profile);
   profileRef.current = profile;
@@ -189,7 +225,17 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           orderBy("placedAt", "desc"),
           limit(200)
         ),
-        (snap) => setBets(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Bet)),
+        (snap) =>
+          setBets(
+            snap.docs.map((d) => {
+              const raw = d.data();
+              return {
+                id: d.id,
+                ...raw,
+                side: (raw.side === "away" ? "away" : "home") as "home" | "away",
+              } as Bet;
+            })
+          ),
         (err) => setError(api.friendlyError(err))
       )
     );
@@ -198,6 +244,35 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       onSnapshot(
         collection(db, "users", uid, "inventory"),
         (snap) => setInventory(snap.docs.map((d) => d.id)),
+        () => {}
+      )
+    );
+
+    unsubs.push(
+      onSnapshot(
+        collection(db, "users", uid, "trophies"),
+        (snap) =>
+          setTrophies(
+            snap.docs
+              .map((d) => ({ ...(d.data() as TrophyItem), id: d.id }))
+              .sort((a, b) => (b.awardedAt ?? 0) - (a.awardedAt ?? 0))
+          ),
+        () => {}
+      )
+    );
+
+    unsubs.push(
+      onSnapshot(
+        collection(db, "users", uid, "moves"),
+        (snap) => setBoughtMoves(snap.docs.map((d) => d.id)),
+        () => {}
+      )
+    );
+
+    unsubs.push(
+      onSnapshot(
+        collection(db, "users", uid, "backgrounds"),
+        (snap) => setBoughtBackgrounds(snap.docs.map((d) => d.id)),
         () => {}
       )
     );
@@ -241,10 +316,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
   const placeBet = useCallback<AppContextType["placeBet"]>(
     (args) =>
       guard(
-        // The key is minted by the caller when the bet sheet opens, so every
-        // retry of the same intent — double tap, dropped response, remount —
-        // is one bet server-side rather than relying on the in-flight ref.
-        `bet:${args.gameId}:${args.side}`,
+        `bet:${args.gameId}:${args.market ?? "ml"}:${args.selection ?? args.side ?? "home"}`,
         async () => {
           await api.placeBet(args);
           return true;
@@ -273,7 +345,6 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
         `buy:${itemId}`,
         async () => {
           if (DEMO) {
-            // Demo mode has no backend: buy against the fixture catalog locally.
             const item = demoCatalog.find((i) => i.id === itemId);
             const have = profileRef.current?.balance ?? 0;
             if (!item) throw new Error("That item isn't in the store.");
@@ -302,6 +373,107 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       ),
     [guard]
   );
+
+  const purchaseMove = useCallback(
+    (moveId: string) =>
+      guard(
+        `move:${moveId}`,
+        async () => {
+          if (DEMO) {
+            const m = MOVES_BY_ID.get(moveId);
+            const have = profileRef.current?.balance ?? 0;
+            if (!m || !m.price) throw new Error("That move isn't in the store.");
+            if (have < m.price) throw new Error("Not enough credits.");
+            setBoughtMoves((b) => (b.includes(moveId) ? b : [...b, moveId]));
+            setProfile((p) => {
+              if (!p) return p;
+              const cur = loadoutOf(p.moves);
+              return { ...p, balance: p.balance - m.price, moves: cur.length < MAX_LOADOUT ? [...cur, moveId] : cur };
+            });
+            return true;
+          }
+          await api.purchaseMove({ moveId, idempotencyKey: api.newIdempotencyKey() });
+          return true;
+        },
+        false
+      ),
+    [guard]
+  );
+
+  const setLoadout = useCallback(
+    (moves: string[]) =>
+      guard(
+        "loadout",
+        async () => {
+          const before = profileRef.current?.moves;
+          setProfile((p) => (p ? { ...p, moves } : p));
+          if (DEMO) return true;
+          try {
+            await api.setMoveLoadout({ moves });
+          } catch (err) {
+            setProfile((p) => (p ? { ...p, moves: before } : p));
+            throw err;
+          }
+          return true;
+        },
+        false
+      ),
+    [guard]
+  );
+
+  const purchaseBackground = useCallback(
+    (backgroundId: string) =>
+      guard(
+        `bg:${backgroundId}`,
+        async () => {
+          if (DEMO) {
+            const b = BACKGROUNDS_BY_ID.get(backgroundId);
+            const have = profileRef.current?.balance ?? 0;
+            if (!b || !b.price) throw new Error("That background isn't in the store.");
+            if (have < b.price) throw new Error("Not enough credits.");
+            setBoughtBackgrounds((x) => (x.includes(backgroundId) ? x : [...x, backgroundId]));
+            setProfile((p) => (p ? { ...p, balance: p.balance - b.price, background: backgroundId } : p));
+            return true;
+          }
+          await api.purchaseBackground({ backgroundId, idempotencyKey: api.newIdempotencyKey() });
+          return true;
+        },
+        false
+      ),
+    [guard]
+  );
+
+  const setBackground = useCallback(
+    (backgroundId: string) =>
+      guard(
+        "background",
+        async () => {
+          const before = profileRef.current?.background;
+          setProfile((p) => (p ? { ...p, background: backgroundId } : p));
+          if (DEMO) return true;
+          try {
+            await api.setBackground({ backgroundId });
+          } catch (err) {
+            setProfile((p) => (p ? { ...p, background: before } : p));
+            throw err;
+          }
+          return true;
+        },
+        false
+      ),
+    [guard]
+  );
+
+  // Brings older accounts onto the level curve, grants any level rewards
+  // already earned, and makes sure there's an invite code. Once per session.
+  const synced = useRef(false);
+  useEffect(() => {
+    if (DEMO || !signedIn || !profile?.uid || synced.current) return;
+    synced.current = true;
+    api.syncProgression({}).catch(() => {
+      synced.current = false;
+    });
+  }, [signedIn, profile?.uid]);
 
   const openBox = useCallback(
     (tier: BoxTier) =>
@@ -368,8 +540,6 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           const full: Partial<Record<Slot, string | null>> = {};
           for (const s of SLOTS) full[s] = equipped[s] ?? null;
           const res = await api.saveAppearance({ avatar, equipped: full });
-          // The users/{uid} snapshot confirms this a moment later; applying it
-          // now means the Locker doesn't flash the old look on the way back.
           setProfile((p) => (p ? { ...p, avatar: res.avatar, equipped: res.equipped } : p));
           return true;
         },
@@ -392,21 +562,28 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
     [bets]
   );
 
+  const ownedMoves = useMemo(() => new Set<string>([...FREE_MOVES, ...boughtMoves]), [boughtMoves]);
+  const loadout = useMemo(() => loadoutOf(profile?.moves), [profile?.moves]);
+  const progress = useMemo(() => progressOf(profile?.xp ?? 0), [profile?.xp]);
+  const ownedBackgrounds = useMemo(() => new Set<string>([...FREE_BACKGROUNDS, ...boughtBackgrounds]), [boughtBackgrounds]);
+  const background = useMemo(() => backgroundOf(profile?.background), [profile?.background]);
+
   const clearError = useCallback(() => setError(null), []);
 
-  // Memoised: without this the provider handed every consumer a brand new
-  // object on every render, so one balance tick re-rendered the games list,
-  // the shop grid and the avatar stage.
   const value = useMemo<AppContextType>(
     () => ({
       ready: profileLoaded,
       profile,
-      // Signed in with Firebase Auth but no users/{uid} document yet — the
-      // user has an account but has not built a character.
       needsOnboarding: signedIn && profileLoaded && profile === null,
       balance: profile?.balance ?? 0,
       bets,
       inventory,
+      trophies,
+      ownedMoves,
+      loadout,
+      progress,
+      ownedBackgrounds,
+      background,
       prizeBoxes,
       error,
       clearError,
@@ -414,6 +591,10 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       cancelBet,
       purchaseItem,
       equip,
+      purchaseMove,
+      setLoadout,
+      purchaseBackground,
+      setBackground,
       openBox,
       claimBox,
       resetBox,
@@ -428,6 +609,12 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       signedIn,
       bets,
       inventory,
+      trophies,
+      ownedMoves,
+      loadout,
+      progress,
+      ownedBackgrounds,
+      background,
       prizeBoxes,
       error,
       clearError,
@@ -435,6 +622,10 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       cancelBet,
       purchaseItem,
       equip,
+      purchaseMove,
+      setLoadout,
+      purchaseBackground,
+      setBackground,
       openBox,
       claimBox,
       resetBox,

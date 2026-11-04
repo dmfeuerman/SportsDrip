@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect } from "react";
-import { AccessibilityInfo, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Modal, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import Animated, {
   Easing,
   FadeIn,

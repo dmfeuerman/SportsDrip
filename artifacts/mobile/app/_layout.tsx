@@ -8,7 +8,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Redirect, Stack, useSegments } from "expo-router";
+import { Redirect, router, Stack, useGlobalSearchParams, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
@@ -16,15 +16,24 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import AppWalkthroughModal from "@/components/AppWalkthroughModal";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AdsProvider } from "@/context/AdsContext";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
+import { ChallengeProvider } from "@/context/ChallengeContext";
+import { ChatProvider } from "@/context/ChatContext";
+import DevFlagsRunner from "@/components/DevFlagsRunner";
+import { hasDevFlags } from "@/lib/devFlags";
+import { flushAnalytics } from "@/lib/analytics";
+import { normalizeInviteCode, savePendingInvite, takePendingInvite } from "@/lib/invites";
+import { normalizeReferralCode, savePendingReferral } from "@/lib/referrals";
 import { startStallWatch, trace } from "@/lib/devtrace";
 import ResultPopupHost from "@/components/ResultPopup";
 import EngagementWatchers from "@/components/EngagementWatchers";
 import InviteToastHost from "@/components/InviteToastHost";
+import LevelUpHost from "@/components/LevelUpHost";
 import ToastHost from "@/components/ToastHost";
 import { ToastProvider } from "@/context/ToastContext";
 import AvatarPortraitStudio from "@/components/avatar/AvatarPortraitStudio";
@@ -39,25 +48,55 @@ trace("boot", "bundle loaded");
 
 const queryClient = new QueryClient();
 
-/**
- * Sits inside AppProvider so it can read the profile.
- *
- * Two fixes live here:
- *  1. LeagueProvider is finally given a real displayName and avatarColor.
- *     Previously _layout passed only `uid`, so the defaults applied and every
- *     member written to Firestore was called "Player" (AUDIT B3).
- *  2. An onboarding gate: authenticated but no users/{uid} document means the
- *     account exists and the character does not. Route to /onboarding rather
- *     than dropping the user on the games tab with no profile.
- */
+function useInviteLinkCode(): string | null {
+  const segments = useSegments();
+  const params = useGlobalSearchParams<{ code?: string }>();
+  return (segments[0] as string | undefined) === "join" ? normalizeInviteCode(params.code) : null;
+}
+
+/** sportdrip://ref/{CODE}: a friend's invite code, parked for the signup form. */
+function useReferralLinkCode(): string | null {
+  const segments = useSegments();
+  const params = useGlobalSearchParams<{ code?: string }>();
+  return (segments[0] as string | undefined) === "ref" ? normalizeReferralCode(params.code) : null;
+}
+
 function AppShell() {
   const { profile, ready, needsOnboarding } = useApp();
   const segments = useSegments();
   const colors = useColors();
+  const linkCode = useInviteLinkCode();
+  const refCode = useReferralLinkCode();
+  const top = segments[0] as string | undefined;
+
+  useEffect(() => {
+    if (ready && needsOnboarding && linkCode) void savePendingInvite(linkCode, { signedIn: true });
+  }, [ready, needsOnboarding, linkCode]);
+
+  useEffect(() => {
+    if (ready && needsOnboarding && refCode) void savePendingReferral(refCode);
+  }, [ready, needsOnboarding, refCode]);
+
+  useEffect(() => {
+    if (!ready || needsOnboarding || !profile?.uid || top === "onboarding" || top === "join") return;
+    let cancelled = false;
+    void takePendingInvite().then((code) => {
+      if (cancelled || !code) return;
+      router.navigate({ pathname: "/(tabs)/leagues", params: { join: "1", code, via: "link", t: String(Date.now()) } });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, needsOnboarding, profile?.uid, top]);
 
   useEffect(() => {
     if (ready) trace("boot", needsOnboarding ? "shell ready (onboarding)" : "shell ready");
   }, [ready, needsOnboarding]);
+
+  const signedInUid = profile?.uid ?? null;
+  useEffect(() => {
+    if (signedInUid) void flushAnalytics();
+  }, [signedInUid]);
 
   if (!ready) return <Splash />;
 
@@ -66,39 +105,47 @@ function AppShell() {
   }
 
   const uid = profile?.uid ?? null;
+  const inMainApp = !needsOnboarding && top !== "onboarding" && top !== "login";
 
-  // Leagues and notifications are server-owned; both providers only read and
-  // call functions. ResultPopupHost sits above every screen so a result that
-  // settles while you're in the shop still lands.
   return (
     <LeagueProvider uid={uid}>
-      <NotificationProvider uid={uid}>
-        <AdsProvider uid={uid} active={!!uid && !needsOnboarding}>
-          <CartProvider>
-            <ToastProvider>
-            {/* First, so the screens paint over it (it must stay on-screen on Android, see the studio). */}
-            <AvatarPortraitStudio />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
-              <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
-              <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="bets" />
-              <Stack.Screen name="prizes" />
-              <Stack.Screen name="shop" />
-              <Stack.Screen name="customize" options={{ animation: "slide_from_bottom" }} />
-              <Stack.Screen name="checkout" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="activity" />
-              <Stack.Screen name="league/[id]" />
-              <Stack.Screen name="game/[id]" options={{ animation: "slide_from_right" }} />
-            </Stack>
-            {uid ? <ResultPopupHost /> : null}
-            {uid ? <InviteToastHost /> : null}
-            {uid ? <EngagementWatchers /> : null}
-            {/* Last, so banners and the lock-in stamp draw over every screen. */}
-            <ToastHost />
-            </ToastProvider>
-          </CartProvider>
-        </AdsProvider>
+      <NotificationProvider uid={uid} promptForPush={false}>
+        <ChallengeProvider uid={uid}>
+          <AdsProvider uid={uid} active={!!uid && !needsOnboarding}>
+            <CartProvider>
+              <ToastProvider>
+                <ChatProvider>
+                  <AvatarPortraitStudio />
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+                    <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
+                    <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
+                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen name="messages" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="bets" />
+                    <Stack.Screen name="prizes" />
+                    <Stack.Screen name="shop" />
+                    <Stack.Screen name="moves" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="levels" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="customize" options={{ animation: "slide_from_bottom" }} />
+                    <Stack.Screen name="checkout" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="activity" />
+                    <Stack.Screen name="feed" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="challenges" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="league/[id]" />
+                    <Stack.Screen name="game/[id]" options={{ animation: "slide_from_right" }} />
+                  </Stack>
+                  <AppWalkthroughModal autoTrigger={inMainApp} />
+                  {uid ? <ResultPopupHost /> : null}
+                  {uid ? <InviteToastHost /> : null}
+                  {uid ? <EngagementWatchers /> : null}
+                  {uid && inMainApp ? <LevelUpHost /> : null}
+                  {__DEV__ && hasDevFlags && uid && inMainApp ? <DevFlagsRunner uid={uid} /> : null}
+                  <ToastHost />
+                </ChatProvider>
+              </ToastProvider>
+            </CartProvider>
+          </AdsProvider>
+        </ChallengeProvider>
       </NotificationProvider>
     </LeagueProvider>
   );
@@ -116,6 +163,16 @@ function Splash() {
 function RootLayoutNav() {
   const { currentUser, loading } = useAuth();
   const segments = useSegments();
+  const linkCode = useInviteLinkCode();
+  const refCode = useReferralLinkCode();
+
+  useEffect(() => {
+    if (!loading && firebaseConfigured && !currentUser && linkCode) void savePendingInvite(linkCode, { signedIn: false });
+  }, [loading, currentUser, linkCode]);
+
+  useEffect(() => {
+    if (!loading && firebaseConfigured && !currentUser && refCode) void savePendingReferral(refCode);
+  }, [loading, currentUser, refCode]);
 
   if (loading) return <Splash />;
 
@@ -125,14 +182,6 @@ function RootLayoutNav() {
 
   const uid = currentUser?.uid ?? "local";
 
-  // key={uid} still forces a clean remount when the signed-in user changes, so
-  // two accounts on one device never share state.
-  //
-  // FirebaseSyncProvider is deliberately gone. It debounce-wrote the entire
-  // local state to users/{uid} with a non-merging setDoc every 2 seconds, which
-  // clobbered server-written fields, raced the AsyncStorage load on boot, and
-  // gave leagues a second conflicting source of truth (AUDIT B5, B6, B7).
-  // AppProvider now subscribes to Firestore directly.
   return (
     <AppProvider key={uid} uid={uid}>
       <AppShell />

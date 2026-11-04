@@ -5,6 +5,7 @@ const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const avatar_1 = require("./avatar");
+const progression_1 = require("../lib/progression");
 exports.SLOTS = [
     "hat",
     "top",
@@ -34,7 +35,7 @@ exports.purchaseItem = (0, https_1.onCall)({ region: "us-central1" }, async (req
     const itemRef = economy_1.db.collection("catalog").doc(itemId);
     const invRef = economy_1.db.collection("users").doc(uid).collection("inventory").doc(itemId);
     return economy_1.db.runTransaction(async (tx) => {
-        const [item, owned] = await Promise.all([tx.get(itemRef), tx.get(invRef)]);
+        const [item, owned, user] = await Promise.all([tx.get(itemRef), tx.get(invRef), tx.get(economy_1.db.collection("users").doc(uid))]);
         if (!item.exists)
             throw new https_1.HttpsError("not-found", "That item isn't in the store.");
         if (owned.exists)
@@ -45,6 +46,15 @@ exports.purchaseItem = (0, https_1.onCall)({ region: "us-central1" }, async (req
         const releaseAt = item.get("releaseAt");
         if (releaseAt && releaseAt > Date.now()) {
             throw new https_1.HttpsError("failed-precondition", "That item hasn't dropped yet.");
+        }
+        // Level-exclusive items are granted by reaching the level (lib/xp.ts), never sold.
+        const reward = item.get("levelReward");
+        if (typeof reward === "number" && reward > 0) {
+            throw new https_1.HttpsError("failed-precondition", `Not for sale — unlocked by reaching level ${reward}.`);
+        }
+        const required = item.get("levelRequired") ?? 0;
+        if (required > (0, progression_1.levelFromXp)(user.get("xp"))) {
+            throw new https_1.HttpsError("failed-precondition", `Reach level ${required} to buy this.`);
         }
         const price = item.get("price");
         if (typeof price !== "number" || price < 0) {

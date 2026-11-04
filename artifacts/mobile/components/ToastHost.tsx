@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useEffect } from "react";
-import { AccessibilityInfo, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { AccessibilityInfo, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
@@ -15,6 +16,13 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
 import BetLockedOverlay from "@/components/fx/BetLockedOverlay";
+import PushPrimer from "@/components/PushPrimer";
+import { useLeague } from "@/context/LeagueContext";
+import { useApp } from "@/context/AppContext";
+import * as api from "@/lib/api";
+import { useNotifications } from "@/context/NotificationContext";
+import { markPushPrimerShown, pushPrimerDue } from "@/lib/settings";
+import type { BetLockedInput } from "@/context/ToastContext";
 import { Amount } from "@/components/ui";
 import { useToast, type Toast, type ToastKind } from "@/context/ToastContext";
 import { useColors, type Colors } from "@/hooks/useColors";
@@ -41,11 +49,70 @@ const OFF = -180;
  * bet, league or profile it's about. Also hosts the "Bet locked in" overlay.
  */
 export default function ToastHost() {
-  const { current, queued, dismiss, locked, clearLocked } = useToast();
+  const { current, queued, dismiss, locked, clearLocked, show } = useToast();
+  const { pushStatus, enablePush } = useNotifications();
+  const { sendMessage } = useLeague();
+  const [primer, setPrimer] = useState(false);
+  const { profile } = useApp();
+  const picksToday = profile?.picksToday?.count ?? 0;
+
+  // After the stamp: the push pre-prompt the first time (the moment a user has a
+  // reason to want it), otherwise a one-tap "Post to league" for league bets.
+  const onLockedDone = useCallback(
+    (bet: BetLockedInput) => {
+      clearLocked();
+      if (pushStatus === "undetermined" && pushPrimerDue()) {
+        markPushPrimerShown();
+        setPrimer(true);
+        return;
+      }
+      // Reality check: a neutral nudge every 10 picks in a day.
+      if (picksToday > 0 && picksToday % 10 === 0) {
+        show({
+          id: `reality_${profile?.picksToday?.day}_${picksToday}`,
+          kind: "info",
+          icon: "timer-sand",
+          title: `${picksToday} picks today`,
+          body: "Set a daily limit or take a break anytime in the Locker.",
+        });
+        return;
+      }
+      if (bet.leagueId && !bet.hidden) {
+        const leagueId = bet.leagueId;
+        show({
+          id: `post_${leagueId}_${bet.gameId ?? ""}_${bet.teamAbbr}`,
+          kind: "league",
+          icon: "bullhorn-outline",
+          title: "Post it to the league?",
+          body: `${bet.teamName} · ${bet.odds.toFixed(2)}x`,
+          cta: "Post",
+          durationMs: 6000,
+          onPress: () => {
+            sendMessage(leagueId, `🔒 Locked in: ${bet.teamName} at ${bet.odds.toFixed(2)}x. Who's fading me?`);
+            haptic.success();
+          },
+        });
+      }
+    },
+    [clearLocked, pushStatus, show, sendMessage, picksToday, profile?.picksToday?.day]
+  );
+
   return (
     <>
       {current ? <ToastCard key={current.id} toast={current} queued={queued} onGone={() => dismiss(current.id)} /> : null}
-      {locked ? <BetLockedOverlay key={locked.key} bet={locked} onDone={clearLocked} /> : null}
+      {locked ? <BetLockedOverlay key={locked.key} bet={locked} onDone={() => onLockedDone(locked)} /> : null}
+      {primer ? (
+        <PushPrimer
+          onAccept={() => {
+            setPrimer(false);
+            void enablePush().then((s) => {
+              // The primer promised "when the game swings": opt into sweat alerts with it.
+              if (s === "granted") api.setAlertPrefs({ sweat: true }).catch(() => {});
+            });
+          }}
+          onDecline={() => setPrimer(false)}
+        />
+      ) : null}
     </>
   );
 }
@@ -143,12 +210,14 @@ function ToastCard({ toast, queued, onGone }: { toast: Toast; queued: number; on
     <View pointerEvents="box-none" style={[styles.wrap, { top: insets.top + 6 }]}>
       <GestureDetector gesture={pan}>
         <Animated.View style={[styles.card, { backgroundColor: c.elevated, borderColor: c.alpha(tone, 0.55), shadowColor: c.shadow }, card]}>
+          {/* Main area and dismiss are siblings: a Pressable inside a Pressable is <button> in <button> on web. */}
+          <View style={styles.row}>
           <Pressable
             accessibilityRole={tappable ? "button" : "text"}
             accessibilityLabel={`${toast.title}${toast.body ? `. ${toast.body}` : ""}${toast.cta ? `. ${toast.cta}` : ""}`}
             accessibilityHint="Swipe up to dismiss"
             onPress={tappable ? open : undefined}
-            style={styles.row}
+            style={styles.main}
           >
             <View style={[styles.icon, { backgroundColor: c.alpha(tone, 0.16), borderColor: c.alpha(tone, 0.4) }]}>
               <MaterialCommunityIcons name={toast.icon ?? kind.icon} size={20} color={tone} />
@@ -168,10 +237,11 @@ function ToastCard({ toast, queued, onGone }: { toast: Toast; queued: number; on
             ) : toast.cta ? (
               <Text style={[styles.cta, { color: tone }]}>{toast.cta}</Text>
             ) : null}
+          </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" hitSlop={12} onPress={() => hide()}>
               <MaterialCommunityIcons name="close" size={16} color={c.subtleForeground} />
             </Pressable>
-          </Pressable>
+          </View>
           <View style={[styles.track, { backgroundColor: c.alpha(tone, 0.12) }]}>
             <Animated.View style={[styles.fill, { backgroundColor: tone }, bar]} />
           </View>
@@ -194,6 +264,7 @@ const styles = StyleSheet.create({
     elevation: 14,
   },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10 },
+  main: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
   icon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 14, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.2 },
   body: { fontSize: 12, lineHeight: 16, fontFamily: "Inter_500Medium" },

@@ -1,56 +1,53 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import React, { memo, useEffect, useRef } from "react";
-import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Platform, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import Reanimated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
 import PressableScale from "@/components/fx/PressableScale";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { useValueFlash } from "@/hooks/useMotion";
+import { formatSpread, hasSpreadLine, hasTotalLine, SPREAD_TOTAL_ODDS, type Market, type Selection } from "@/lib/markets";
 import { SPRING } from "@/lib/motion";
-import { fairProbabilities, formatPercent, kickoffLabel, untilKickoff } from "@/lib/odds";
-import type { Game, Side, TeamSide } from "@/types/game";
+import { fairProbabilities, formatOdds, formatPercent, kickoffLabel, NO_LINE, untilKickoff } from "@/lib/odds";
+import { useOddsFormat } from "@/lib/settings";
+import { isPriced, type Game, type Side, type TeamSide } from "@/types/game";
 
 export interface MyPosition {
   side: Side;
+  label?: string;
   stake: number;
   potentialPayout: number;
 }
 
+export interface LeagueActionMember {
+  uid: string;
+  displayName: string;
+  avatarColor: string;
+}
+
 interface Props {
   game: Game;
-  onBet: (game: Game, side: Side) => void;
+  onBet: (game: Game, side: Side, market?: Market, selection?: Selection) => void;
   /** Opens the detail sheet. Tapping anywhere that isn't an odds button. */
   onOpenDetail?: (game: Game) => void;
   /** The user's existing bet on this game, if any. */
   position?: MyPosition | null;
+  /** League members on this game ("League is on this" chip). */
+  leagueMembers?: LeagueActionMember[];
   /** Betting closes once a game is live or final — the server rejects it too. */
   locked?: boolean;
 }
 
-/**
- * The board's unit of information.
- *
- * The previous card showed abbreviation, full name and a decimal multiplier —
- * enough to place a bet, not enough to decide whether to. Everything added
- * here answers a question a user was otherwise leaving the app to answer:
- *
- *  - who is favoured, and by how much (win probability bar, de-vigged)
- *  - are these teams any good (record, last five, rank)
- *  - what is the market line (spread and total, attributed to the book)
- *  - is it on TV, and where is it being played
- *  - what is the actual state of a live game (period and clock, not just LIVE)
- *  - what have I already got riding on it
- *
- * Layout is a stacked scoreboard rather than two columns. Side-by-side columns
- * force team names to truncate at 11 characters on a phone and leave nowhere
- * for a record; stacked rows are how every scoreboard in the world is set, and
- * they scan vertically with the list.
- */
-function GameCard({ game, onBet, onOpenDetail, position, locked }: Props) {
+function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked }: Props) {
   const c = useColors();
-  const isLocked = locked ?? game.status !== "upcoming";
+  const oddsFormat = useOddsFormat();
+  const isLocked = locked ?? (game.status !== "upcoming" || !!game.disrupted);
+  const priced = isPriced(game);
   const prob = fairProbabilities(game.homeTeam.odds, game.awayTeam.odds);
+  const canSpread = !isLocked && hasSpreadLine(game);
+  const canTotal = !isLocked && hasTotalLine(game);
 
   const leader: Side | null =
     game.homeScore === null || game.awayScore === null || game.homeScore === game.awayScore
@@ -59,10 +56,14 @@ function GameCard({ game, onBet, onOpenDetail, position, locked }: Props) {
         ? "home"
         : "away";
 
-  function handleBet(side: Side) {
+  function handleBet(side: Side, market: Market = "ml", selection?: Selection) {
     if (isLocked) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onBet(game, side);
+    if (market === "ml" && !priced) {
+      onOpenDetail?.(game);
+      return;
+    }
+    buzz.medium();
+    onBet(game, side, market, selection ?? side);
   }
 
   return (
@@ -76,9 +77,6 @@ function GameCard({ game, onBet, onOpenDetail, position, locked }: Props) {
         },
       ]}
       onPress={onOpenDetail ? () => onOpenDetail(game) : undefined}
-      // react-native-web renders role="button" as a <button>; the odds buttons inside
-      // would then be <button> in <button>, which React rejects. The card stays
-      // tappable on web, it just isn't announced as a button there.
       accessibilityRole={onOpenDetail && Platform.OS !== "web" ? "button" : undefined}
       accessibilityLabel={`${game.awayTeam.name} at ${game.homeTeam.name}`}
     >
@@ -93,27 +91,92 @@ function GameCard({ game, onBet, onOpenDetail, position, locked }: Props) {
           team={game.awayTeam}
           score={game.awayScore}
           probability={prob.away}
+          priced={priced}
           leading={leader === "away"}
           locked={isLocked}
           backed={position?.side === "away"}
-          onPress={() => handleBet("away")}
+          oddsFormat={oddsFormat}
+          onPress={() => handleBet("away", "ml", "away")}
           c={c}
         />
         <TeamRow
           team={game.homeTeam}
           score={game.homeScore}
           probability={prob.home}
+          priced={priced}
           leading={leader === "home"}
           locked={isLocked}
           backed={position?.side === "home"}
-          onPress={() => handleBet("home")}
+          oddsFormat={oddsFormat}
+          onPress={() => handleBet("home", "ml", "home")}
           c={c}
         />
       </View>
 
-      <ProbabilityBar game={game} prob={prob} c={c} />
+      {priced ? <ProbabilityBar game={game} prob={prob} c={c} /> : null}
 
-      <Footer game={game} c={c} isLocked={isLocked} />
+      {(canSpread || canTotal) && (
+        <View style={styles.marketStrip}>
+          {canSpread && typeof game.line?.spreadHome === "number" ? (
+            <>
+              <PressableScale
+                style={[styles.marketChip, { backgroundColor: c.secondary, borderColor: c.border }]}
+                scaleTo={0.95}
+                onPress={() => handleBet("away", "spread", "away")}
+              >
+                <Text style={[styles.marketChipLabel, { color: c.foreground }]}>
+                  {game.awayTeam.abbreviation} {formatSpread(-game.line.spreadHome)}
+                </Text>
+                <Text style={[styles.marketChipOdds, { color: c.mutedForeground }]}>
+                  {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+                </Text>
+              </PressableScale>
+              <PressableScale
+                style={[styles.marketChip, { backgroundColor: c.secondary, borderColor: c.border }]}
+                scaleTo={0.95}
+                onPress={() => handleBet("home", "spread", "home")}
+              >
+                <Text style={[styles.marketChipLabel, { color: c.foreground }]}>
+                  {game.homeTeam.abbreviation} {formatSpread(game.line.spreadHome)}
+                </Text>
+                <Text style={[styles.marketChipOdds, { color: c.mutedForeground }]}>
+                  {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+                </Text>
+              </PressableScale>
+            </>
+          ) : null}
+          {canTotal && typeof game.line?.overUnder === "number" ? (
+            <>
+              <PressableScale
+                style={[styles.marketChip, { backgroundColor: c.secondary, borderColor: c.border }]}
+                scaleTo={0.95}
+                onPress={() => handleBet("home", "total", "over")}
+              >
+                <Text style={[styles.marketChipLabel, { color: c.foreground }]}>
+                  O {game.line.overUnder}
+                </Text>
+                <Text style={[styles.marketChipOdds, { color: c.mutedForeground }]}>
+                  {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+                </Text>
+              </PressableScale>
+              <PressableScale
+                style={[styles.marketChip, { backgroundColor: c.secondary, borderColor: c.border }]}
+                scaleTo={0.95}
+                onPress={() => handleBet("away", "total", "under")}
+              >
+                <Text style={[styles.marketChipLabel, { color: c.foreground }]}>
+                  U {game.line.overUnder}
+                </Text>
+                <Text style={[styles.marketChipOdds, { color: c.mutedForeground }]}>
+                  {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+                </Text>
+              </PressableScale>
+            </>
+          ) : null}
+        </View>
+      )}
+
+      <Footer game={game} c={c} isLocked={isLocked} priced={priced} leagueMembers={leagueMembers} />
 
       {position && <PositionStrip game={game} position={position} c={c} />}
     </Pressable>
@@ -122,10 +185,11 @@ function GameCard({ game, onBet, onOpenDetail, position, locked }: Props) {
 
 export default memo(GameCard);
 
-/* ── header ──────────────────────────────────────────────────────────────── */
-
 function Header({ game, c }: { game: Game; c: Colors }) {
   const sportColor = c.sport(game.sport);
+  const now = Date.now();
+  const msLeft = game.startsAt - now;
+  const underHour = game.status === "upcoming" && !game.disrupted && msLeft > 0 && msLeft <= 60 * 60_000;
 
   return (
     <View style={styles.header}>
@@ -141,14 +205,20 @@ function Header({ game, c }: { game: Game; c: Colors }) {
       ) : null}
 
       <View style={styles.headerRight}>
-        {game.status === "live" ? (
+        {game.disrupted ? (
+          <Text style={[styles.statusText, { color: c.warning }]}>
+            {game.disrupted === "canceled" ? "Cancelled" : "Postponed"}
+          </Text>
+        ) : game.status === "live" ? (
           <LiveClock game={game} c={c} />
         ) : game.status === "final" ? (
           <Text style={[styles.statusText, { color: c.mutedForeground }]}>Final</Text>
         ) : (
           <Text style={[styles.statusText, { color: c.foreground }]}>
             {kickoffLabel(game.startsAt)}
-            <Text style={{ color: c.subtleForeground }}>{`  ${untilKickoff(game.startsAt)}`}</Text>
+            <Text style={{ color: underHour ? c.live : c.subtleForeground }}>
+              {`  ${underHour ? `Locks ${untilKickoff(game.startsAt)}` : untilKickoff(game.startsAt)}`}
+            </Text>
           </Text>
         )}
       </View>
@@ -156,7 +226,6 @@ function Header({ game, c }: { game: Game; c: Colors }) {
   );
 }
 
-/** The one piece of unprompted motion in the app: a live game is actually live. */
 function LiveClock({ game, c }: { game: Game; c: Colors }) {
   const pulse = useRef(new Animated.Value(1)).current;
 
@@ -179,31 +248,33 @@ function LiveClock({ game, c }: { game: Game; c: Colors }) {
         <Animated.View style={[styles.liveDot, { backgroundColor: "#fff", opacity: pulse }]} />
         <Text style={styles.liveText}>LIVE</Text>
       </View>
-      <Text style={[styles.statusText, { color: c.foreground }]} numberOfLines={1}>
+      <Text style={[styles.statusText, { color: c.foreground, flexShrink: 1 }]} numberOfLines={1}>
         {detail}
       </Text>
     </View>
   );
 }
 
-/* ── team row ────────────────────────────────────────────────────────────── */
-
 function TeamRow({
   team,
   score,
   probability,
+  priced,
   leading,
   locked,
   backed,
+  oddsFormat,
   onPress,
   c,
 }: {
   team: TeamSide;
   score: number | null;
   probability: number;
+  priced: boolean;
   leading: boolean;
   locked: boolean;
   backed: boolean;
+  oddsFormat: "decimal" | "american";
   onPress: () => void;
   c: Colors;
 }) {
@@ -242,18 +313,58 @@ function TeamRow({
         </Text>
       )}
 
-      <OddsButton team={team} probability={probability} locked={locked} backed={backed} onPress={onPress} c={c} />
+      {priced || backed ? (
+        <OddsButton
+          team={team}
+          probability={probability}
+          locked={locked}
+          backed={backed}
+          oddsFormat={oddsFormat}
+          onPress={onPress}
+          c={c}
+        />
+      ) : (
+        <NoLineTile locked={locked} onPress={onPress} c={c} />
+      )}
     </View>
   );
 }
 
-/**
- * Sportsbook odds tile: neutral until it's yours; your side lights up in the
- * action colour with a pop. When the line moves it flashes green ▲ or red ▼
- * for a couple of seconds, the way the books show line movement.
- */
-function OddsButton({ team, probability, locked, backed, onPress, c }: { team: TeamSide; probability: number; locked: boolean; backed: boolean; onPress: () => void; c: Colors }) {
-  const flash = useValueFlash(team.odds, { up: c.positive, down: c.negative, rest: c.alpha(c.border, 0) });
+function NoLineTile({ locked, onPress, c }: { locked: boolean; onPress: () => void; c: Colors }) {
+  return (
+    <PressableScale
+      style={[styles.oddsBtn, { backgroundColor: c.secondary, borderColor: c.border, borderStyle: "dashed", opacity: locked ? 0.55 : 1 }]}
+      scaleTo={0.96}
+      onPress={onPress}
+      disabled={locked}
+      accessibilityRole="button"
+      accessibilityLabel={`${NO_LINE}. Opens the game`}
+    >
+      <Text style={[styles.noLine, { color: c.mutedForeground }]}>No line</Text>
+      <Text style={[styles.oddsProb, { color: c.subtleForeground }]}>yet</Text>
+    </PressableScale>
+  );
+}
+
+function OddsButton({
+  team,
+  probability,
+  locked,
+  backed,
+  oddsFormat,
+  onPress,
+  c,
+}: {
+  team: TeamSide;
+  probability: number;
+  locked: boolean;
+  backed: boolean;
+  oddsFormat: "decimal" | "american";
+  onPress: () => void;
+  c: Colors;
+}) {
+  const odds = team.odds ?? 0;
+  const flash = useValueFlash(odds, { up: c.positive, down: c.negative, rest: c.alpha(c.border, 0) });
   const pop = useSharedValue(1);
   const wasBacked = useRef(backed);
   useEffect(() => {
@@ -276,22 +387,23 @@ function OddsButton({ team, probability, locked, backed, onPress, c }: { team: T
         onPress={onPress}
         disabled={locked}
         accessibilityRole="button"
-        accessibilityLabel={`Back ${team.name} at ${team.odds.toFixed(2)} times, ${formatPercent(probability)} chance${flash.dir ? `, odds ${flash.dir > 0 ? "up" : "down"}` : ""}`}
+        accessibilityLabel={odds > 1 ? `Back ${team.name} at ${formatOdds(odds, oddsFormat)}, ${formatPercent(probability)} chance` : `Your pick: ${team.name}`}
       >
         <Reanimated.View pointerEvents="none" style={[styles.oddsFlash, flash.style]} />
         <View style={styles.oddsLine}>
           {flash.dir !== 0 ? (
             <MaterialCommunityIcons name={flash.dir > 0 ? "menu-up" : "menu-down"} size={16} color={flash.dir > 0 ? c.positive : c.negative} style={{ marginHorizontal: -4 }} />
           ) : null}
-          <Text style={[styles.oddsValue, { color: backed ? c.primaryForeground : c.foreground }]}>{team.odds.toFixed(2)}x</Text>
+          <Text style={[styles.oddsValue, { color: backed ? c.primaryForeground : c.foreground }]}>
+            {odds > 1 ? formatOdds(odds, oddsFormat) : "—"}
+          </Text>
         </View>
-        <Text style={[styles.oddsProb, { color: backed ? c.alpha(c.primaryForeground, 0.75) : c.mutedForeground }]}>{formatPercent(probability)}</Text>
+        <Text style={[styles.oddsProb, { color: backed ? c.alpha(c.primaryForeground, 0.75) : c.mutedForeground }]}>{odds > 1 ? formatPercent(probability) : "your pick"}</Text>
       </PressableScale>
     </Reanimated.View>
   );
 }
 
-/** Logo when the provider has one, colour-blocked initials when it doesn't. */
 function TeamMark({ team, c }: { team: TeamSide; c: Colors }) {
   if (team.logoUrl) {
     return (
@@ -331,8 +443,6 @@ function Form({ form, c }: { form: Array<"W" | "L" | "D">; c: Colors }) {
   );
 }
 
-/* ── probability + line ──────────────────────────────────────────────────── */
-
 function ProbabilityBar({
   game,
   prob,
@@ -351,22 +461,64 @@ function ProbabilityBar({
   );
 }
 
-function Footer({ game, c, isLocked }: { game: Game; c: Colors; isLocked: boolean }) {
+function Footer({
+  game,
+  c,
+  isLocked,
+  priced,
+  leagueMembers,
+}: {
+  game: Game;
+  c: Colors;
+  isLocked: boolean;
+  priced: boolean;
+  leagueMembers?: LeagueActionMember[];
+}) {
+  const noLine = !priced && game.status === "upcoming" && !game.disrupted;
   const bits: string[] = [];
   if (game.line?.spread) bits.push(game.line.spread);
   if (game.line?.overUnder) bits.push(`O/U ${game.line.overUnder}`);
   if (game.broadcast) bits.push(game.broadcast);
   if (game.venue && game.status === "upcoming") bits.push(game.venue);
 
-  if (bits.length === 0 && !isLocked) return null;
+  const hasLeagueAction = !!leagueMembers && leagueMembers.length > 0;
+  if (bits.length === 0 && !isLocked && !noLine && !hasLeagueAction) return null;
 
   return (
     <View style={styles.footer}>
+      {hasLeagueAction && (
+        <View style={[styles.leagueOnChip, { backgroundColor: c.leagueSoft, borderColor: c.alpha(c.league, 0.45) }]}>
+          <View style={styles.avatarStack}>
+            {leagueMembers.slice(0, 3).map((m, idx) => (
+              <View
+                key={m.uid}
+                style={[
+                  styles.avatarPip,
+                  { backgroundColor: m.avatarColor || c.league, borderColor: c.card, marginLeft: idx === 0 ? 0 : -6 },
+                ]}
+              >
+                <Text style={styles.avatarPipText}>{(m.displayName || "P")[0]!.toUpperCase()}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={[styles.leagueOnText, { color: c.league }]}>
+            {leagueMembers.length === 1
+              ? `${leagueMembers[0]!.displayName} on this`
+              : `${leagueMembers.length} in league on this`}
+          </Text>
+        </View>
+      )}
       <Text style={[styles.meta, { color: c.subtleForeground, flex: 1 }]} numberOfLines={1}>
         {bits.join("   ")}
       </Text>
       {isLocked && game.status === "live" && (
         <Text style={[styles.meta, { color: c.mutedForeground }]}>Betting closed</Text>
+      )}
+      {noLine && (
+        <View style={[styles.noLinePill, { backgroundColor: c.alpha(c.warning, 0.14) }]}>
+          <MaterialCommunityIcons name="clock-outline" size={11} color={c.warning} />
+          <Text style={[styles.noLinePillText, { color: c.warning }]}>{NO_LINE}</Text>
+        </View>
       )}
     </View>
   );
@@ -390,7 +542,7 @@ function PositionStrip({ game, position, c }: { game: Game; position: MyPosition
     <View style={[styles.position, { backgroundColor: c.primarySoft, borderColor: c.alpha(c.primary, 0.3) }]}>
       <MaterialCommunityIcons name="ticket-confirmation-outline" size={14} color={c.primary} />
       <Text style={[styles.positionText, { color: c.foreground }]} numberOfLines={1}>
-        {position.stake.toLocaleString()} on {backed.abbreviation} to return{" "}
+        {position.stake.toLocaleString()} on {position.label ?? backed.abbreviation} to return{" "}
         <Text style={{ color: c.primary }}>{position.potentialPayout.toLocaleString()}</Text>
       </Text>
       {state && (
@@ -404,10 +556,11 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10, gap: 10 },
 
   header: { flexDirection: "row", alignItems: "center", gap: 8 },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: "auto" },
-  sportChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: "auto", flexShrink: 0, maxWidth: "62%" },
+  sportChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999, flexShrink: 0 },
   sportText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
-  meta: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  // Long season labels ("Premier League · Regular Season") truncate instead of pushing the status off-screen.
+  meta: { flex: 1, flexShrink: 1, minWidth: 0, fontSize: 11, fontFamily: "Inter_400Regular" },
   statusText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   liveBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
@@ -435,10 +588,23 @@ const styles = StyleSheet.create({
   oddsLine: { flexDirection: "row", alignItems: "center" },
   oddsValue: { fontSize: 15, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
   oddsProb: { fontSize: 10, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
+  noLine: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  noLinePill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
+  noLinePillText: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.2 },
+
+  marketStrip: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  marketChip: { flex: 1, minWidth: 74, borderWidth: 1, borderRadius: 9, paddingVertical: 6, paddingHorizontal: 8, alignItems: "center", gap: 1 },
+  marketChipLabel: { fontSize: 11, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
+  marketChipOdds: { fontSize: 10, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
 
   bar: { flexDirection: "row", height: 4, borderRadius: 2, overflow: "hidden" },
 
-  footer: { flexDirection: "row", alignItems: "center", gap: 8 },
+  footer: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  leagueOnChip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  avatarStack: { flexDirection: "row", alignItems: "center" },
+  avatarPip: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  avatarPipText: { color: "#fff", fontSize: 8, fontFamily: "Inter_800ExtraBold" },
+  leagueOnText: { fontSize: 10, fontFamily: "Inter_700Bold" },
 
   position: { flexDirection: "row", alignItems: "center", gap: 7, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   positionText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },

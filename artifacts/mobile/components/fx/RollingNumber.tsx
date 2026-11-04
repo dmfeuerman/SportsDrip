@@ -8,7 +8,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { EASE } from "@/lib/motion";
+import { EASE, haptic } from "@/lib/motion";
 
 const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
@@ -28,6 +28,7 @@ export default function RollingNumber({
   upColor = "#2FE38A",
   downColor = "#FF4D63",
   accessibilityLabel,
+  haptics = flash,
 }: {
   value: number;
   style?: StyleProp<TextStyle>;
@@ -37,6 +38,8 @@ export default function RollingNumber({
   upColor?: string;
   downColor?: string;
   accessibilityLabel?: string;
+  /** Tick-tick-click as the number climbs (increases only). Defaults to `flash`. */
+  haptics?: boolean;
 }) {
   const flat = StyleSheet.flatten(style) ?? {};
   const fontSize = flat.fontSize ?? 16;
@@ -51,9 +54,10 @@ export default function RollingNumber({
   useEffect(() => {
     if (value === prev.current) return;
     dir.value = value > prev.current ? 1 : -1;
+    if (haptics && value > prev.current) haptic.roll(duration);
     prev.current = value;
     if (flash && !reduced) glow.value = withSequence(withTiming(1, { duration: 140 }), withDelay(duration * 0.6, withTiming(0, { duration: 600 })));
-  }, [value, flash, duration, reduced, glow, dir]);
+  }, [value, flash, haptics, duration, reduced, glow, dir]);
   const glowStyle = useAnimatedStyle(() => ({
     opacity: glow.value * 0.28,
     backgroundColor: dir.value > 0 ? upColor : downColor,

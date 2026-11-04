@@ -1,6 +1,8 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db, FieldValue, pairId, requireAuth, Timestamp } from "../lib/economy";
+import { isFreeMove, loadoutOf } from "../lib/moves";
+import { levelFromXp } from "../lib/progression";
 
 /**
  * Player profiles: what a tapped league card or friend row opens.
@@ -9,10 +11,10 @@ import { db, FieldValue, pairId, requireAuth, Timestamp } from "../lib/economy";
  * the rules only let a client *list* its own. Rather than loosen that, the
  * server decides what the viewer may see:
  *
- *   self / friend  -> public profile + balance + global bet history
+ *   self / friend  -> public profile + balance + global bet history + trophies
  *   league-mate    -> public profile + that league's bets (already visible to
- *                     members) + their league line
- *   anyone else    -> public profile only
+ *                     members) + their league line + head-to-head rivalry record
+ *   anyone else    -> public profile + trophies
  */
 
 const SPORTS = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"] as const;
@@ -28,6 +30,7 @@ const FavoriteTeam = z.object({
 export const updateFavoriteTeams = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
   const parsed = z.array(FavoriteTeam).max(MAX_FAVORITE_TEAMS).safeParse(req.data?.teams);
+  const reminders = typeof req.data?.reminders === "boolean" ? (req.data.reminders as boolean) : undefined;
   if (!parsed.success) throw new HttpsError("invalid-argument", `Pick up to ${MAX_FAVORITE_TEAMS} teams.`);
 
   const seen = new Set<string>();
@@ -38,7 +41,13 @@ export const updateFavoriteTeams = onCall({ region: "us-central1" }, async (req)
     return true;
   });
 
-  await db.collection("users").doc(uid).update({ favoriteTeams: teams, updatedAt: FieldValue.serverTimestamp() });
+  // favoriteTeamKeys ("NFL:KC") is the queryable mirror the team-reminder job uses.
+  await db.collection("users").doc(uid).update({
+    favoriteTeams: teams,
+    favoriteTeamKeys: teams.map((t) => `${t.sport}:${t.abbr}`),
+    ...(reminders !== undefined ? { teamReminders: reminders } : {}),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   return { ok: true, teams };
 });
 
@@ -54,7 +63,12 @@ function betOf(d: FirebaseFirestore.QueryDocumentSnapshot) {
     id: d.id,
     gameId: b.gameId as string,
     sport: (b.sport as string) ?? null,
-    side: b.side as "home" | "away",
+    side: (b.side as "home" | "away" | null | undefined) ?? null,
+    market: (b.market as "ml" | "spread" | "total" | undefined) ?? "ml",
+    selection: (b.selection as "home" | "away" | "over" | "under" | undefined) ?? (b.side as "home" | "away") ?? "home",
+    line: (b.line as number | null | undefined) ?? null,
+    label: (b.label as string | undefined) ?? (b.teamAbbr as string),
+    lock: Boolean(b.lock),
     teamName: b.teamName as string,
     teamAbbr: b.teamAbbr as string,
     teamColor: (b.teamColor as string) ?? "#5F6B80",
@@ -76,10 +90,12 @@ export const getPlayerProfile = onCall({ region: "us-central1" }, async (req) =>
     .object({ uid: z.string().min(1).max(128), leagueId: z.string().min(1).max(128).optional() })
     .parse(req.data);
 
-  const [user, friendship, league] = await Promise.all([
+  const [user, friendship, league, trophiesSnap, ownedMovesSnap] = await Promise.all([
     db.collection("users").doc(uid).get(),
     uid === me ? Promise.resolve(null) : db.collection("friendships").doc(pairId(me, uid)).get(),
     leagueId ? db.collection("leagues").doc(leagueId).get() : Promise.resolve(null),
+    db.collection("users").doc(uid).collection("trophies").limit(50).get(),
+    db.collection("users").doc(uid).collection("moves").select().get(),
   ]);
   if (!user.exists) throw new HttpsError("not-found", "That player doesn't exist.");
 
@@ -89,16 +105,50 @@ export const getPlayerProfile = onCall({ region: "us-central1" }, async (req) =>
   const leagueMate = !!league?.exists && memberIds.includes(me) && memberIds.includes(uid);
   const relation = self ? "self" : friend ? "friend" : leagueMate ? "league" : "none";
 
-  const [betsSnap, leagueBetsSnap] = await Promise.all([
+  const [betsSnap, leagueBetsSnap, rivalrySnap] = await Promise.all([
     self || friend
       ? db.collection("bets").where("uid", "==", uid).orderBy("placedAt", "desc").limit(50).get()
       : Promise.resolve(null),
     leagueMate
-      ? db.collection("leagues").doc(leagueId!).collection("leagueBets").where("uid", "==", uid).orderBy("placedAt", "desc").limit(30).get()
+      ? db
+          .collection("leagues")
+          .doc(leagueId!)
+          .collection("leagueBets")
+          .where("uid", "==", uid)
+          .orderBy("placedAt", "desc")
+          .limit(30)
+          .get()
+      : Promise.resolve(null),
+    leagueMate && !self
+      ? db.collection("leagues").doc(leagueId!).collection("rivalries").doc(pairId(me, uid)).get()
       : Promise.resolve(null),
   ]);
 
   const m = leagueMate ? (league!.get(`members.${uid}`) as Record<string, unknown> | undefined) : undefined;
+  const now = Date.now();
+  const visibleLeagueBets = leagueBetsSnap
+    ? leagueBetsSnap.docs
+        .filter((d) => {
+          if (self) return true;
+          if (d.get("hidden") !== true) return true;
+          const startsAt = (d.get("startsAt") as number | undefined) ?? 0;
+          return (startsAt > 0 && startsAt <= now) || d.get("status") !== "pending";
+        })
+        .map(betOf)
+    : [];
+
+  let rivalry: { myWins: number; theirWins: number; pushes: number } | null = null;
+  if (rivalrySnap?.exists) {
+    const aUid = rivalrySnap.get("aUid") as string;
+    const aWins = (rivalrySnap.get("aWins") as number | undefined) ?? 0;
+    const bWins = (rivalrySnap.get("bWins") as number | undefined) ?? 0;
+    const pushes = (rivalrySnap.get("pushes") as number | undefined) ?? 0;
+    rivalry = {
+      myWins: me === aUid ? aWins : bWins,
+      theirWins: me === aUid ? bWins : aWins,
+      pushes,
+    };
+  }
 
   return {
     relation,
@@ -108,8 +158,17 @@ export const getPlayerProfile = onCall({ region: "us-central1" }, async (req) =>
       displayName: user.get("displayName") as string,
       avatar: user.get("avatar") ?? null,
       equipped: user.get("equipped") ?? {},
+      // Only moves they own (or the free ones) — never trust the stored loadout alone.
+      moves: loadoutOf(
+        loadoutOf(user.get("moves")).filter((id) => isFreeMove(id) || ownedMovesSnap.docs.some((d) => d.id === id))
+      ),
       favoriteTeams: user.get("favoriteTeams") ?? [],
+      level: levelFromXp(user.get("xp")),
+      background: (user.get("background") as string | undefined) ?? null,
       stats: user.get("stats") ?? null,
+      streak: user.get("streak") ?? null,
+      punishment: user.get("punishment") ?? null,
+      trophies: trophiesSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
       memberSince: ms(user.get("createdAt")),
       balance: self || friend ? ((user.get("balance") as number | undefined) ?? null) : null,
     },
@@ -122,9 +181,36 @@ export const getPlayerProfile = onCall({ region: "us-central1" }, async (req) =>
           betsWon: (m?.betsWon as number | undefined) ?? 0,
           betsLost: (m?.betsLost as number | undefined) ?? 0,
           betsPush: (m?.betsPush as number | undefined) ?? 0,
+          locksWon: (m?.locksWon as number | undefined) ?? 0,
+          locksLost: (m?.locksLost as number | undefined) ?? 0,
           joinedAt: (m?.joinedAt as number | undefined) ?? null,
-          bets: leagueBetsSnap ? leagueBetsSnap.docs.map(betOf) : [],
+          bets: visibleLeagueBets,
+          rivalry,
         }
       : null,
   };
+});
+
+/** Player-set play limits: a daily pick cap and/or a break of 1, 7 or 30 days. */
+export const setPlayLimits = onCall({ region: "us-central1" }, async (req) => {
+  const uid = requireAuth(req.auth);
+  const input = z
+    .object({
+      dailyPicks: z.number().int().min(1).max(100).nullable().optional(),
+      breakDays: z.union([z.literal(1), z.literal(7), z.literal(30)]).optional(),
+    })
+    .parse(req.data ?? {});
+  const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+  if (input.dailyPicks !== undefined) update["limits.dailyPicks"] = input.dailyPicks;
+  if (input.breakDays) update["limits.breakUntil"] = Date.now() + input.breakDays * 86_400_000;
+  await db.collection("users").doc(uid).update(update);
+  return { ok: true };
+});
+
+/** Opt in/out of live "sweat" lead-change pushes. */
+export const setAlertPrefs = onCall({ region: "us-central1" }, async (req) => {
+  const uid = requireAuth(req.auth);
+  const { sweat } = z.object({ sweat: z.boolean() }).parse(req.data);
+  await db.collection("users").doc(uid).update({ sweatAlerts: sweat, updatedAt: FieldValue.serverTimestamp() });
+  return { ok: true };
 });

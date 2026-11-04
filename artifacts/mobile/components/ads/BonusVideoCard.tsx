@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import React, { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Button, Card } from "@/components/ui";
@@ -44,7 +44,7 @@ function BonusVideo() {
     if (crediting === null || used === null || used <= crediting) return;
     setCrediting(null);
     setNote({ text: `+${AD_REWARD_DISPLAY.credits} credits added`, tone: "ok" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    buzz.success();
   }, [used, crediting]);
 
   useEffect(() => {

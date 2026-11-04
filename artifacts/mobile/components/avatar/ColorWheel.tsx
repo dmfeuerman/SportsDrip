@@ -1,4 +1,4 @@
-import * as Haptics from "expo-haptics";
+import { haptic as buzz } from "@/lib/motion";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from "react-native";
@@ -78,7 +78,7 @@ function Wheel({ size, hsv, onChange, onEnd }: { size: number; hsv: HSV; onChang
         // Keep the gesture: the sheet's swipe-to-dismiss must not steal it.
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: (e) => {
-          Haptics.selectionAsync().catch(() => {});
+          buzz.tick();
           pick(e);
         },
         onPanResponderMove: pick,

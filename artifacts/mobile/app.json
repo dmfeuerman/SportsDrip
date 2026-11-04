@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "sportdrip",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
@@ -24,6 +24,12 @@
       ],
       "expo-font",
       "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "enableBackgroundRemoteNotifications": false
+        }
+      ],
       [
         "expo-splash-screen",
         {

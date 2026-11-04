@@ -1,10 +1,13 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import { LinearGradient } from "expo-linear-gradient";
+import { haptic as buzz } from "@/lib/motion";
 import React, { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
+import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import AvatarBackdrop from "@/components/avatar/AvatarBackdrop";
 import { Pill } from "@/components/ui";
+import { loadoutOf, MOVES_BY_ID } from "@/constants/moves";
 import { useColors } from "@/hooks/useColors";
 import { SLOT_ICONS, type CatalogItem } from "@/types/catalog";
 import type { AvatarConfig, Equipped } from "@/types/avatar";
@@ -12,15 +15,23 @@ import type { AvatarConfig, Equipped } from "@/types/avatar";
 export const AVATAR_HERO_HEIGHT = 500;
 
 /**
- * The character card from the top of Home: live 3D stage at hero framing,
- * glow, celebrate button and "wearing" pills. Used for the signed-in player
+ * The character card from the top of Home: live 3D stage at hero framing in
+ * front of the player's background, dance button, and a footer (the level bar
+ * on Home; "wearing" pills by default). Used for the signed-in player
  * and for anyone else's profile so every full-size avatar looks the same.
+ *
+ * The dance button offers the player's loadout (up to four moves): with one
+ * move it just plays it; with more it fans them out to pick from.
  */
 export default function AvatarHero({
   avatar,
   equipped,
   catalog,
+  moves,
+  onEditMoves,
   header,
+  footer,
+  background,
   active = true,
   onGesture,
   style,
@@ -29,20 +40,35 @@ export default function AvatarHero({
   avatar: Partial<AvatarConfig> | null | undefined;
   equipped: Equipped | null | undefined;
   catalog: Map<string, CatalogItem>;
+  /** Their dance-move loadout (the default when absent). */
+  moves?: string[] | null;
+  /** Own card only: a shortcut from the move picker to the Moves screen. */
+  onEditMoves?: () => void;
   /** Overlay row across the top of the card. */
   header?: React.ReactNode;
+  /** Replaces the "wearing" pills along the bottom (Home puts the level bar here). */
+  footer?: React.ReactNode;
+  /** Scene behind the character (constants/backgrounds.ts); the Locker Room when absent. */
+  background?: string | null;
   active?: boolean;
   /** True while a spin / pinch owns the touch, so the parent can pause scrolling. */
   onGesture?: (active: boolean) => void;
   style?: StyleProp<ViewStyle>;
 }) {
   const c = useColors();
-  // Taps alternate between the cheer and the win fist pump.
-  const [gesture, setGesture] = useState<{ n: number; cheer: number; win: { kind: "win"; id: number } | null }>({ n: 0, cheer: 0, win: null });
-  const celebrate = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setGesture((g) => (g.n % 2 === 0 ? { ...g, n: g.n + 1, cheer: g.cheer + 1 } : { ...g, n: g.n + 1, win: { kind: "win", id: g.n + 1 } }));
+  const loadout = useMemo(() => loadoutOf(moves), [moves]);
+  const [move, setMove] = useState<{ id: string; n: number } | null>(null);
+  const [picking, setPicking] = useState(false);
+  const play = useCallback((id: string) => {
+    buzz.light();
+    setPicking(false);
+    setMove((m) => ({ id, n: (m?.n ?? 0) + 1 }));
   }, []);
+  const onDance = useCallback(() => {
+    if (loadout.length === 1 && !onEditMoves) return play(loadout[0]!);
+    buzz.tick();
+    setPicking((p) => !p);
+  }, [loadout, onEditMoves, play]);
   const wearing = useMemo(
     () =>
       Object.values(equipped ?? {})
@@ -53,13 +79,8 @@ export default function AvatarHero({
 
   return (
     <View style={[styles.hero, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.22) }, style]}>
-      <LinearGradient
-        pointerEvents="none"
-        colors={[c.alpha(c.primary, c.isDark ? 0.16 : 0.1), "transparent", c.alpha(c.primary, c.isDark ? 0.22 : 0.12)]}
-        locations={[0, 0.55, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.avatar}>
+      <AvatarBackdrop id={background} />
+      <View style={[styles.avatar, footer ? { bottom: 70 } : null]}>
         {avatar ? (
           <AvatarDisplay
             avatar={avatar}
@@ -69,8 +90,7 @@ export default function AvatarHero({
             controls={false}
             onGesture={onGesture}
             focus="hero"
-            cheerSignal={gesture.cheer}
-            reaction={gesture.win}
+            move={move}
             active={active}
           />
         ) : (
@@ -79,16 +99,65 @@ export default function AvatarHero({
           </View>
         )}
       </View>
+      {avatar && picking ? (
+        <>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setPicking(false)} accessibilityLabel="Close moves" />
+          <Animated.View entering={FadeIn.duration(140)} exiting={FadeOut.duration(120)} style={[styles.wheel, footer ? { bottom: 150 } : null]} pointerEvents="box-none">
+            {onEditMoves ? (
+              <Animated.View entering={ZoomIn.duration(160)}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit moves"
+                  onPress={() => {
+                    setPicking(false);
+                    onEditMoves();
+                  }}
+                  hitSlop={4}
+                  style={({ pressed }) => [styles.moveChip, { backgroundColor: c.alpha(c.elevated, 0.94), borderColor: c.border, opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <MaterialCommunityIcons name="pencil-outline" size={16} color={c.mutedForeground} />
+                  <Text style={[styles.moveText, { color: c.mutedForeground }]}>Edit moves</Text>
+                </Pressable>
+              </Animated.View>
+            ) : null}
+            {[...loadout].reverse().map((id, i) => {
+              const m = MOVES_BY_ID.get(id);
+              return (
+                <Animated.View key={id} entering={ZoomIn.delay(30 * i).duration(170)}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Dance: ${m?.name ?? id}`}
+                    onPress={() => play(id)}
+                    hitSlop={4}
+                    style={({ pressed }) => [
+                      styles.moveChip,
+                      { backgroundColor: c.alpha(c.elevated, 0.94), borderColor: c.alpha(c.primary, 0.45), opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.96 : 1 }] },
+                    ]}
+                  >
+                    <View style={[styles.moveIcon, { backgroundColor: c.alpha(c.primary, 0.16) }]}>
+                      <MaterialCommunityIcons name={(m?.icon ?? "music-note") as never} size={16} color={c.primary} />
+                    </View>
+                    <Text style={[styles.moveText, { color: c.foreground }]} numberOfLines={1}>
+                      {m?.name ?? id}
+                    </Text>
+                  </Pressable>
+                </Animated.View>
+              );
+            })}
+          </Animated.View>
+        </>
+      ) : null}
       {avatar ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Celebrate${wearing.length ? `. Wearing ${wearing.map((i) => i.name).join(", ")}` : ""}`}
-          onPress={celebrate}
+          accessibilityLabel={`Dance${wearing.length ? `. Wearing ${wearing.map((i) => i.name).join(", ")}` : ""}`}
+          accessibilityState={{ expanded: picking }}
+          onPress={onDance}
           hitSlop={6}
-          style={({ pressed }) => [styles.dance, { backgroundColor: c.primary, opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
+          style={({ pressed }) => [styles.dance, footer ? { bottom: 92 } : null, { backgroundColor: c.primary, opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
         >
-          <MaterialCommunityIcons name="human-handsup" size={26} color={c.primaryForeground} />
-          <MaterialCommunityIcons name="music-note" size={13} color={c.primaryForeground} style={styles.danceNote} />
+          <MaterialCommunityIcons name={picking ? "close" : "human-handsup"} size={picking ? 22 : 26} color={c.primaryForeground} />
+          {!picking ? <MaterialCommunityIcons name="music-note" size={13} color={c.primaryForeground} style={styles.danceNote} /> : null}
         </Pressable>
       ) : null}
       {header ? (
@@ -97,9 +166,11 @@ export default function AvatarHero({
         </View>
       ) : null}
       <View style={styles.bottom} pointerEvents="box-none">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.wearing} contentContainerStyle={styles.wearingRow}>
-          {wearing.length ? wearing.map((i) => <Pill key={i.id} label={i.name} icon={SLOT_ICONS[i.slot] as never} />) : <Pill label="Nothing equipped yet" />}
-        </ScrollView>
+        {footer ?? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.wearing} contentContainerStyle={styles.wearingRow}>
+            {wearing.length ? wearing.map((i) => <Pill key={i.id} label={i.name} icon={SLOT_ICONS[i.slot] as never} />) : <Pill label="Nothing equipped yet" />}
+          </ScrollView>
+        )}
       </View>
     </View>
   );
@@ -112,7 +183,11 @@ const styles = StyleSheet.create({
   top: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
   dance: { position: "absolute", right: 12, bottom: 62, width: 50, height: 50, borderRadius: 25, alignItems: "center", justifyContent: "center" },
   danceNote: { position: "absolute", top: 7, right: 8 },
-  bottom: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", alignItems: "center", gap: 8 },
+  wheel: { position: "absolute", right: 12, bottom: 120, alignItems: "flex-end", gap: 8 },
+  moveChip: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 6, paddingRight: 14, paddingVertical: 6, borderRadius: 22, borderWidth: 1, minHeight: 40 },
+  moveIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  moveText: { fontSize: 14, fontFamily: "Inter_600SemiBold", maxWidth: 160 },
+  bottom: { position: "absolute", left: 12, right: 12, bottom: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   wearing: { flex: 1 },
   wearingRow: { gap: 6, alignItems: "center" },
 });

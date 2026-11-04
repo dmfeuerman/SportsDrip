@@ -1,17 +1,30 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { haptic as buzz } from "@/lib/motion";
+import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarHero from "@/components/avatar/AvatarHero";
+import { isSceneBackdrop } from "@/components/avatar/AvatarBackdrop";
+import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
+import { WinLossReplyThread, type ReplyQuote } from "@/components/chat/ReplyThread";
+import WinLossReplyModal from "@/components/chat/WinLossReplyModal";
 import GameQuickView from "@/components/GameQuickView";
 import KeyboardSheet from "@/components/KeyboardSheet";
 import TeamChips from "@/components/TeamChips";
-import { Amount, Button, CloseButton, IconButton, Pill, SegmentedControl, StatTile } from "@/components/ui";
+import { Amount, Button, ConfirmDialog, IconButton, Pill, SegmentedControl, StatTile, TabStrip } from "@/components/ui";
 import { DEFAULT_AVATAR } from "@/constants/avatarOptions";
+import { useApp } from "@/context/AppContext";
+import { useChallenges } from "@/context/ChallengeContext";
+import { useChat } from "@/context/ChatContext";
+import { useLeague } from "@/context/LeagueContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { usePlayerProfile } from "@/hooks/usePlayerProfile";
 import type { FavoriteTeam, ProfileBet, PublicUser } from "@/lib/api";
+import { formatOdds, type OddsFormat } from "@/lib/odds";
+import { useOddsFormat } from "@/lib/settings";
 
 /** What the opener already knows, so the header paints before the fetch lands. */
 export interface ProfileSeed {
@@ -19,6 +32,7 @@ export interface ProfileSeed {
   username?: string;
   avatar?: PublicUser["avatar"] | null;
   equipped?: PublicUser["equipped"];
+  moves?: string[];
   favoriteTeams?: FavoriteTeam[];
 }
 
@@ -47,9 +61,12 @@ function ago(at: number | null) {
 
 /**
  * A player's card: who they are, who they root for, how they bet, and their
- * open and settled bets. Opened from league standings and the friends list.
- * What's shown is decided server-side (getPlayerProfile) — non-friends never
- * receive global bet history.
+ * open and settled bets. Opened from league standings, chats, and the friends list.
+ *
+ * Includes:
+ *  - Direct primary action buttons under profile details: Challenge (1v1) & Invite to League
+ *  - Interactive settled bet / result cards that open BetBreakdownModal
+ *  - Comment/reply threads on settled win/loss items
  */
 export default function PlayerProfileSheet({
   uid,
@@ -58,7 +75,7 @@ export default function PlayerProfileSheet({
   seed,
   standing,
   footer,
-  options,
+  onRemoveFriend,
 }: {
   uid: string | null;
   onClose: () => void;
@@ -66,11 +83,12 @@ export default function PlayerProfileSheet({
   seed?: ProfileSeed;
   standing?: ProfileStanding;
   footer?: React.ReactNode;
-  options?: React.ReactNode;
+  /** Friends only: shows a small "Remove friend" link at the bottom of the profile. */
+  onRemoveFriend?: (uid: string) => Promise<unknown>;
 }) {
   return (
     <KeyboardSheet visible={!!uid} onClose={onClose} style={{ height: "90%", paddingHorizontal: 0, paddingBottom: 0 }} headerStyle={{ marginHorizontal: 16 }}>
-      {uid ? <Body key={uid} uid={uid} leagueId={leagueId} seed={seed} standing={standing} footer={footer} options={options} onDismiss={onClose} /> : null}
+      {uid ? <Body key={uid} uid={uid} leagueId={leagueId} seed={seed} standing={standing} footer={footer} onRemoveFriend={onRemoveFriend} onDismiss={onClose} /> : null}
     </KeyboardSheet>
   );
 }
@@ -81,7 +99,7 @@ function Body({
   seed,
   standing,
   footer,
-  options,
+  onRemoveFriend,
   onDismiss,
 }: {
   uid: string;
@@ -89,27 +107,40 @@ function Body({
   seed?: ProfileSeed;
   standing?: ProfileStanding;
   footer?: React.ReactNode;
-  options?: React.ReactNode;
+  onRemoveFriend?: (uid: string) => Promise<unknown>;
   onDismiss: () => void;
 }) {
   const c = useColors();
+  const fmt = useOddsFormat();
   const insets = useSafeAreaInsets();
   const { byId } = useCatalog();
+  const { profile: myProfile, progress: myProgress } = useApp();
+  const { activeLeagues, inviteFriend } = useLeague();
+  const { headToHead } = useChallenges();
+  const { betComments } = useChat();
   const { data, loading, error, reload } = usePlayerProfile(uid, leagueId);
+
   const [tab, setTab] = useState<BetTab>("open");
   const [source, setSource] = useState<Source>(leagueId ? "league" : "all");
   const [avatarGesture, setAvatarGesture] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [showLeagueSelector, setShowLeagueSelector] = useState(false);
+  const [inviteStatus, setInviteStatus] = useState<Record<string, "busy" | "sent" | "error">>({});
   const [quickGame, setQuickGame] = useState<string | null>(null);
+  const [breakdown, setBreakdown] = useState<BetBreakdownItem | null>(null);
+  const [replyTarget, setReplyTarget] = useState<ReplyQuote | null>(null);
 
   const p = data?.profile;
   const name = p?.displayName ?? seed?.displayName ?? "Player";
   const username = p?.username ?? seed?.username;
-  // Same fallback as Home once the fetch settles; null (spinner) while it is still loading.
   const avatar = p?.avatar ?? seed?.avatar ?? (loading && !data ? null : DEFAULT_AVATAR);
   const equipped = p?.equipped ?? seed?.equipped ?? {};
   const teams = p?.favoriteTeams?.length ? p.favoriteTeams : seed?.favoriteTeams ?? [];
   const relation = data?.relation;
+  const isSelf = uid === myProfile?.uid || relation === "self";
+  const level = isSelf ? myProgress.level : (p?.level ?? null);
+  const sceneText = isSceneBackdrop(isSelf ? myProfile?.background : p?.background);
 
   const hasGlobal = !!data?.bets;
   const hasLeague = !!data?.league;
@@ -135,6 +166,28 @@ function Body({
   const s = p?.stats;
   const decided = s ? s.betsWon + s.betsLost : 0;
   const hit = decided ? Math.round(((s?.betsWon ?? 0) / decided) * 100) : null;
+  const rivalry = data?.league?.rivalry;
+  const hasRivalry = !!rivalry && rivalry.myWins + rivalry.theirWins + rivalry.pushes > 0;
+  const trophies = p?.trophies ?? [];
+  const activePunishment = p?.punishment && p.punishment.expiresAt > Date.now() ? p.punishment : null;
+
+  const h2h = useMemo(() => (isSelf ? null : headToHead(uid)), [isSelf, headToHead, uid]);
+  const invitableLeagues = useMemo(
+    () => activeLeagues.filter((l) => !l.memberIds.includes(uid)),
+    [activeLeagues, uid]
+  );
+
+  const handleChallenge = () => {
+    buzz.medium();
+    onDismiss();
+    router.navigate({ pathname: "/(tabs)/games", params: { challenge: uid, challengeName: name } });
+  };
+
+  const handleMessage = () => {
+    buzz.tick();
+    onDismiss();
+    router.push({ pathname: "/messages" as never, params: { uid, name } });
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -144,30 +197,43 @@ function Body({
           avatar={avatar}
           equipped={equipped}
           catalog={byId}
+          moves={p?.moves ?? seed?.moves}
           onGesture={setAvatarGesture}
+          background={isSelf ? myProfile?.background : p?.background}
           header={
             <>
               <View style={{ flex: 1, gap: 2 }}>
-                <Text accessibilityRole="header" style={[styles.name, { color: c.foreground }]} numberOfLines={1}>
+                <Text
+                  accessibilityRole="header"
+                  style={[styles.name, { color: sceneText ? "#FFFFFF" : c.foreground }, sceneText && styles.onScene]}
+                  numberOfLines={1}
+                >
                   {name}
                 </Text>
-                {username ? <Text style={[styles.handle, { color: c.mutedForeground }]}>@{username}</Text> : null}
+                {username || level ? (
+                  <Text style={[styles.handle, { color: sceneText ? "rgba(255,255,255,0.8)" : c.mutedForeground }, sceneText && styles.onScene]}>
+                    {[username ? `@${username}` : null, level ? `Level ${level}` : null].filter(Boolean).join(" · ")}
+                  </Text>
+                ) : null}
               </View>
               {standing?.rank === 1 && (
                 <View style={[styles.crown, { backgroundColor: c.primary }]}>
                   <MaterialCommunityIcons name="crown" size={16} color={c.primaryForeground} />
                 </View>
               )}
-              {options ? (
-                <IconButton icon="dots-horizontal" label="Options" onPress={() => setShowOptions(true)} />
+              {!isSelf ? (
+                <IconButton icon="message-text-outline" label={`Message ${name}`} onPress={handleMessage} />
               ) : null}
             </>
           }
         />
+
         <View style={styles.inline}>
-          {relation === "self" && <Pill label="You" tone="accent" />}
+          {isSelf && <Pill label="You" tone="accent" />}
           {relation === "friend" && <Pill label="Friend" tone="positive" icon="account-check" />}
           {relation === "league" && <Pill label="League-mate" tone="league" icon="shield-star" />}
+          {p?.streak?.count ? <Pill label={`🔥 ${p.streak.count}d streak`} tone="accent" /> : null}
+          {activePunishment ? <Pill label={`Last place · ${activePunishment.leagueName}`} tone="negative" icon="emoticon-sad-outline" /> : null}
           {p?.memberSince ? <Text style={[styles.meta, { color: c.subtleForeground }]}>Since {new Date(p.memberSince).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</Text> : null}
           {p?.balance != null && (
             <View style={{ marginLeft: "auto" }}>
@@ -176,13 +242,130 @@ function Body({
           )}
         </View>
 
+        {/* Primary Friend Profile Actions directly under profile details: Challenge & Invite to League */}
+        {!isSelf && (
+          <View style={[styles.actionsCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={styles.primaryActionsRow}>
+              <Button
+                label="Challenge"
+                icon="sword-cross"
+                variant="primary"
+                onPress={handleChallenge}
+                style={{ flex: 1 }}
+              />
+              <Button
+                label="Invite to League"
+                icon="trophy-outline"
+                variant="league"
+                onPress={() => {
+                  buzz.tick();
+                  setShowLeagueSelector((v) => !v);
+                }}
+                style={{ flex: 1 }}
+              />
+            </View>
+
+            {h2h && h2h.won + h2h.lost + h2h.push > 0 ? (
+              <Text style={[styles.meta, { color: c.mutedForeground }]}>
+                1v1 Challenge Record: You lead {h2h.won}–{h2h.lost}
+                {h2h.push ? `–${h2h.push}` : ""} against {name}
+              </Text>
+            ) : null}
+
+            {/* Inline League Invite Selector */}
+            {showLeagueSelector && (
+              <View style={[styles.leagueSelectorBox, { backgroundColor: c.secondary, borderColor: c.border }]}>
+                <View style={styles.inline}>
+                  <MaterialCommunityIcons name="trophy-outline" size={15} color={c.league} />
+                  <Text style={[styles.leagueTitle, { color: c.foreground, flex: 1 }]}>
+                    Select a league to invite {name}
+                  </Text>
+                </View>
+                {invitableLeagues.length === 0 ? (
+                  <View style={styles.inline}>
+                    <Text style={[styles.meta, { color: c.mutedForeground, flex: 1 }]}>
+                      {activeLeagues.length === 0
+                        ? "You don't have any active leagues yet."
+                        : `${name} is already a member of all your active leagues.`}
+                    </Text>
+                    {activeLeagues.length === 0 && (
+                      <Button
+                        size="sm"
+                        label="Create League"
+                        variant="league"
+                        onPress={() => {
+                          onDismiss();
+                          router.navigate({ pathname: "/(tabs)/leagues", params: { create: "1" } });
+                        }}
+                      />
+                    )}
+                  </View>
+                ) : (
+                  invitableLeagues.map((lg) => {
+                    const key = `${lg.id}:${uid}`;
+                    const st = inviteStatus[key];
+                    return (
+                      <View key={lg.id} style={styles.leagueInviteRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.betTitle, { color: c.foreground }]} numberOfLines={1}>
+                            {lg.name}
+                          </Text>
+                          <Text style={[styles.time, { color: c.mutedForeground }]}>
+                            {lg.buyIn > 0 ? `${lg.buyIn.toLocaleString()} credits buy-in` : "Free buy-in"} · Code {lg.code}
+                          </Text>
+                        </View>
+                        <Button
+                          size="sm"
+                          label={st === "sent" ? "Invited ✓" : st === "error" ? "Retry" : "Send Invite"}
+                          variant={st === "sent" ? "secondary" : "league"}
+                          loading={st === "busy"}
+                          disabled={st === "sent"}
+                          onPress={async () => {
+                            setInviteStatus((prev) => ({ ...prev, [key]: "busy" }));
+                            const err = await inviteFriend(lg.id, uid);
+                            setInviteStatus((prev) => ({ ...prev, [key]: err ? "error" : "sent" }));
+                          }}
+                        />
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
+        {hasRivalry && rivalry && (
+          <View style={[styles.rivalryBox, { backgroundColor: c.alpha(c.accent, 0.12), borderColor: c.alpha(c.accent, 0.45) }]}>
+            <MaterialCommunityIcons name="sword-cross" size={16} color={c.accent} />
+            <Text style={[styles.leagueTitle, { color: c.foreground }]}>
+              You're {rivalry.myWins}–{rivalry.theirWins}{rivalry.pushes ? `–${rivalry.pushes}` : ""} vs {name} on opposing league picks
+            </Text>
+          </View>
+        )}
+
+        {trophies.length > 0 && (
+          <View style={{ gap: 8 }}>
+            <Text style={[styles.section, { color: c.foreground }]}>Trophy Shelf ({trophies.length})</Text>
+            <View style={styles.inline}>
+              {trophies.map((t, idx) => (
+                <Pill
+                  key={`${t.leagueId}_${idx}`}
+                  label={t.kind === "achievement" ? `⭐ ${t.title}` : `🏆 ${t.leagueName ?? t.title}`}
+                  tone={t.kind === "achievement" ? "accent" : "money"}
+                />
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Favourite teams */}
         <View style={{ gap: 8 }}>
           <Text style={[styles.section, { color: c.foreground }]}>Favorite teams</Text>
           {teams.length ? (
             <TeamChips teams={teams} max={5} />
           ) : (
-            <Text style={[styles.meta, { color: c.subtleForeground }]}>{relation === "self" ? "Pick yours from the Locker tab." : "None picked yet."}</Text>
+            <Text style={[styles.meta, { color: c.subtleForeground }]}>{isSelf ? "Pick yours from the Locker tab." : "None picked yet."}</Text>
           )}
         </View>
 
@@ -235,10 +418,10 @@ function Body({
           </View>
         </View>
 
-        {/* Bets */}
+        {/* Bets & Interactive Recent Results */}
         <View style={{ gap: 8 }}>
           <View style={styles.inline}>
-            <Text style={[styles.section, { color: c.foreground, flex: 1 }]}>Bets</Text>
+            <Text style={[styles.section, { color: c.foreground, flex: 1 }]}>Bets & Recent Results</Text>
             {loading && <ActivityIndicator size="small" color={c.mutedForeground} />}
           </View>
 
@@ -264,12 +447,13 @@ function Body({
                   ]}
                 />
               )}
-              <SegmentedControl
+              <TabStrip
+                bleed={false}
                 value={tab}
                 onChange={setTab}
                 options={[
                   { value: "open", label: "Active", badge: open.length || undefined },
-                  { value: "history", label: "History", badge: settled.length || undefined },
+                  { value: "history", label: "Recent Results", badge: settled.length || undefined },
                 ]}
               />
               {shown.length === 0 ? (
@@ -277,27 +461,140 @@ function Body({
                   {tab === "open" ? "No open bets right now." : "Nothing settled yet."}
                 </Text>
               ) : (
-                shown.map((b) => <BetRow key={b.id} b={b} currency={betCurrency} onPress={() => setQuickGame(b.gameId)} />)
+                shown.map((b) => {
+                  const quote: ReplyQuote = {
+                    id: b.id,
+                    kind: "bet_result",
+                    authorUid: uid,
+                    authorName: name,
+                    text: `${b.label ?? b.teamName} v ${b.opponentAbbr} · ${b.status.toUpperCase()} (${formatOdds(b.odds, fmt)})`,
+                    betStatus: b.status,
+                    teamAbbr: b.teamAbbr,
+                    opponentAbbr: b.opponentAbbr,
+                    odds: b.odds,
+                    stake: b.stake,
+                    payout: b.potentialPayout,
+                    currency: betCurrency,
+                  };
+                  const comments = betComments[b.id] ?? [];
+
+                  return (
+                    <View key={b.id} style={styles.betCardWrap}>
+                      <BetRow
+                        b={b}
+                        currency={betCurrency}
+                        fmt={fmt}
+                        onPress={() => {
+                          buzz.tick();
+                          setBreakdown({
+                            id: b.id,
+                            gameId: b.gameId,
+                            sport: b.sport,
+                            teamName: b.teamName,
+                            teamAbbr: b.teamAbbr,
+                            teamColor: b.teamColor,
+                            opponentAbbr: b.opponentAbbr,
+                            side: b.side,
+                            market: b.market ?? "ml",
+                            selection: b.selection ?? null,
+                            line: b.line ?? null,
+                            label: b.label ?? null,
+                            lock: b.lock,
+                            odds: b.odds,
+                            stake: b.stake,
+                            payout: b.potentialPayout,
+                            status: b.status,
+                            finalHomeScore: b.finalHomeScore,
+                            finalAwayScore: b.finalAwayScore,
+                            wallet: betCurrency,
+                            leagueId: src === "league" ? leagueId : null,
+                            leagueName: src === "league" ? data?.league?.leagueName : null,
+                            ownerUid: uid,
+                            ownerName: name,
+                            placedAtMs: b.placedAt,
+                            settledAtMs: b.settledAt,
+                          });
+                        }}
+                      />
+                      {/* Reply thread underneath Win/Loss items */}
+                      {b.status !== "pending" && (
+                        <WinLossReplyThread
+                          parentQuote={quote}
+                          replies={comments}
+                          myUid={myProfile?.uid ?? null}
+                          onPressReply={() => setReplyTarget(quote)}
+                        />
+                      )}
+                    </View>
+                  );
+                })
               )}
             </>
           )}
         </View>
+
+        {onRemoveFriend && relation === "friend" && !isSelf ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Remove ${name} as a friend`}
+            hitSlop={10}
+            disabled={removing}
+            onPress={() => setConfirmRemove(true)}
+            style={({ pressed }) => [styles.removeLink, { opacity: pressed || removing ? 0.6 : 1 }]}
+          >
+            <Text style={[styles.removeText, { color: c.negative }]}>Remove friend</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
       {footer ? <View style={[styles.footer, { borderTopColor: c.border, paddingBottom: insets.bottom + 16 }]}>{footer}</View> : null}
-      {options && showOptions ? (
-        <View style={StyleSheet.absoluteFill}>
-          <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: c.overlay }]} onPress={() => setShowOptions(false)} accessibilityLabel="Close options" />
-          <View style={[styles.options, { backgroundColor: c.elevated, borderColor: c.border }]}>
-            <View style={styles.inline}>
-              <Text style={[styles.section, { color: c.foreground, flex: 1 }]}>Options</Text>
-              <CloseButton onPress={() => setShowOptions(false)} />
-            </View>
-            <View style={[styles.divider, { backgroundColor: c.border }]} />
-            {options}
-          </View>
-        </View>
+      {onRemoveFriend ? (
+        <ConfirmDialog
+          visible={confirmRemove}
+          title="Remove friend?"
+          body={`${name} will be removed from your friends. You can send a new request later.`}
+          confirmLabel="Remove"
+          destructive
+          busy={removing}
+          onCancel={() => setConfirmRemove(false)}
+          onConfirm={async () => {
+            setRemoving(true);
+            buzz.light();
+            await onRemoveFriend(uid);
+            setRemoving(false);
+            setConfirmRemove(false);
+            onDismiss();
+          }}
+        />
       ) : null}
-      {/* Inside the profile's Modal so iOS can stack the game sheet on it. */}
+
+      <BetBreakdownModal
+        item={breakdown}
+        onClose={() => setBreakdown(null)}
+        onOpenGame={(gId) => setQuickGame(gId)}
+        onReply={(item) =>
+          setReplyTarget({
+            id: item.id,
+            kind: "bet_result",
+            authorUid: uid,
+            authorName: name,
+            text: `${item.label ?? item.teamName} v ${item.opponentAbbr} · ${item.status.toUpperCase()} (${formatOdds(item.odds, fmt)})`,
+            betStatus: item.status,
+            teamAbbr: item.teamAbbr,
+            opponentAbbr: item.opponentAbbr,
+            odds: item.odds,
+            stake: item.stake,
+            payout: item.payout,
+            currency: item.wallet,
+          })
+        }
+      />
+
+      <WinLossReplyModal
+        target={replyTarget}
+        leagueId={src === "league" ? leagueId : null}
+        onClose={() => setReplyTarget(null)}
+      />
+
       <GameQuickView
         gameId={quickGame}
         onClose={() => setQuickGame(null)}
@@ -308,7 +605,7 @@ function Body({
   );
 }
 
-function BetRow({ b, currency, onPress }: { b: ProfileBet; currency: "credits" | "league"; onPress: () => void }) {
+function BetRow({ b, currency, fmt, onPress }: { b: ProfileBet; currency: "credits" | "league"; fmt: OddsFormat; onPress: () => void }) {
   const c = useColors();
   const label = b.status === "pending" ? "Open" : b.status === "won" ? "Won" : b.status === "lost" ? "Lost" : b.status === "push" ? "Push" : "Void";
   const tone = b.status === "won" ? "positive" : b.status === "lost" ? "negative" : b.status === "pending" ? "accent" : "neutral";
@@ -317,27 +614,30 @@ function BetRow({ b, currency, onPress }: { b: ProfileBet; currency: "credits" |
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityHint="Opens the game"
+      accessibilityHint="Opens full bet breakdown"
       onPress={onPress}
       style={({ pressed }) => [styles.bet, { backgroundColor: c.card, borderColor: c.border, borderLeftColor: b.teamColor, opacity: pressed ? 0.85 : 1 }]}
     >
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={[styles.betTitle, { color: c.foreground }]} numberOfLines={1}>
-          {b.teamName} <Text style={{ color: c.mutedForeground }}>v {b.opponentAbbr}</Text>
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text style={[styles.betTitle, { color: c.foreground, flexShrink: 1 }]} numberOfLines={1}>
+            {b.label ?? b.teamName} <Text style={{ color: c.mutedForeground }}>v {b.opponentAbbr}</Text>
+          </Text>
+          {b.lock ? <Pill label="LOCK" tone="accent" /> : null}
+        </View>
         <Text style={[styles.meta, { color: c.mutedForeground }]} numberOfLines={1}>
           {b.sport ? `${b.sport} · ` : ""}
-          {b.stake.toLocaleString()} @ {b.odds.toFixed(2)}x → {b.potentialPayout.toLocaleString()}
+          {b.stake.toLocaleString()} @ {formatOdds(b.odds, fmt)} → {b.potentialPayout.toLocaleString()}
           {mine != null && theirs != null ? ` · ${mine}–${theirs}` : ""}
         </Text>
-        <Text style={[styles.time, { color: c.subtleForeground }]}>{ago(b.settledAt ?? b.placedAt)}</Text>
+        <Text style={[styles.time, { color: c.subtleForeground }]}>{ago(b.settledAt ?? b.placedAt)} · Tap for breakdown</Text>
       </View>
       <View style={{ alignItems: "flex-end", gap: 4 }}>
         <Pill label={label} tone={tone} />
         {b.status === "won" ? <Amount value={b.potentialPayout - b.stake} currency={currency} size="sm" signed tone="positive" /> : null}
         {b.status === "lost" ? <Amount value={-b.stake} currency={currency} size="sm" signed tone="negative" /> : null}
       </View>
-      <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} />
+      <MaterialCommunityIcons name="information-outline" size={18} color={c.subtleForeground} />
     </Pressable>
   );
 }
@@ -347,19 +647,27 @@ const styles = StyleSheet.create({
   crown: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   name: { fontSize: 28, lineHeight: 32, fontFamily: "Inter_900Black", letterSpacing: -1 },
   handle: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  onScene: { textShadowColor: "rgba(0,0,0,0.55)", textShadowRadius: 8, textShadowOffset: { width: 0, height: 1 } },
   inline: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   meta: { fontSize: 12, lineHeight: 17, fontFamily: "Inter_400Regular" },
   section: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  actionsCard: { borderRadius: 16, borderWidth: 1, padding: 12, gap: 10 },
+  primaryActionsRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  leagueSelectorBox: { borderRadius: 12, borderWidth: 1, padding: 10, gap: 8 },
+  leagueInviteRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 },
+  rivalryBox: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
   leagueBox: { borderWidth: 1, borderRadius: 16, padding: 12, gap: 10 },
   leagueTitle: { fontSize: 14, fontFamily: "Inter_700Bold", flexShrink: 1 },
   tiles: { flexDirection: "row", gap: 8 },
   tile: { flex: 1 },
   tileValue: { fontSize: 15, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   notice: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12, borderWidth: 1 },
+  betCardWrap: { gap: 4 },
   bet: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12, borderWidth: 1, borderLeftWidth: 4 },
   betTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   time: { fontSize: 11, fontFamily: "Inter_500Medium" },
   divider: { height: StyleSheet.hairlineWidth },
-  options: { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 16, padding: 16, gap: 12 },
+  removeLink: { alignSelf: "center", paddingVertical: 8, marginTop: 4 },
+  removeText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   footer: { paddingHorizontal: 20, paddingTop: 12, gap: 10, borderTopWidth: StyleSheet.hairlineWidth },
 });
