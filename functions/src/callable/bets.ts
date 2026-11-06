@@ -4,6 +4,7 @@ import { applyCredits, db, FieldValue, requireAuth } from "../lib/economy";
 import { requirePricedMarket } from "../lib/pricing";
 import { checkPlayLimits } from "../lib/playLimits";
 import { advanceStreak, type StreakState } from "../lib/streak";
+import { recentEmptyDays } from "../lib/streakDays";
 
 const MIN_STAKE = 10;
 const MAX_STAKE = 100_000;
@@ -50,6 +51,7 @@ export const placeBet = onCall({ region: "us-central1" }, async (req) => {
   const gameRef = db.collection("games").doc(input.gameId);
   const userRef = db.collection("users").doc(uid);
 
+  const emptyDays = await recentEmptyDays();
   return db.runTransaction(async (tx) => {
     const [existing, gameSnap, userSnap] = await Promise.all([
       tx.get(betRef),
@@ -97,7 +99,7 @@ export const placeBet = onCall({ region: "us-central1" }, async (req) => {
     });
 
     const prevStreak = userSnap.get("streak") as Partial<StreakState> | undefined;
-    const streak = advanceStreak(prevStreak, now);
+    const streak = advanceStreak(prevStreak, now, { emptyDays });
 
     tx.set(betRef, {
       id: betId,
@@ -171,6 +173,9 @@ export const cancelBet = onCall({ region: "us-central1" }, async (req) => {
     });
 
     tx.update(betRef, { status: "cancelled", settledAt: FieldValue.serverTimestamp() });
+    // A cancelled free bet gives the day's free bet back.
+    const freeDay = bet.get("freeDay") as string | undefined;
+    if (bet.get("freeBet") === true && freeDay) tx.delete(db.collection("users").doc(uid).collection("freeBets").doc(freeDay));
     tx.update(db.collection("users").doc(uid), {
       "stats.betsPlaced": FieldValue.increment(-1),
       "stats.creditsStaked": FieldValue.increment(-stake),

@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { applyCredits, db, FieldValue, requireAuth } from "../lib/economy";
-import { isFreeMove, loadoutOf, MAX_LOADOUT, MOVE_ID_RE } from "../lib/moves";
+import { DEFAULT_MOVE_LISTINGS, isFreeMove, loadoutOf, MAX_LOADOUT, MOVE_ID_RE } from "../lib/moves";
 
 const MoveId = z.string().regex(MOVE_ID_RE, "Unknown move.");
 
@@ -27,13 +27,14 @@ export const purchaseMove = onCall({ region: "us-central1" }, async (req) => {
 
   return db.runTransaction(async (tx) => {
     const [move, owned, user] = await Promise.all([tx.get(moveRef), tx.get(ownRef), tx.get(userRef)]);
-    if (!move.exists) throw new HttpsError("not-found", "That move isn't in the store.");
+    const fallback = DEFAULT_MOVE_LISTINGS[moveId];
+    if (!move.exists && !fallback) throw new HttpsError("not-found", "That move isn't in the store.");
     if (owned.exists) throw new HttpsError("already-exists", "You already own this move.");
     if (!user.exists) throw new HttpsError("failed-precondition", "Create your profile first.");
     if (move.get("available") === false) throw new HttpsError("failed-precondition", "That move isn't available right now.");
     const releaseAt = move.get("releaseAt") as number | null | undefined;
     if (releaseAt && releaseAt > Date.now()) throw new HttpsError("failed-precondition", "That move hasn't dropped yet.");
-    const price = move.get("price") as number;
+    const price = (move.exists ? (move.get("price") as number) : fallback!.price) as number;
     if (typeof price !== "number" || !Number.isFinite(price) || price < 0) {
       throw new HttpsError("internal", "Move is misconfigured.");
     }
@@ -44,7 +45,7 @@ export const purchaseMove = onCall({ region: "us-central1" }, async (req) => {
       type: "purchase",
       idempotencyKey: `move_${idempotencyKey}`,
       ref: `move:${moveId}`,
-      note: (move.get("name") as string | undefined) ?? moveId,
+      note: (move.exists ? (move.get("name") as string | undefined) : fallback?.name) ?? moveId,
     });
     // A replayed key: the first call already granted it.
     if (balance === null) return { ok: true as const, balance: null, moveId, equipped: loadout.includes(moveId) };

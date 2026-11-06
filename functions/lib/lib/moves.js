@@ -14,13 +14,30 @@
  * Mirrored on the client in artifacts/mobile/constants/moves.ts.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.isFreeMove = exports.MOVE_ID_RE = exports.MAX_LOADOUT = exports.DEFAULT_LOADOUT = exports.FREE_MOVES = void 0;
+exports.isFreeMove = exports.MOVE_ID_RE = exports.DEFAULT_MOVE_LISTINGS = exports.MAX_LOADOUT = exports.DEFAULT_LOADOUT = exports.FREE_MOVES = void 0;
 exports.loadoutOf = loadoutOf;
 /** Everyone has these; they are never sold. */
 exports.FREE_MOVES = ["cheer", "fist_pump"];
 /** A player who has never set a loadout dances these. */
 exports.DEFAULT_LOADOUT = [...exports.FREE_MOVES];
 exports.MAX_LOADOUT = 4;
+/**
+ * Built-in listings for every move the app can animate (mirrors
+ * scripts/move-data.mjs). A moves/{id} doc overrides these; without one the
+ * move still sells at this price, so an unseeded store isn't empty.
+ */
+exports.DEFAULT_MOVE_LISTINGS = {
+    two_step: { name: "Two-Step", price: 1500 },
+    hype_clap: { name: "Hype Clap", price: 1800 },
+    shoulder_shimmy: { name: "Shoulder Shimmy", price: 3200 },
+    raise_the_roof: { name: "Raise the Roof", price: 3800 },
+    the_dab: { name: "The Dab", price: 4500 },
+    sprinkler: { name: "The Sprinkler", price: 7500 },
+    disco_point: { name: "Disco Point", price: 8500 },
+    the_robot: { name: "The Robot", price: 16000 },
+    the_floss: { name: "The Floss", price: 18000 },
+    champion_spin: { name: "Champion Spin", price: 40000 },
+};
 exports.MOVE_ID_RE = /^[a-z0-9_]{2,40}$/;
 const isFreeMove = (id) => exports.FREE_MOVES.includes(id);
 exports.isFreeMove = isFreeMove;

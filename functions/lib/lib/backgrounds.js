@@ -12,7 +12,7 @@
  * so a new id ships with an app release; price and gating live in Firestore.
  *
  *  levelRequired  can only be bought at or above this level
- *  levelReward    never sold: granted free on reaching this level
+ *  levelReward    granted free on reaching this level; buyable before then
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.isFreeBackground = exports.BACKGROUND_ID_RE = exports.DEFAULT_BACKGROUND = exports.FREE_BACKGROUNDS = void 0;

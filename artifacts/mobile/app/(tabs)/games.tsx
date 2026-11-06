@@ -1,7 +1,7 @@
 import BackToLevels from "@/components/BackToLevels";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -11,7 +11,8 @@ import {
   View,
 } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
-import { TourTarget } from "@/components/tour/TourTarget";
+import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
+import { tourEvent, tourPractice, tourStake, useTourState } from "@/lib/tour/store";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import BetModal, { type BetWallet, type SlipExtras } from "@/components/BetModal";
@@ -35,6 +36,7 @@ import { useToast } from "@/context/ToastContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
 import { useGames } from "@/hooks/useGames";
+import { useParlay } from "@/context/ParlayContext";
 import { prefetchGameInsights } from "@/hooks/useGameInsights";
 import { openGameCenter } from "@/lib/gameCenter";
 import * as api from "@/lib/api";
@@ -161,7 +163,16 @@ export default function GamesScreen() {
     }
     return out;
   }, [live, upcoming, sport, adsOn]);
-  const firstGameId = useMemo(() => rows.find((r): r is Extract<Row, { kind: "game" }> => r.kind === "game")?.game.id, [rows]);
+  // The tutorials point at the first two games you can actually bet on (the second is a parlay's other leg).
+  const listRef = useRef<FlatList<Row>>(null);
+  const tourScroll = useTourScroll(listRef);
+  const parlay = useParlay();
+  const touring = !!useTourState().tour;
+  const [firstGameId, secondGameId] = useMemo(() => {
+    const games = rows.filter((r): r is Extract<Row, { kind: "game" }> => r.kind === "game").map((r) => r.game);
+    const open = games.filter((g) => g.status === "upcoming" && g.priced && !g.disrupted);
+    return [open[0]?.id, open[1]?.id];
+  }, [rows]);
 
   const featured = useMemo(() => {
     const favs = new Set((profile?.favoriteTeams ?? []).map((t) => `${t.sport}:${t.abbr}`));
@@ -174,9 +185,17 @@ export default function GamesScreen() {
       prefetchGameInsights(game.id);
       setSlipError(null);
       setPending({ game, side, market, selection, key: newIdempotencyKey(), friend: friend || !!target });
+      tourEvent("slip:open");
     },
     [target]
   );
+
+  // Stable handlers so the memoised GameCards don't all re-render on every screen update.
+  const onCardBet = useCallback(
+    (g: Game, s: Side, m?: Market, sel?: Selection) => openBetSheet(g, s, false, m, sel),
+    [openBetSheet]
+  );
+  const onCardChallenge = useCallback((g: Game, s: Side) => openBetSheet(g, s, true), [openBetSheet]);
 
   const onChallengeSent = useCallback(
     (sent: { friendName: string; teamAbbr: string; teamColor: string; stake: number; pot: number }) => {
@@ -231,6 +250,30 @@ export default function GamesScreen() {
         setSlipError("No line yet for this game. Check back closer to kickoff.");
         return;
       }
+      // Tutorials: a practice bet goes nowhere; the first-bet tutorial wants its exact stake.
+      if (tourPractice()) {
+        const pt = (q.side ?? pending.side) === "home" ? pending.game.homeTeam : pending.game.awayTeam;
+        setPending(null);
+        buzz.success();
+        betLocked({
+          test: true,
+          teamName: q.label || pt.name,
+          teamAbbr: pt.abbreviation,
+          teamColor: pt.color,
+          odds: q.odds,
+          stake,
+          payout: Math.round(stake * q.odds),
+          currency: "credits",
+          walletLabel: "Test — nothing staked",
+        });
+        tourEvent("bet:placed");
+        return;
+      }
+      const required = tourStake();
+      if (required != null && stake !== required) {
+        setSlipError(`For this tutorial bet, stake exactly ${required} credits.`);
+        return;
+      }
       const oddsVal = q.odds;
       const Q = q;
       // Instant: the slip closes and the bet shows now; the server confirms behind it.
@@ -272,6 +315,7 @@ export default function GamesScreen() {
           setSlipError("Not enough credits.");
           return;
         }
+        tourEvent("bet:placed");
       } else {
         const key = pending.key;
         placeLeagueBet({
@@ -414,7 +458,11 @@ export default function GamesScreen() {
       {loading ? (
         <SkeletonList colors={colors} />
       ) : (
+        <tourScroll.Provider>
         <FlatList
+          ref={listRef}
+          onScroll={tourScroll.onScroll}
+          scrollEventThrottle={tourScroll.scrollEventThrottle}
           data={rows}
           keyExtractor={(r) => r.id}
           // Child 0 is the featured header when there is one, so section rows sit one further down.
@@ -439,17 +487,16 @@ export default function GamesScreen() {
                 <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{item.title}</Text>
               </View>
             ) : (
-              <TourTarget id={item.game.id === firstGameId ? "games.first" : `games.g.${item.game.id}`}>
               <GameCard
+                tourKey={item.game.id === firstGameId ? "first" : item.game.id === secondGameId ? "second" : undefined}
                 game={item.game}
-                onBet={(g, s, m, sel) => openBetSheet(g, s, false, m, sel)}
-                onChallenge={(g, s) => openBetSheet(g, s, true)}
-                onOpenDetail={setDetail}
+                onBet={onCardBet}
+                onChallenge={onCardChallenge}
+                onOpenDetail={touring ? undefined : setDetail}
                 position={positions.get(item.game.id) ?? null}
                 leagueMembers={boardSides.get(item.game.id)}
                 onLeaguePress={setTailGame}
               />
-              </TourTarget>
             )
           }
           contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
@@ -466,6 +513,7 @@ export default function GamesScreen() {
             />
           }
         />
+        </tourScroll.Provider>
       )}
 
       <GameDetailSheet
@@ -497,6 +545,25 @@ export default function GamesScreen() {
           defaultWallet={params.wallet}
           error={slipError}
           submitting={submitting}
+          onAddToParlay={
+            parlay.legs.length === 0 && pendingQuote?.odds
+              ? () => {
+                  const g = pending.game;
+                  parlay.add({
+                    gameId: g.id,
+                    market: pendingQuote.market,
+                    selection: pendingQuote.selection,
+                    label: pendingQuote.label,
+                    odds: pendingQuote.odds!,
+                    sport: g.sport,
+                    matchup: `${g.awayTeam.abbreviation} @ ${g.homeTeam.abbreviation}`,
+                    startsAt: g.startsAt,
+                  });
+                  setPending(null);
+                  tourEvent("parlay:add");
+                }
+              : undefined
+          }
           challenge={{
             initial: pending.friend,
             friendUid: target?.uid,

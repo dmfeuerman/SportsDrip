@@ -63,7 +63,7 @@ export async function checkAchievements(uid: string): Promise<string[]> {
   };
   const qualified = ACHIEVEMENTS.filter((a) => a.test(stats));
   if (!qualified.length) return [];
-  return db.runTransaction(async (tx) => {
+  const fresh = await db.runTransaction(async (tx) => {
     const refs = qualified.map((a) => userRef.collection("trophies").doc(`ach_${a.id}`));
     const snaps = await Promise.all(refs.map((r) => tx.get(r)));
     const fresh = qualified.filter((_, i) => !snaps[i]!.exists);
@@ -84,6 +84,22 @@ export async function checkAchievements(uid: string): Promise<string[]> {
         simpleNotification({ id: `ach_${a.id}`, type: "achievement", title: `Achievement: ${a.title}`, body: "It's on your trophy shelf.", now })
       );
     });
+    // Badge count for standings / H2H rows (achievements only stack up).
+    if (fresh.length || (user.get("achievementCount") as number | undefined) !== qualified.length) {
+      tx.update(userRef, { achievementCount: qualified.length });
+    }
     return fresh.map((a) => a.id);
   });
+  if (fresh.length) await mirrorAchievementCount(uid, qualified.length).catch(() => {});
+  return fresh;
+}
+
+/** Standings read member docs, so mirror the count into each active league (one update per league). */
+async function mirrorAchievementCount(uid: string, count: number): Promise<void> {
+  const leagues = await db.collection("leagues").where("memberIds", "array-contains", uid).limit(50).get();
+  await Promise.all(
+    leagues.docs
+      .filter((l) => l.get("status") === "active")
+      .map((l) => l.ref.update({ [`members.${uid}.achievementCount`]: count }))
+  );
 }

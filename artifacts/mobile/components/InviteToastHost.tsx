@@ -24,6 +24,8 @@ export function openSocialNotification(n: AppNotification) {
     router.navigate("/trophies" as never);
   } else if (n.type === "gift_received") {
     router.navigate("/(tabs)/avatar");
+  } else if (n.type === "birthday_gift") {
+    router.navigate("/shop");
   } else if (n.leagueId) {
     router.navigate({ pathname: "/league/[id]", params: { id: n.leagueId } });
   } else if (n.type.startsWith("loan_") || n.type.startsWith("stimulus_")) {
@@ -53,6 +55,8 @@ function toToast(n: AppNotification): ToastInput {
       return { ...base, kind: "loan", icon: "hand-coin-outline", cta: "Lend?", durationMs: 8000 };
     case "loan_countered":
       return { ...base, kind: "loan", icon: "swap-horizontal", cta: "Review", durationMs: 8000 };
+    case "birthday_gift":
+      return { ...base, kind: "win", icon: "cake-variant", cta: "Spend it", durationMs: 9000, amount: n.delta ? { value: n.delta, currency: "credits" } : undefined };
     case "credits_received":
       return { ...base, kind: "win", icon: "cash-fast", cta: "Say thanks", durationMs: 8000, amount: n.delta ? { value: n.delta, currency: "credits" } : undefined };
     case "loan_funded":

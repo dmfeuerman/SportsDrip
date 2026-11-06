@@ -12,8 +12,11 @@ import { canPrompt, markPromptShown } from "@/lib/promptGate";
 
 export interface PendingSignupMeta {
   age?: number;
-  birthDate?: string;
+  /** 1–12 */
+  birthMonth?: number;
   phoneNumber?: string;
+  /** Ticked "I agree to the Terms" on the sign-up form. */
+  acceptedTerms?: boolean;
 }
 
 interface Settings {

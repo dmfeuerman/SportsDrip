@@ -160,6 +160,7 @@ async function settleAccepted(tx, ch, scores, now) {
             result,
             challengeId: id,
             friendName: nameFor(ch, friendOf(ch, uid)),
+            friendUid: friendOf(ch, uid),
             bet: summaryFor(ch, uid, scores.home, scores.away),
             balanceAfter: balances[uid] ?? null,
             now,

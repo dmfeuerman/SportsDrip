@@ -21,6 +21,7 @@ const ICON: Record<AppNotification["type"], React.ComponentProps<typeof Material
   referral_bonus: "account-heart",
   gift_received: "gift-outline",
   credits_received: "cash-fast",
+  birthday_gift: "cake-variant",
   win_back: "hand-wave-outline",
   bet_lost: "arrow-down-bold-circle",
   bet_push: "minus-circle",

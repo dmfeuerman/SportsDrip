@@ -73,6 +73,7 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
   const isPicked = (m: Market, sel: Selection) => pick?.market === m && pick.selection === sel;
   const insights = useGameInsights(game?.id ?? null, game?.status);
   const parlay = useParlay();
+  const building = parlay.legs.length > 0;
   // Ticks so an open sheet closes betting the moment the game starts.
   const tick = useNow(5_000);
   if (!game) return null;
@@ -349,6 +350,8 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
               "Tap a pick above, then choose how to play it"
             )}
           </Text>
+          {/* A parlay is being built: picks can only go on it (or the parlay is called off). */}
+          {!building ? (
           <View style={styles.actionRow}>
             {!friendOnly ? (
               <Button
@@ -386,11 +389,12 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
               />
             ) : null}
           </View>
+          ) : null}
           {!friendOnly && pick ? (
             <Button
               label={parlay.has(game.id, pick.market, pick.selection) ? "On Your Parlay ✓" : parlay.has(game.id) ? "Swap Parlay Leg" : "Add to Parlay"}
               icon="link-variant"
-              variant="secondary"
+              variant={building ? "primary" : "secondary"}
               size="sm"
               accessibilityHint="Adds this pick to your parlay slip; every leg has to hit"
               onPress={() => {
@@ -415,6 +419,20 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
                   matchup: `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`,
                   startsAt: game.startsAt,
                 });
+                onClose();
+              }}
+            />
+          ) : null}
+          {building ? (
+            <Button
+              label="Cancel Parlay"
+              icon="close"
+              variant="secondary"
+              size="sm"
+              accessibilityHint="Removes every pick from your parlay slip"
+              onPress={() => {
+                haptic.warning();
+                parlay.clear();
               }}
             />
           ) : null}

@@ -6,7 +6,6 @@ import { placeBet } from "../src/callable/bets";
 import {
   createLeague,
   endLeague,
-  joinLeague,
   peerLoanAction,
   placeLeagueBet,
   reportResult,
@@ -14,8 +13,9 @@ import {
   takeBankLoan,
   updateLeagueSettings,
   voidLeagueBet,
-  voteEndLeague,
+  voteEndLeague
 } from "../src/callable/leagues";
+import { joinBeforeStart as joinLeague } from "./helpers";
 import { openPrizeBox, claimPrizeBox } from "../src/callable/prizes";
 import { reactToItem } from "../src/callable/social";
 import { makePick } from "../src/callable/picks";
@@ -335,7 +335,7 @@ test("league bets post chat cards, update gameSides, respect hidden flag, and su
     /Lock of the Week/i
   );
 
-  // Ben places a hidden pick: no chat card, not in gameSides, activity text hides the team.
+  // Ben places a hidden pick: a locked chat card with no side, not in gameSides, activity text hides the team.
   await call(placeLeagueBet, "ben", {
     leagueId,
     gameId: "g_chat",
@@ -350,7 +350,14 @@ test("league bets post chat cards, update gameSides, respect hidden flag, and su
   assert.equal(sides.entries[0].uid, "ann");
 
   const msgs = sub(leagueId, "messages");
-  assert.equal(msgs.filter((m) => m.kind === "bet").length, 1);
+  const betMsgs = msgs.filter((m) => m.kind === "bet");
+  assert.equal(betMsgs.length, 2);
+  const hiddenMsg = betMsgs.find((m) => m.uid === "ben")!;
+  assert.equal(hiddenMsg.hidden, true);
+  assert.equal(hiddenMsg.side, undefined);
+  assert.equal(hiddenMsg.teamAbbr, undefined);
+  assert.doesNotMatch(hiddenMsg.text, /NYK|BOS|150/);
+  assert.equal(betMsgs.find((m) => m.uid === "ann")!.stake, undefined);
   const benFeed = sub(leagueId, "activity").find((a) => a.uid === "ben" && a.type === "bet_placed")!;
   assert.doesNotMatch(benFeed.text, /NYK|BOS/);
 

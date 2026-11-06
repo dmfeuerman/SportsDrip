@@ -11,11 +11,11 @@
  * This runs server-side on a schedule, so there is exactly one upstream request
  * per sport per cycle for the whole user base — not one per device.
  *
- * Pricing: a game is only bettable when the feed carries a real two-way
- * moneyline. There is no synthetic fallback. When ESPN has no line the game
- * is written with `priced: false` and null odds, placeBet / placeLeagueBet
- * refuse it, and the board shows "No line yet". A made-up price that pays out
- * real (play) money is worse than no price.
+ * Pricing: the feed's two-way moneyline when it has one (oddsSource "book").
+ * When it doesn't, syncGames fills in the SportDrip model line
+ * (lib/oddsModel.ts + lib/ratings.ts: shared per-team Elo ratings updated from
+ * results, with a season-record prior), tagged oddsSource "model". A book line
+ * always replaces a model one as soon as the feed carries it.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activeProvider = exports.espnProvider = exports.ESPN_BASE = void 0;
@@ -167,7 +167,8 @@ function buildTeam(competitor, odds, homeAway) {
         color: toColor(team.color),
         altColor: team.alternateColor ? toColor(team.alternateColor, "#FFFFFF") : null,
         odds,
-        logoUrl: team.logo ?? team.logos?.[0]?.href ?? null,
+        // Official team logos are trademarked; the app renders colour + abbreviation instead.
+        logoUrl: null,
         location: team.location ?? null,
         record: findRecord(records, "overall", "total"),
         splitRecord: findRecord(records, homeAway === "home" ? "Home" : "Road", homeAway === "home" ? "home" : "away"),
@@ -376,15 +377,16 @@ async function fetchSport(cfg) {
 /** Free ESPN scoreboard. Moneylines only when ESPN's partner book posts one. */
 exports.espnProvider = {
     name: "espn",
-    async fetchGames() {
-        const results = await Promise.allSettled(SPORT_CONFIGS.map(fetchSport));
+    async fetchGames(sports) {
+        const configs = sports ? SPORT_CONFIGS.filter((c) => sports.has(c.sport)) : SPORT_CONFIGS;
+        const results = await Promise.allSettled(configs.map(fetchSport));
         const games = [];
         const failures = [];
         results.forEach((r, i) => {
             if (r.status === "fulfilled")
                 games.push(...r.value);
             else
-                failures.push(`${SPORT_CONFIGS[i]?.label ?? SPORT_CONFIGS[i]?.sport}: ${String(r.reason)}`);
+                failures.push(`${configs[i]?.label ?? configs[i]?.sport}: ${String(r.reason)}`);
         });
         return { games, failures };
     },
@@ -392,7 +394,7 @@ exports.espnProvider = {
 /** The feed syncGames reads. Change this line to swap providers. */
 exports.activeProvider = exports.espnProvider;
 /** One pass across every configured sport. Partial failures are tolerated. */
-function fetchGames() {
-    return exports.activeProvider.fetchGames();
+function fetchGames(sports) {
+    return exports.activeProvider.fetchGames(sports);
 }
 //# sourceMappingURL=sportsProvider.js.map

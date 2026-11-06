@@ -59,7 +59,7 @@ export function useGame(gameId: string | null) {
       if (!db || !gameId) return;
       apply(await getDoc(doc(db, "games", gameId)));
     },
-    30_000,
+    90_000,
     !DEMO && !!gameId && game?.status === "live"
   );
 

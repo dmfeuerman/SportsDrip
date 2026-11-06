@@ -1,9 +1,11 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { leagueStarted } from "../lib/leagueConfig";
 import { logger } from "firebase-functions";
 import { z } from "zod";
 import { db, FieldValue, requireAuth } from "../lib/economy";
 import { decide } from "../lib/settlement";
 import { advanceStreak, type StreakState } from "../lib/streak";
+import { recentEmptyDays } from "../lib/streakDays";
 import { weekKey } from "../lib/weekly";
 
 /**
@@ -31,6 +33,7 @@ export const makePick = onCall({ region: "us-central1" }, async (req) => {
   const gameRef = db.collection("games").doc(input.gameId);
   const userRef = db.collection("users").doc(uid);
 
+  const emptyDays = await recentEmptyDays();
   return db.runTransaction(async (tx) => {
     const [league, game, userSnap] = await Promise.all([
       tx.get(leagueRef),
@@ -43,6 +46,7 @@ export const makePick = onCall({ region: "us-central1" }, async (req) => {
     if (league.get("status") !== "active") throw new HttpsError("failed-precondition", "That league has ended.");
     const endsAt = (league.get("endsAt") as number | undefined) ?? 0;
     if (endsAt && now >= endsAt) throw new HttpsError("failed-precondition", "That league's season is over.");
+    if (!leagueStarted(league, now)) throw new HttpsError("failed-precondition", "This league hasn't started yet. Picks open when it does.");
 
     const me = league.get(`members.${uid}`) as
       | {
@@ -137,7 +141,7 @@ export const makePick = onCall({ region: "us-central1" }, async (req) => {
 
     if (userSnap.exists) {
       const prevStreak = userSnap.get("streak") as Partial<StreakState> | undefined;
-      tx.update(userRef, { streak: advanceStreak(prevStreak, now) });
+      tx.update(userRef, { streak: advanceStreak(prevStreak, now, { emptyDays }) });
     }
 
     return { ok: true, pickId, week: wk, teamAbbr: picked.abbreviation };

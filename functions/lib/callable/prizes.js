@@ -1,9 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetPrizeBox = exports.claimPrizeBox = exports.openPrizeBox = void 0;
+exports.resetPrizeBox = exports.claimPrizeBox = exports.openPrizeBox = exports.PITY_AFTER = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
+/** Claims in a row without the top prize before it is guaranteed (shown in the app). */
+exports.PITY_AFTER = 15;
 const streak_1 = require("../lib/streak");
 const TierInput = zod_1.z.object({ tier: zod_1.z.enum(["bronze", "silver", "gold"]) });
 /**
@@ -83,7 +85,10 @@ exports.claimPrizeBox = (0, https_1.onCall)({ region: "us-central1" }, async (re
         if (now < readyAt) {
             throw new https_1.HttpsError("failed-precondition", "That box isn't ready yet.");
         }
-        const baseCredits = (0, economy_1.pickWeighted)(def.segments);
+        // Pity: the top prize is guaranteed by the PITY_AFTER-th claim without one.
+        const top = Math.max(...def.segments.map((s) => s.credits));
+        const sinceTop = userSnap.get(`boxPity.${tier}`) ?? 0;
+        const baseCredits = sinceTop + 1 >= exports.PITY_AFTER ? top : (0, economy_1.pickWeighted)(def.segments);
         const streakState = userSnap.get("streak");
         const streakDays = (0, streak_1.activeStreakCount)(streakState, now);
         const streakBonus = (0, streak_1.streakBonusFor)(tier, streakDays);
@@ -95,6 +100,7 @@ exports.claimPrizeBox = (0, https_1.onCall)({ region: "us-central1" }, async (re
             ref: tier,
             note: streakBonus > 0 ? `${tier} box (+${streakBonus} streak)` : `${tier} box`,
         });
+        tx.update(userRef, { [`boxPity.${tier}`]: baseCredits === top ? 0 : sinceTop + 1 });
         tx.update(ref, {
             state: "claimed",
             rewardCredits,

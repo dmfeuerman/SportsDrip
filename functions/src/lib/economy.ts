@@ -109,7 +109,13 @@ export type LedgerType =
   | "admin_adjust"
   | "dev_grant"
   | "level_reward"
-  | "referral_bonus";
+  | "referral_bonus"
+  | "gift"
+  | "friend_transfer"
+  | "friend_loan"
+  | "win_back"
+  | "tutorial_gift"
+  | "birthday_gift";
 
 export interface LedgerEntry {
   type: LedgerType;

@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
+import { tourEvent, tourPractice, tourStake, useTourState } from "@/lib/tour/store";
 import TeamCrest from "@/components/TeamCrest";
 import { trackEvent } from "@/lib/analytics";
 import { haptic as buzz } from "@/lib/motion";
@@ -43,6 +45,8 @@ export interface SlipExtras {
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /** No parlay running: offer "Add to Parlay" under Place bet (adds the pick and closes the slip). */
+  onAddToParlay?: () => void;
   onConfirm: (amount: number, walletId: string, extras: SlipExtras) => void | Promise<void>;
   teamName: string;
   teamAbbr: string;
@@ -122,6 +126,7 @@ export default function BetModal({
   game,
   side,
   challenge,
+  onAddToParlay,
 }: Props) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -152,6 +157,7 @@ export default function BetModal({
 
   const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const tourScroll = useTourScroll(scrollRef, hint.scrollProps.onScroll);
   const inputY = useRef(0);
 
   useEffect(() => {
@@ -159,7 +165,8 @@ export default function BetModal({
       trackEvent("slip_opened", { game_id: game?.id });
       const initialWallet = pickWallet(wallets, defaultWallet);
       setWalletId(initialWallet);
-      setAmount(prefillStakeFor(wallets, initialWallet, defaultStake));
+      // Tutorials start from an empty stake so the player types it.
+      setAmount(tourPractice() || tourStake() != null ? "" : prefillStakeFor(wallets, initialWallet, defaultStake));
       setLockPick(false);
       setHidePick(false);
       setMode(canChallenge && (challenge?.initial || unpriced) ? "friend" : "book");
@@ -232,6 +239,16 @@ export default function BetModal({
   const lockAlreadyUsed = isLeague && !!wallet && !!lockUsed?.[wallet.id];
 
   const stake = Number.parseInt(amount, 10) || 0;
+  // Tutorials wait on the stake ("slip:stake" for any, "slip:stake:10" for exactly ten).
+  const { tour: tourOn, step: tourStep } = useTourState();
+  useEffect(() => {
+    if (!visible || !tourOn) return;
+    // The first-bet tutorial's exact stake is in: drop the keyboard so the
+    // next steps (what you could win, Place bet) are on screen to spotlight.
+    if (tourStake() != null && stake === tourStake()) Keyboard.dismiss();
+    tourEvent(`slip:stake:${stake}`);
+    if (stake >= MIN_STAKE) tourEvent("slip:stake");
+  }, [visible, stake, tourOn, tourStep]);
   const priced = typeof odds === "number" && Number.isFinite(odds) && odds > 1;
   const payout = priced ? Math.round(stake * odds) : 0;
   const profit = payout - stake;
@@ -364,12 +381,14 @@ export default function BetModal({
       <ScrollView
         ref={scrollRef}
         {...hint.scrollProps}
+        onScroll={tourScroll.onScroll}
         style={styles.scroll}
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
       >
+        <tourScroll.Provider>
         <View style={styles.topMetaRow}>
           <Text style={[styles.gameLabel, { color: c.mutedForeground, flex: 1 }]} numberOfLines={1}>
             {gameSummary}
@@ -393,6 +412,7 @@ export default function BetModal({
           </View>
         ) : null}
 
+        <TourTarget id="slip.team">
         <Animated.View entering={ZoomIn.springify().damping(13).stiffness(220)} style={[styles.teamRow, { backgroundColor: c.alpha(teamColor, 0.14), borderColor: c.alpha(teamColor, 0.45) }]}>
           <TeamCrest abbr={teamAbbr} color={teamColor} size={42} sport={game?.sport} />
           <View style={{ flex: 1, gap: 2 }}>
@@ -404,8 +424,10 @@ export default function BetModal({
             </Text>
           </View>
         </Animated.View>
+        </TourTarget>
 
         {canChallenge ? (
+          <TourTarget id="slip.mode">
           <SegmentedControl<Mode>
             value={mode}
             onChange={switchMode}
@@ -414,6 +436,7 @@ export default function BetModal({
               { value: "friend", label: "Challenge a Friend" },
             ]}
           />
+          </TourTarget>
         ) : null}
 
         {friendMode && other ? (
@@ -442,11 +465,11 @@ export default function BetModal({
             disabled={busy}
           />
         ) : game && side ? (
-          <TeamEdge game={game} side={side} />
+          <TourTarget id="slip.edge"><TeamEdge game={game} side={side} /></TourTarget>
         ) : null}
 
         {!friendMode && wallets.length > 1 && (
-          <View style={{ gap: 6 }}>
+          <TourTarget id="slip.wallets" style={{ gap: 6 }}>
             <Text style={[styles.label, { color: c.mutedForeground }]}>PAY WITH</Text>
             <ScrollView
               horizontal
@@ -478,14 +501,13 @@ export default function BetModal({
                 );
               })}
             </ScrollView>
-          </View>
+          </TourTarget>
         )}
 
+        <View onLayout={(e) => { inputY.current = e.nativeEvent.layout.y; }}>
+        <TourTarget id="slip.stake" style={{ gap: 12 }}>
         <Pressable
           onPress={focusInput}
-          onLayout={(e) => {
-            inputY.current = e.nativeEvent.layout.y;
-          }}
           accessible={false}
           style={[
             styles.inputWrap,
@@ -524,6 +546,8 @@ export default function BetModal({
               <Text style={[styles.quickText, { color: c.foreground }]}>{q.toLocaleString()}</Text>
             </PressableScale>
           ))}
+        </View>
+        </TourTarget>
         </View>
 
         {!friendMode && isLeague && (
@@ -565,6 +589,7 @@ export default function BetModal({
         {friendMode && other ? (
           <ChallengeSummary terms={terms} friendName={friendName} teamAbbr={teamAbbr} otherAbbr={other.abbreviation} />
         ) : (
+        <TourTarget id="slip.summary">
         <View style={[styles.summary, { borderColor: c.border }]}>
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: c.mutedForeground }]} numberOfLines={1}>
@@ -576,6 +601,7 @@ export default function BetModal({
           <SummaryRow label="If It Loses" value={stake ? `−${stake.toLocaleString()}` : "0"} color={stake ? c.negative : undefined} />
           <SummaryRow label={`${wallet?.label ?? "Balance"} after placing`} value={`${Math.max(0, available - stake).toLocaleString()} ${unit}`} />
         </View>
+        </TourTarget>
         )}
 
         {!priced && !friendMode ? (
@@ -603,6 +629,7 @@ export default function BetModal({
             {error}
           </Text>
         ) : null}
+        </tourScroll.Provider>
       </ScrollView>
       <ScrollHint visible={hint.visible} />
       </View>
@@ -645,7 +672,7 @@ export default function BetModal({
           </>
         ) : (
         <>
-        {wallet ? (
+        {wallet && !focused ? (
           <View
             accessible
             accessibilityLabel={`Betting with ${wallet.label}, ${isLeague ? "league tokens" : "credits"}`}
@@ -669,8 +696,9 @@ export default function BetModal({
             <Text style={[styles.blockedText, { color: c.foreground }]}>{blocked}</Text>
           </View>
         ) : null}
+        <TourTarget id="slip.place">
         <Button
-          label={!priced ? NO_LINE : stake >= MIN_STAKE ? `Place bet · ${stake.toLocaleString()} ${unit}` : "Place bet"}
+          label={!priced ? NO_LINE : tourPractice() ? "Place test bet" : stake >= MIN_STAKE ? `Place bet · ${stake.toLocaleString()} ${unit}` : "Place bet"}
           size="lg"
           onPress={handleConfirm}
           disabled={!priced || submitting || !wallet}
@@ -680,6 +708,24 @@ export default function BetModal({
           shimmer={canBet}
           accessibilityHint={wallet ? `Stakes from ${wallet.label}` : undefined}
         />
+        </TourTarget>
+        {onAddToParlay && priced && !focused && !tourPractice() && tourStake() == null ? (
+          <Button
+            label="Add to Parlay"
+            icon="link-variant"
+            size="md"
+            variant="secondary"
+            onPress={() => {
+              if (busy) return;
+              Keyboard.dismiss();
+              buzz.tick();
+              onAddToParlay();
+            }}
+            disabled={busy}
+            haptic={false}
+            accessibilityHint="Puts this pick on a parlay slip instead of betting it alone"
+          />
+        ) : null}
         </>
         )}
       </View>

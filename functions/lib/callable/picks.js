@@ -3,11 +3,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.makePick = void 0;
 exports.settlePicksForGame = settlePicksForGame;
 const https_1 = require("firebase-functions/v2/https");
+const leagueConfig_1 = require("../lib/leagueConfig");
 const firebase_functions_1 = require("firebase-functions");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const settlement_1 = require("../lib/settlement");
 const streak_1 = require("../lib/streak");
+const streakDays_1 = require("../lib/streakDays");
 const weekly_1 = require("../lib/weekly");
 /**
  * Pick'em and Survivor league modes (`leagues/{id}.mode === "pickem" | "survivor"`).
@@ -30,6 +32,7 @@ exports.makePick = (0, https_1.onCall)({ region: "us-central1" }, async (req) =>
     const leagueRef = economy_1.db.collection("leagues").doc(input.leagueId);
     const gameRef = economy_1.db.collection("games").doc(input.gameId);
     const userRef = economy_1.db.collection("users").doc(uid);
+    const emptyDays = await (0, streakDays_1.recentEmptyDays)();
     return economy_1.db.runTransaction(async (tx) => {
         const [league, game, userSnap] = await Promise.all([
             tx.get(leagueRef),
@@ -44,6 +47,8 @@ exports.makePick = (0, https_1.onCall)({ region: "us-central1" }, async (req) =>
         const endsAt = league.get("endsAt") ?? 0;
         if (endsAt && now >= endsAt)
             throw new https_1.HttpsError("failed-precondition", "That league's season is over.");
+        if (!(0, leagueConfig_1.leagueStarted)(league, now))
+            throw new https_1.HttpsError("failed-precondition", "This league hasn't started yet. Picks open when it does.");
         const me = league.get(`members.${uid}`);
         if (!me)
             throw new https_1.HttpsError("permission-denied", "You're not in this league.");
@@ -123,7 +128,7 @@ exports.makePick = (0, https_1.onCall)({ region: "us-central1" }, async (req) =>
         });
         if (userSnap.exists) {
             const prevStreak = userSnap.get("streak");
-            tx.update(userRef, { streak: (0, streak_1.advanceStreak)(prevStreak, now) });
+            tx.update(userRef, { streak: (0, streak_1.advanceStreak)(prevStreak, now, { emptyDays }) });
         }
         return { ok: true, pickId, week: wk, teamAbbr: picked.abbreviation };
     });

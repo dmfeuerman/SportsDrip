@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { doc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
-import { Platform } from "react-native";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { Platform, AppState } from "react-native";
 import { DEMO } from "@/lib/demo";
 import { firebaseConfigured, getDb, getFirebaseAuth } from "@/lib/firebase";
 
@@ -56,14 +56,15 @@ interface QueuedEvent {
 }
 
 const STORAGE_KEY = "sportdrip.analytics.queue.v1";
-const COLLECTION = "analyticsEvents";
+const BATCH_COLLECTION = "analyticsBatches";
 /** Must match the rules: at most this many params, keys snake_case. */
 const MAX_PARAMS = 12;
 const MAX_STRING = 100;
 const MAX_QUEUE = 200;
 /** Firestore batches cap at 500 writes; stay well under. */
-const BATCH_SIZE = 100;
-const FLUSH_DELAY_MS = 2_000;
+const BATCH_SIZE = 50;
+/** Events gather for a while so a session flushes in a write or two. */
+const FLUSH_DELAY_MS = 30_000;
 const RETRY_DELAY_MS = 30_000;
 
 const sessionId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -140,19 +141,6 @@ function isPermissionDenied(err: unknown): boolean {
   return code.includes("permission-denied");
 }
 
-function payload(e: QueuedEvent, uid: string) {
-  return {
-    uid,
-    name: e.name,
-    params: e.params,
-    clientAt: e.clientAt,
-    at: serverTimestamp(),
-    platform: Platform.OS,
-    sessionId: e.sessionId,
-    schema: 1,
-  };
-}
-
 /**
  * Records a funnel event. Fire and forget: safe to call from render paths,
  * success handlers and before sign-in.
@@ -182,12 +170,20 @@ export function flushAnalytics(): Promise<void> {
     const uid = getFirebaseAuth()?.currentUser?.uid;
     if (!db || !uid || queue.length === 0) return;
 
+    // One document per flush (analyticsBatches) instead of one per event:
+    // a session's worth of events is a single write.
     const batchEvents = queue.slice(0, BATCH_SIZE);
     const done = new Set<string>();
     try {
-      const batch = writeBatch(db);
-      for (const e of batchEvents) batch.set(doc(db, COLLECTION, e.id), payload(e, uid));
-      await batch.commit();
+      const id = `${uid.slice(0, 12)}_${batchEvents[0]!.id}`.slice(0, 64);
+      await setDoc(doc(db, BATCH_COLLECTION, id), {
+        uid,
+        at: serverTimestamp(),
+        platform: Platform.OS,
+        sessionId,
+        schema: 2,
+        events: batchEvents.map((e) => ({ id: e.id, name: e.name, params: e.params, clientAt: e.clientAt, sessionId: e.sessionId })),
+      });
       batchEvents.forEach((e) => done.add(e.id));
     } catch (err) {
       if (!isPermissionDenied(err)) {
@@ -195,18 +191,8 @@ export function flushAnalytics(): Promise<void> {
         schedule(RETRY_DELAY_MS);
         return;
       }
-      // One bad event (already written by a previous flush, or rejected by the
-      // rules) fails the whole batch. Write them one at a time and drop only
-      // the ones the server refuses.
-      for (const e of batchEvents) {
-        try {
-          await setDoc(doc(db, COLLECTION, e.id), payload(e, uid));
-          done.add(e.id);
-        } catch (one) {
-          if (isPermissionDenied(one)) done.add(e.id);
-          else break;
-        }
-      }
+      // Refused (already written, or rules): drop this batch rather than retry forever.
+      batchEvents.forEach((e) => done.add(e.id));
     } finally {
       if (done.size) {
         queue = queue.filter((e) => !done.has(e.id));
@@ -219,3 +205,8 @@ export function flushAnalytics(): Promise<void> {
   });
   return flushing;
 }
+
+// Send what's gathered when the app goes to the background.
+AppState.addEventListener("change", (st) => {
+  if (st === "background") void flushAnalytics();
+});

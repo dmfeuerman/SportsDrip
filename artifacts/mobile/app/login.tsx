@@ -19,8 +19,9 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { ActionChip, CloseButton } from "@/components/ui";
 import { setPendingSignupMeta } from "@/lib/settings";
-import DobPickerModal from "@/components/DobPickerModal";
-export { calculateAgeFromDob } from "@/components/DobPickerModal";
+import AgeMonthPickerModal from "@/components/AgeMonthPickerModal";
+import TermsCheckbox from "@/components/TermsCheckbox";
+import { AGE_LOCKED_MESSAGE, ageBlocked, passesAgeGate, useAgeGateLocked } from "@/lib/ageGate";
 
 
 /** Format raw digits into (XXX) XXX-XXXX phone mask. */
@@ -44,10 +45,14 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [ageText, setAgeText] = useState("");
-  const [birthDateLabel, setBirthDateLabel] = useState<string | null>(null);
+  const [age, setAge] = useState<number | null>(null);
+  const [birthMonth, setBirthMonth] = useState<number | null>(null);
+  const [ageLabel, setAgeLabel] = useState<string | null>(null);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [phone, setPhone] = useState("");
-  const [showDobPicker, setShowDobPicker] = useState(false);
+  const [showAgePicker, setShowAgePicker] = useState(false);
+  const ageLocked = useAgeGateLocked();
+  const blocked = ageBlocked(ageLocked, age);
 
   const [loading, setLoading] = useState(false);
   const [ssoBusy, setSsoBusy] = useState<"google" | "apple" | null>(null);
@@ -94,13 +99,20 @@ export default function LoginScreen() {
         setError("Password must be at least 6 characters.");
         return;
       }
-      const parsedAge = Number.parseInt(ageText, 10);
-      if (!birthDateLabel) {
-        setError("Please pick your date of birth.");
+      if (blocked) {
+        setError(AGE_LOCKED_MESSAGE);
         return;
       }
-      if (!Number.isFinite(parsedAge) || parsedAge < 18 || parsedAge > 120) {
-        setError("You must be 18 or older to play.");
+      if (age === null || birthMonth === null) {
+        setError("Please select your age and birth month.");
+        return;
+      }
+      if (!passesAgeGate(age)) {
+        setError(AGE_LOCKED_MESSAGE);
+        return;
+      }
+      if (!acceptedTerms) {
+        setError("Please agree to the Terms of Service and Privacy Policy.");
         return;
       }
       const phoneDigits = extractPhoneDigits(phone);
@@ -116,11 +128,11 @@ export default function LoginScreen() {
       if (mode === "signin") {
         await signIn(email.trim(), password);
       } else {
-        const parsedAge = Number.parseInt(ageText, 10);
         await signUp(email.trim(), password, {
-          age: parsedAge,
-          birthDate: birthDateLabel ?? undefined,
+          age: age ?? undefined,
+          birthMonth: birthMonth ?? undefined,
           phoneNumber: phone,
+          acceptedTerms,
         });
       }
       router.replace("/(tabs)");
@@ -135,15 +147,22 @@ export default function LoginScreen() {
   async function handleSSO(provider: "google" | "apple") {
     setError(null);
     if (mode === "signup") {
-      const parsedAge = Number.parseInt(ageText, 10);
-      const phoneDigits = extractPhoneDigits(phone);
-      if (Number.isFinite(parsedAge) && parsedAge >= 18 && phoneDigits.length === 10) {
-        setPendingSignupMeta({
-          age: parsedAge,
-          birthDate: birthDateLabel ?? undefined,
-          phoneNumber: phone,
-        });
+      if (blocked) {
+        setError(AGE_LOCKED_MESSAGE);
+        return;
       }
+      if (age !== null && !passesAgeGate(age)) {
+        setError(AGE_LOCKED_MESSAGE);
+        return;
+      }
+      const phoneDigits = extractPhoneDigits(phone);
+      // Whatever's filled in carries over; onboarding asks for the rest.
+      setPendingSignupMeta({
+        age: age ?? undefined,
+        birthMonth: birthMonth ?? undefined,
+        phoneNumber: phoneDigits.length === 10 ? phone : undefined,
+        acceptedTerms,
+      });
     }
     buzz.light();
     setSsoBusy(provider);
@@ -245,16 +264,16 @@ export default function LoginScreen() {
                   />
                 </View>
 
-                {/* Date of birth (age is worked out from it) */}
+                {/* Age + birth month (neutral: no default, no cutoff shown) */}
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Pick date of birth"
-                  onPress={() => setShowDobPicker(true)}
+                  accessibilityLabel="Select your age and birth month"
+                  onPress={() => setShowAgePicker(true)}
                   style={[s.inputWrap, { borderColor: colors.border, backgroundColor: colors.secondary }]}
                 >
-                  <MaterialCommunityIcons name="calendar-month-outline" size={18} color={colors.mutedForeground} />
-                  <Text style={[s.input, { color: birthDateLabel ? colors.foreground : colors.mutedForeground }]} numberOfLines={1}>
-                    {birthDateLabel ?? "Date of Birth (18+)"}
+                  <MaterialCommunityIcons name="cake-variant-outline" size={18} color={colors.mutedForeground} />
+                  <Text style={[s.input, { color: ageLabel ? colors.foreground : colors.mutedForeground }]} numberOfLines={1}>
+                    {ageLabel ?? "Age & birth month"}
                   </Text>
                 </Pressable>
 
@@ -280,6 +299,8 @@ export default function LoginScreen() {
               </>
             )}
 
+            {mode === "signup" && <TermsCheckbox checked={acceptedTerms} onChange={setAcceptedTerms} />}
+
             {/* Error */}
             {error && (
               <View style={[s.errorBox, { backgroundColor: "#FF444422", borderColor: "#FF444455" }]}>
@@ -290,10 +311,10 @@ export default function LoginScreen() {
 
             {/* Submit */}
             <TouchableOpacity
-              style={[s.btn, { backgroundColor: colors.primary }, (loading || !!ssoBusy) && s.btnDisabled]}
+              style={[s.btn, { backgroundColor: colors.primary }, (loading || !!ssoBusy || (mode === "signup" && blocked)) && s.btnDisabled]}
               onPress={handleSubmit}
               activeOpacity={0.85}
-              disabled={loading || !!ssoBusy}
+              disabled={loading || !!ssoBusy || (mode === "signup" && blocked)}
             >
               {loading ? (
                 <ActivityIndicator color={colors.primaryForeground} size="small" />
@@ -380,16 +401,29 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          <View style={s.legalRow}>
+            <Text style={[s.legalLink, { color: colors.mutedForeground }]} onPress={() => router.push({ pathname: "/legal", params: { doc: "terms" } })}>
+              Terms of Service
+            </Text>
+            <Text style={{ color: colors.mutedForeground }}>·</Text>
+            <Text style={[s.legalLink, { color: colors.mutedForeground }]} onPress={() => router.push({ pathname: "/legal", params: { doc: "privacy" } })}>
+              Privacy Policy
+            </Text>
+          </View>
+          <Text style={[s.legalNote, { color: colors.subtleForeground }]}>Free to play. Virtual credits only — no cash value, no cash prizes.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <DobPickerModal
-        visible={showDobPicker}
-        onClose={() => setShowDobPicker(false)}
-        onConfirm={(dob) => {
-          setAgeText(String(Math.max(0, dob.age)));
-          setBirthDateLabel(dob.label);
-          setShowDobPicker(false);
+      <AgeMonthPickerModal
+        visible={showAgePicker}
+        onClose={() => setShowAgePicker(false)}
+        onConfirm={(v) => {
+          setAge(v.age);
+          setBirthMonth(v.birthMonth);
+          setAgeLabel(v.label);
+          setShowAgePicker(false);
+          setError(passesAgeGate(v.age) ? null : AGE_LOCKED_MESSAGE);
         }}
       />
     </SafeAreaView>
@@ -462,4 +496,7 @@ const s = StyleSheet.create({
   btnText: { fontSize: 16, fontFamily: "Inter_700Bold" },
   toggle: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 4, flexWrap: "wrap" },
   toggleText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  legalRow: { flexDirection: "row", justifyContent: "center", gap: 8 },
+  legalLink: { fontSize: 12, fontFamily: "Inter_600SemiBold", textDecorationLine: "underline" },
+  legalNote: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: -16 },
 });

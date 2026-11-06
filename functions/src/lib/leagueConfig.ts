@@ -5,7 +5,7 @@
 
 export const SPORTS = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"] as const;
 /** "matchups": a bankroll league ranked by head-to-head record instead of net worth. */
-export const LEAGUE_MODES = ["bankroll", "pickem", "survivor", "matchups"] as const;
+export const LEAGUE_MODES = ["bankroll", "pickem", "survivor", "matchups", "bracket"] as const;
 export type LeagueMode = (typeof LEAGUE_MODES)[number];
 
 /**
@@ -61,6 +61,9 @@ export function sportSeasonEnd(sport: (typeof SPORTS)[number], now: number): { s
   return cur;
 }
 
+/** A full-season league covers exactly one sport's season. */
+export const FULL_SEASON_SPORTS = 1;
+
 /** When a full-season league with these sports ends: the latest of their seasons. */
 export function seasonEndFor(sports: readonly (typeof SPORTS)[number][], now: number): number {
   const end = Math.max(...sports.map((s) => sportSeasonEnd(s, now).end), now + MIN_DURATION_DAYS * DAY);
@@ -71,6 +74,29 @@ export function seasonEndFor(sports: readonly (typeof SPORTS)[number][], now: nu
 export function endsAtFor(d: Duration, sports: readonly (typeof SPORTS)[number][], from: number): number {
   return d === FULL_SEASON ? seasonEndFor(sports, from) : from + DURATIONS[d] * DAY;
 }
+
+// ---------------------------------------------------------------------------
+// Start date: a league starts now or at least a day out (so friends can join).
+// Nobody new can join once it has started.
+// ---------------------------------------------------------------------------
+/** A scheduled start must be at least this far out. */
+export const MIN_START_LEAD_MS = DAY;
+/** ...and no further than this. */
+export const MAX_START_LEAD_MS = 60 * DAY;
+
+/** When the league starts; leagues created before scheduled starts began at creation. */
+export function leagueStartsAt(league: { get(field: string): unknown }): number {
+  return (league.get("startsAt") as number | undefined) ?? (league.get("createdAt") as number | undefined) ?? 0;
+}
+/** A league needs at least this many players to start; until then it stays open to join. */
+export const MIN_LEAGUE_PLAYERS = 2;
+/**
+ * Started: its start time has come AND it has at least two players. A league
+ * nobody else has joined stays in preseason (still joinable) past its start
+ * time; the second player to join starts it (joinLeague).
+ */
+export const leagueStarted = (league: { get(field: string): unknown }, now: number): boolean =>
+  now >= leagueStartsAt(league) && ((league.get("memberIds") as string[] | undefined)?.length ?? 0) >= MIN_LEAGUE_PLAYERS;
 
 /** Whole weeks between start and end (for the playoff week / report cadence). */
 export const weeksBetween = (from: number, to: number): number => Math.max(4, Math.ceil((to - from) / (7 * DAY)));

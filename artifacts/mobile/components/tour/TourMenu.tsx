@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React from "react";
+import { usePathname } from "expo-router";
 import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { CloseButton } from "@/components/ui";
@@ -11,6 +12,7 @@ import { TOURS } from "@/lib/tour/tours";
 /** The "?" button: pick an interactive tutorial to (re)play. */
 export default function TourMenu() {
   const c = useColors();
+  const path = usePathname();
   return (
     <Modal visible transparent animationType="fade" onRequestClose={closeTourMenu}>
       <View style={[styles.scrim, { backgroundColor: c.overlay }]}>
@@ -32,7 +34,7 @@ export default function TourMenu() {
                 onPress={() => {
                   closeTourMenu();
                   // Let the menu close before the spotlight goes up.
-                  setTimeout(() => startTour(t), 300);
+                  setTimeout(() => startTour(t, path), 300);
                 }}
                 style={({ pressed }) => [styles.row, { backgroundColor: c.card, borderColor: c.border, opacity: pressed ? 0.85 : 1 }]}
               >

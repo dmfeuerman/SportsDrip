@@ -3,6 +3,7 @@ import AvatarPreloader from "@/components/avatar/AvatarPreloader";
 import GameSoonPill from "@/components/GameSoonPill";
 import SyncFailureToaster from "@/components/SyncFailureToaster";
 import ParlaySlip from "@/components/ParlaySlip";
+import ParlayLeaveGuard from "@/components/ParlayLeaveGuard";
 import KickoffSheet from "@/components/KickoffSheet";
 
 /**
@@ -17,6 +18,7 @@ export default function GlobalHosts() {
       <SyncFailureToaster />
       <AvatarPreloader />
       <ParlaySlip />
+      <ParlayLeaveGuard />
       <KickoffSheet />
     </>
   );

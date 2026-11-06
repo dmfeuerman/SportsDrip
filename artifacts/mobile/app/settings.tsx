@@ -1,6 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Constants from "expo-constants";
-import React, { useState } from "react";
+import { router } from "expo-router";
+import { doc, getDoc } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
 import { Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import FavoriteTeamsSheet from "@/components/FavoriteTeamsSheet";
@@ -12,6 +14,10 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { setOddsFormat, useOddsFormat } from "@/lib/settings";
 import { openTourMenu } from "@/lib/tour/store";
+import * as api from "@/lib/api";
+import { unblockPlayer, useBlockedUids } from "@/lib/blocks";
+import { getDb } from "@/lib/firebase";
+import { NO_CASH_VALUE, SUPPORT_EMAIL } from "@/constants/legal";
 
 type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
@@ -25,6 +31,23 @@ export default function SettingsScreen() {
   const { privacyOptionsRequired, openPrivacyOptions } = useAds();
   const [editTeams, setEditTeams] = useState(false);
   const [confirmOut, setConfirmOut] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function deleteAccount() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteAccount({ confirm: "DELETE" });
+      setConfirmDelete(false);
+      await signOut().catch(() => {});
+    } catch (e) {
+      setDeleteError(api.friendlyError(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
   const version = Constants.expoConfig?.version ?? "";
 
   return (
@@ -34,7 +57,12 @@ export default function SettingsScreen() {
         <SectionHeader title="Account" />
         <Card style={styles.card}>
           <Row icon="account-circle-outline" title={profile?.displayName ?? "Player"} sub={profile?.username ? `@${profile.username}` : undefined} />
+          <Divider />
+          <Row icon="cash-off" title="Credits" sub={NO_CASH_VALUE} />
         </Card>
+
+        <SectionHeader title="Blocked Players" />
+        <BlockedPlayersCard />
 
         <SectionHeader title="Display" />
         <Card style={[styles.card, { gap: 8, padding: 14 }]}>
@@ -67,6 +95,12 @@ export default function SettingsScreen() {
         <SectionHeader title="Help & Privacy" />
         <Card style={styles.card}>
           <Row icon="compass-outline" title="Tutorials" sub="Interactive walkthroughs of every screen" onPress={openTourMenu} />
+          <Divider />
+          <Row icon="file-document-outline" title="Terms of Service" sub="Includes the Community Guidelines" onPress={() => router.push({ pathname: "/legal", params: { doc: "terms" } })} />
+          <Divider />
+          <Row icon="shield-lock-outline" title="Privacy Policy" onPress={() => router.push({ pathname: "/legal", params: { doc: "privacy" } })} />
+          <Divider />
+          <Row icon="email-outline" title="Contact Support" sub={SUPPORT_EMAIL} onPress={() => void Linking.openURL(`mailto:${SUPPORT_EMAIL}`)} />
           {privacyOptionsRequired ? (
             <>
               <Divider />
@@ -76,6 +110,7 @@ export default function SettingsScreen() {
         </Card>
 
         <Button label="Sign Out" icon="logout" variant="destructive" onPress={() => setConfirmOut(true)} style={{ marginTop: 8 }} />
+        <Button label="Delete Account" icon="account-remove-outline" variant="ghost" onPress={() => setConfirmDelete(true)} />
         {version ? <Text style={[styles.version, { color: c.subtleForeground }]}>SportDrip v{version}</Text> : null}
       </ScrollView>
 
@@ -98,6 +133,20 @@ export default function SettingsScreen() {
           void signOut();
         }}
       />
+      <ConfirmDialog
+        visible={confirmDelete}
+        title="Delete Your Account?"
+        body={"This permanently deletes your account, profile, credits, items, trophies, friends and messages. It can't be undone. In leagues that are in progress your standings row stays as “Deleted player” so everyone else's results still add up."}
+        confirmLabel={deleting ? "Deleting…" : "Delete Forever"}
+        destructive
+        busy={deleting}
+        error={deleteError}
+        onCancel={() => {
+          setConfirmDelete(false);
+          setDeleteError(null);
+        }}
+        onConfirm={() => void deleteAccount()}
+      />
     </View>
   );
 }
@@ -119,6 +168,53 @@ function Row({ icon, title, sub, onPress }: { icon: Icon; title: string; sub?: s
     <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.secondary }]}>
       {body}
     </Pressable>
+  );
+}
+
+/** Everyone you've blocked, with Unblock. Names are read once when the list changes. */
+function BlockedPlayersCard() {
+  const c = useColors();
+  const blocked = useBlockedUids();
+  const [names, setNames] = useState<Record<string, string>>({});
+  const key = [...blocked].sort().join(",");
+
+  useEffect(() => {
+    const db = getDb();
+    if (!db || !key) return;
+    let cancelled = false;
+    void Promise.all(
+      key.split(",").map(async (uid) => {
+        const snap = await getDoc(doc(db, "users", uid)).catch(() => null);
+        return [uid, (snap?.get("displayName") as string | undefined) ?? "Player"] as const;
+      })
+    ).then((pairs) => {
+      if (!cancelled) setNames(Object.fromEntries(pairs));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  if (!blocked.size) {
+    return (
+      <Card style={styles.card}>
+        <Row icon="block-helper" title="No one blocked" sub="Block a player from their profile or by reporting a message" />
+      </Card>
+    );
+  }
+  return (
+    <Card style={styles.card}>
+      {[...blocked].map((uid, i) => (
+        <View key={uid}>
+          {i > 0 ? <Divider /> : null}
+          <View style={styles.row}>
+            <MaterialCommunityIcons name="block-helper" size={20} color={c.mutedForeground} />
+            <Text style={[styles.rowTitle, { color: c.foreground, flex: 1 }]}>{names[uid] ?? "…"}</Text>
+            <Button size="sm" variant="secondary" label="Unblock" onPress={() => void unblockPlayer(uid)} />
+          </View>
+        </View>
+      ))}
+    </Card>
   );
 }
 

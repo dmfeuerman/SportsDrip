@@ -15,8 +15,9 @@ import { Pressable } from "@/components/fx/Tap";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CharacterDesigner from "@/components/avatar/CharacterDesigner";
 import FavoriteTeamsSheet from "@/components/FavoriteTeamsSheet";
-import DobPickerModal from "@/components/DobPickerModal";
-import DailyPickCard from "@/components/DailyPickCard";
+import AgeMonthPickerModal, { ageMonthLabel } from "@/components/AgeMonthPickerModal";
+import TermsCheckbox from "@/components/TermsCheckbox";
+import { AGE_LOCKED_MESSAGE, ageBlocked, passesAgeGate, useAgeGateLocked } from "@/lib/ageGate";
 import InviteFriendsCard from "@/components/InviteFriendsCard";
 import PushPrimer from "@/components/PushPrimer";
 import { useNotifications } from "@/context/NotificationContext";
@@ -40,11 +41,11 @@ import { useColors } from "@/hooks/useColors";
 
 /**
  * Order follows time-to-value: who you are → a quick character → your teams →
- * your crew → a first (free) pick → the push primer → done. Anything skipped
+ * your crew → the push primer → done. The free bet comes later, in the first-bet tutorial on Home. Anything skipped
  * can be finished later (Locker, Friends tab).
  */
-type Step = "identity" | "appearance" | "teams" | "crew" | "pick" | "welcome";
-const STEP_ORDER: Step[] = ["identity", "appearance", "teams", "crew", "pick", "welcome"];
+type Step = "identity" | "appearance" | "teams" | "crew" | "welcome";
+const STEP_ORDER: Step[] = ["identity", "appearance", "teams", "crew", "welcome"];
 
 export default function OnboardingScreen() {
   const colors = useColors();
@@ -55,14 +56,17 @@ export default function OnboardingScreen() {
   const [teamsSet, setTeamsSet] = useState(false);
   const [primer, setPrimer] = useState(false);
   const { pushStatus, enablePush } = useNotifications();
-  // Email sign-up already collected birth date / age and phone: never ask twice.
-  const ageFromSignup = !!pendingMeta?.age || !!pendingMeta?.birthDate;
+  // Email sign-up already collected age / birth month, phone and terms: never ask twice.
+  const ageFromSignup = !!pendingMeta?.age && !!pendingMeta?.birthMonth;
+  const termsFromSignup = !!pendingMeta?.acceptedTerms;
   const phoneFromSignup = extractPhoneDigits(pendingMeta?.phoneNumber ?? "").length === 10;
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [ageText, setAgeText] = useState(pendingMeta?.age ? String(pendingMeta.age) : "");
-  const [birthDate, setBirthDate] = useState<string | null>(pendingMeta?.birthDate ?? null);
-  const [dobOpen, setDobOpen] = useState(false);
+  const [age, setAge] = useState<number | null>(pendingMeta?.age ?? null);
+  const [birthMonth, setBirthMonth] = useState<number | null>(pendingMeta?.birthMonth ?? null);
+  const [agePickerOpen, setAgePickerOpen] = useState(false);
+  const [termsChecked, setTermsChecked] = useState(false);
+  const ageLocked = useAgeGateLocked();
   const [phone, setPhone] = useState(pendingMeta?.phoneNumber ?? "");
   // Everyone starts from the same plain base (bald, nothing worn) and builds from there.
   const [avatar, setAvatar] = useState<AvatarConfig>(SIGNUP_AVATAR);
@@ -114,9 +118,10 @@ export default function OnboardingScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (pendingMeta?.age && !ageText) setAgeText(String(pendingMeta.age));
+    if (pendingMeta?.age && age === null) setAge(pendingMeta.age);
+    if (pendingMeta?.birthMonth && birthMonth === null) setBirthMonth(pendingMeta.birthMonth);
     if (pendingMeta?.phoneNumber && !phone) setPhone(pendingMeta.phoneNumber);
-  }, [pendingMeta, ageText, phone]);
+  }, [pendingMeta, age, birthMonth, phone]);
 
   // An invite link opened before signup: joined automatically once the profile exists.
   const { joinLeague } = useLeague();
@@ -129,8 +134,9 @@ export default function OnboardingScreen() {
 
   const normalized = username.trim().toLowerCase();
   const usernameValid = /^[a-z0-9_]{3,20}$/.test(normalized);
-  const parsedAge = Number.parseInt(ageText, 10);
-  const ageValid = ageFromSignup || (!!birthDate && Number.isFinite(parsedAge) && parsedAge >= 18 && parsedAge <= 120);
+  const blocked = ageBlocked(ageLocked, age);
+  const ageValid = !blocked && age !== null && birthMonth !== null && age >= 18;
+  const termsValid = termsFromSignup || termsChecked;
   const phoneDigits = extractPhoneDigits(phone);
   const phoneValid = phoneFromSignup || phoneDigits.length === 10;
 
@@ -163,6 +169,7 @@ export default function OnboardingScreen() {
     available === true &&
     displayName.trim().length > 0 &&
     ageValid &&
+    termsValid &&
     phoneValid &&
     refCheck.state !== "invalid" &&
     refCheck.state !== "checking";
@@ -176,8 +183,9 @@ export default function OnboardingScreen() {
           username: normalized,
           displayName: displayName.trim(),
           avatar,
-          ...(Number.isFinite(parsedAge) ? { age: parsedAge } : pendingMeta?.age ? { age: pendingMeta.age } : {}),
-          birthDate: pendingMeta?.birthDate ?? birthDate ?? undefined,
+          age: age ?? 0,
+          birthMonth: birthMonth ?? 0,
+          acceptedTerms: true,
           phoneNumber: phone,
           ...(refCode && refCheck.state === "valid" ? { referralCode: refCode } : {}),
         });
@@ -197,7 +205,7 @@ export default function OnboardingScreen() {
       setSubmitting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [normalized, displayName, avatar, parsedAge, pendingMeta?.birthDate, birthDate, phone, setStep, refCode, refCheck]);
+  }, [normalized, displayName, avatar, age, birthMonth, phone, setStep, refCode, refCheck]);
 
   async function joinFromInvite(code: string) {
     setInvite({ code, name: null, state: "joining" });
@@ -215,7 +223,7 @@ export default function OnboardingScreen() {
     }
   }
 
-  // After the first pick: soft push pre-prompt (never the system dialog cold), then done.
+  // After the crew step: soft push pre-prompt (never the system dialog cold), then done.
   function afterPick() {
     if (pushStatus === "undetermined" && pushPrimerDue()) {
       markPushPrimerShown();
@@ -293,26 +301,29 @@ export default function OnboardingScreen() {
             />
           </Field>
 
-          {!ageFromSignup && (<>
-          <Field label="Date of Birth (18+)" colors={colors}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Pick date of birth" onPress={() => setDobOpen(true)} style={s.inputRow}>
-              <MaterialCommunityIcons name="calendar-month-outline" size={18} color={colors.mutedForeground} />
-              <Text style={[s.input, { color: birthDate ? colors.foreground : colors.mutedForeground }]}>{birthDate ?? "Pick your date of birth"}</Text>
+          {(!ageFromSignup || blocked) && (<>
+          <Field label="Age & Birth Month" colors={colors}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Select your age and birth month" onPress={() => !blocked && setAgePickerOpen(true)} style={s.inputRow}>
+              <MaterialCommunityIcons name="cake-variant-outline" size={18} color={colors.mutedForeground} />
+              <Text style={[s.input, { color: age !== null ? colors.foreground : colors.mutedForeground }]}>
+                {age !== null && birthMonth !== null ? ageMonthLabel(age, birthMonth) : "Select your age and birth month"}
+              </Text>
               {ageValid && (
                 <MaterialCommunityIcons name="check-circle" size={18} color={colors.primary} />
               )}
             </Pressable>
           </Field>
-          {birthDate && !ageValid && (
-            <Hint colors={colors} tone="error">You must be 18 or older to play.</Hint>
+          {blocked && (
+            <Hint colors={colors} tone="error">{AGE_LOCKED_MESSAGE}</Hint>
           )}
-          <DobPickerModal
-            visible={dobOpen}
-            onClose={() => setDobOpen(false)}
-            onConfirm={(dob) => {
-              setAgeText(String(Math.max(0, dob.age)));
-              setBirthDate(dob.label);
-              setDobOpen(false);
+          <AgeMonthPickerModal
+            visible={agePickerOpen}
+            onClose={() => setAgePickerOpen(false)}
+            onConfirm={(v) => {
+              setAge(v.age);
+              setBirthMonth(v.birthMonth);
+              setAgePickerOpen(false);
+              passesAgeGate(v.age);
             }}
           />
           </>)}
@@ -367,6 +378,8 @@ export default function OnboardingScreen() {
           {refCheck.state === "invalid" && (
             <Hint colors={colors} tone="error">We couldn't find that code. Check it or leave it blank.</Hint>
           )}
+
+          {!termsFromSignup && <TermsCheckbox checked={termsChecked} onChange={setTermsChecked} />}
 
           <PrimaryButton
             label="Continue"
@@ -433,17 +446,6 @@ export default function OnboardingScreen() {
             </Hint>
           ) : null}
           <InviteFriendsCard />
-          <PrimaryButton label="Next: your first pick" onPress={() => setStep("pick")} colors={colors} />
-        </ScrollView>
-      )}
-
-      {step === "pick" && (
-        <ScrollView contentContainerStyle={s.body}>
-          <Text style={[s.title, { color: colors.foreground }]}>Make Your First Call</Text>
-          <Text style={[s.sub, { color: colors.mutedForeground }]}>
-            Today's Daily Pick is free — no credits at risk. Call it and start your streak.
-          </Text>
-          <DailyPickCard />
           <PrimaryButton label="Next" onPress={afterPick} colors={colors} />
         </ScrollView>
       )}

@@ -1,4 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { nextReactionProgress, questProgressRef } from "../lib/questProgress";
 import { z } from "zod";
 import { db, requireAuth } from "../lib/economy";
 import { writeNotification } from "../lib/notify";
@@ -43,8 +44,9 @@ export const reactToItem = onCall({ region: "us-central1" }, async (req) => {
   const leagueRef = db.collection("leagues").doc(input.leagueId);
   const itemRef = leagueRef.collection(col).doc(itemId);
 
+  const progressRef = questProgressRef(uid);
   return db.runTransaction(async (tx) => {
-    const [league, item] = await Promise.all([tx.get(leagueRef), tx.get(itemRef)]);
+    const [league, item, progress] = await Promise.all([tx.get(leagueRef), tx.get(itemRef), tx.get(progressRef)]);
     if (!league.exists) throw new HttpsError("not-found", "League not found.");
     const memberIds = (league.get("memberIds") as string[] | undefined) ?? [];
     if (!memberIds.includes(uid)) {
@@ -72,6 +74,13 @@ export const reactToItem = onCall({ region: "us-central1" }, async (req) => {
     }
 
     tx.update(itemRef, { reactions, reactors });
+
+    // Social quest: a reaction added (not removed) on someone else's item.
+    const itemOwner = item.get("uid") as string | undefined;
+    if (itemOwner && itemOwner !== uid && prev !== input.emoji) {
+      const next = nextReactionProgress(progress.exists ? (progress.data() as { reacted?: Record<string, boolean> }) : undefined, `${input.leagueId}_${col}_${itemId}`);
+      if (next) tx.set(progressRef, next, { merge: true });
+    }
 
     // Deliver it: the owner hears about a new reaction. One notification per
     // item per hour; its id is fixed for the hour, so the first reaction

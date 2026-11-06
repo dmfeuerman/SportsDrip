@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.lockReminders = void 0;
+exports.lockReminders = exports.teamReminders = void 0;
 exports.sendLockReminders = sendLockReminders;
+exports.sendTeamReminders = sendTeamReminders;
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
@@ -84,6 +85,79 @@ async function sendLockReminders(now = Date.now()) {
     }
     return sent;
 }
+/**
+ * Opt-in "your team plays soon" reminder (users/{uid}.teamReminders). Looks
+ * 45–60 min ahead so it lands before the league lock reminder, and shares one
+ * per-user daily budget with it: at most one team reminder per NY day, and
+ * none if a lock reminder already went out today for that user.
+ */
+async function sendTeamReminders(now = Date.now()) {
+    const today = (0, streak_1.nyDay)(now);
+    const upcoming = await economy_1.db
+        .collection("games")
+        .where("status", "==", "upcoming")
+        .where("startsAt", ">=", now + 45 * 60_000)
+        .where("startsAt", "<=", now + 60 * 60_000)
+        .limit(200)
+        .get();
+    if (upcoming.empty)
+        return 0;
+    const keyToGame = new Map();
+    for (const g of upcoming.docs) {
+        const sport = g.get("sport");
+        const home = g.get("homeTeam.abbreviation");
+        const away = g.get("awayTeam.abbreviation");
+        if (!sport || !home || !away)
+            continue;
+        const info = { id: g.id, label: `${away} @ ${home}`, startsAt: g.get("startsAt") ?? now };
+        keyToGame.set(`${sport}:${home}`, info);
+        keyToGame.set(`${sport}:${away}`, info);
+    }
+    const keys = [...keyToGame.keys()];
+    let sent = 0;
+    // array-contains-any takes at most 30 values.
+    for (let i = 0; i < keys.length; i += 30) {
+        const users = await economy_1.db
+            .collection("users")
+            .where("teamReminders", "==", true)
+            .where("favoriteTeamKeys", "array-contains-any", keys.slice(i, i + 30))
+            .limit(500)
+            .get();
+        for (const u of users.docs) {
+            const mine = (u.get("favoriteTeamKeys") ?? []).find((k) => keyToGame.has(k));
+            if (!mine)
+                continue;
+            const game = keyToGame.get(mine);
+            const did = await economy_1.db.runTransaction(async (tx) => {
+                const ref = u.ref;
+                const fresh = await tx.get(ref);
+                if (fresh.get("lastTeamReminderDay") === today)
+                    return 0;
+                const lockRem = await tx.get(ref.collection("notifications").where("type", "==", "lock_reminder").where("createdAtMs", ">=", now - 12 * 3600_000).limit(1));
+                if (!lockRem.empty)
+                    return 0;
+                tx.update(ref, { lastTeamReminderDay: today });
+                const mins = Math.max(1, Math.round((game.startsAt - now) / 60_000));
+                (0, notify_1.writeNotification)(tx, u.id, (0, notifyModel_1.simpleNotification)({
+                    id: `teamrem_${today}`,
+                    type: "team_reminder",
+                    title: `${mine.split(":")[1]} plays in ${mins} min`,
+                    body: `${game.label} — get your pick in before it locks.`,
+                    now,
+                    data: { gameId: game.id },
+                }));
+                return 1;
+            });
+            sent += did;
+        }
+    }
+    return sent;
+}
+exports.teamReminders = (0, scheduler_1.onSchedule)({ schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180 }, async () => {
+    const n = await sendTeamReminders(Date.now());
+    if (n > 0)
+        firebase_functions_1.logger.info("teamReminders sent", { count: n });
+});
 exports.lockReminders = (0, scheduler_1.onSchedule)({ schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180 }, async () => {
     const n = await sendLockReminders(Date.now());
     if (n > 0)

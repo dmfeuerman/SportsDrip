@@ -37,16 +37,13 @@ exports.purchaseBackground = (0, https_1.onCall)({ region: "us-central1" }, asyn
         const releaseAt = listing.get("releaseAt");
         if (releaseAt && releaseAt > Date.now())
             throw new https_1.HttpsError("failed-precondition", "That background hasn't dropped yet.");
-        const reward = listing.get("levelReward");
-        if (typeof reward === "number" && reward > 0) {
-            throw new https_1.HttpsError("failed-precondition", `Not for sale — unlocked by reaching level ${reward}.`);
-        }
+        // Level-reward scenes are granted free on reaching that level, and can be bought before then.
         const required = listing.get("levelRequired") ?? 0;
         if (required > (0, progression_1.levelFromXp)(user.get("xp"))) {
             throw new https_1.HttpsError("failed-precondition", `Reach level ${required} to buy this background.`);
         }
         const price = listing.get("price");
-        if (typeof price !== "number" || !Number.isFinite(price) || price < 0) {
+        if (typeof price !== "number" || !Number.isFinite(price) || price <= 0) {
             throw new https_1.HttpsError("internal", "Background is misconfigured.");
         }
         const balance = await (0, economy_1.applyCredits)(tx, uid, {

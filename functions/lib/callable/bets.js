@@ -5,7 +5,9 @@ const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const pricing_1 = require("../lib/pricing");
+const playLimits_1 = require("../lib/playLimits");
 const streak_1 = require("../lib/streak");
+const streakDays_1 = require("../lib/streakDays");
 const MIN_STAKE = 10;
 const MAX_STAKE = 100_000;
 const PlaceBetInput = zod_1.z
@@ -47,6 +49,7 @@ exports.placeBet = (0, https_1.onCall)({ region: "us-central1" }, async (req) =>
     const betRef = economy_1.db.collection("bets").doc(betId);
     const gameRef = economy_1.db.collection("games").doc(input.gameId);
     const userRef = economy_1.db.collection("users").doc(uid);
+    const emptyDays = await (0, streakDays_1.recentEmptyDays)();
     return economy_1.db.runTransaction(async (tx) => {
         const [existing, gameSnap, userSnap] = await Promise.all([
             tx.get(betRef),
@@ -63,6 +66,7 @@ exports.placeBet = (0, https_1.onCall)({ region: "us-central1" }, async (req) =>
             throw new https_1.HttpsError("failed-precondition", "Betting is closed for this game.");
         }
         const now = Date.now();
+        const limitUpdate = (0, playLimits_1.checkPlayLimits)(userSnap, now);
         const startsAt = gameSnap.get("startsAt") ?? 0;
         if (startsAt && startsAt < now) {
             throw new https_1.HttpsError("failed-precondition", "This game has already started.");
@@ -84,7 +88,7 @@ exports.placeBet = (0, https_1.onCall)({ region: "us-central1" }, async (req) =>
             note: `${priced.label} vs ${priced.opponentAbbr}`,
         });
         const prevStreak = userSnap.get("streak");
-        const streak = (0, streak_1.advanceStreak)(prevStreak, now);
+        const streak = (0, streak_1.advanceStreak)(prevStreak, now, { emptyDays });
         tx.set(betRef, {
             id: betId,
             uid,
@@ -112,6 +116,7 @@ exports.placeBet = (0, https_1.onCall)({ region: "us-central1" }, async (req) =>
             "stats.betsPlaced": economy_1.FieldValue.increment(1),
             "stats.creditsStaked": economy_1.FieldValue.increment(input.stake),
             streak,
+            ...limitUpdate,
         });
         return { ok: true, betId, duplicate: false, balance, streak: streak.count };
     });
@@ -150,6 +155,10 @@ exports.cancelBet = (0, https_1.onCall)({ region: "us-central1" }, async (req) =
             note: "Cancelled before kickoff",
         });
         tx.update(betRef, { status: "cancelled", settledAt: economy_1.FieldValue.serverTimestamp() });
+        // A cancelled free bet gives the day's free bet back.
+        const freeDay = bet.get("freeDay");
+        if (bet.get("freeBet") === true && freeDay)
+            tx.delete(economy_1.db.collection("users").doc(uid).collection("freeBets").doc(freeDay));
         tx.update(economy_1.db.collection("users").doc(uid), {
             "stats.betsPlaced": economy_1.FieldValue.increment(-1),
             "stats.creditsStaked": economy_1.FieldValue.increment(-stake),

@@ -44,8 +44,8 @@ const STEPS: StepDef[] = [
   { key: "eyebrows", title: "Brows", sub: "Every reaction starts here.", label: "Brows", focus: "head", kind: "chips", options: EYEBROWS, fallback: "soft" },
   { key: "noseShape", title: "Nose", sub: "Pick a profile.", label: "Nose", focus: "head", kind: "chips", options: NOSE_SHAPES, fallback: "button" },
   { key: "mouthShape", title: "Mouth", sub: "For all the trash talk.", label: "Mouth", focus: "head", kind: "chips", options: MOUTH_SHAPES, fallback: "neutral" },
-  { key: "hairStyle", title: "Hairstyle", sub: "Fresh cut or nothing at all.", label: "Hairstyle", focus: "torso", kind: "chips", options: HAIR_STYLES, fallback: "bald" },
-  { key: "hairColor", title: "Hair Colour", sub: "Natural or loud.", label: "Hair colour", focus: "head", kind: "swatch", options: HAIR_COLORS, fallback: HAIR_COLORS[0]! },
+  { key: "hairStyle", title: "Hairstyle", sub: "Fresh cut or nothing at all.", label: "Hairstyle", focus: "hairSide", kind: "chips", options: HAIR_STYLES, fallback: "bald" },
+  { key: "hairColor", title: "Hair Colour", sub: "Natural or loud.", label: "Hair colour", focus: "hairSide", kind: "swatch", options: HAIR_COLORS, fallback: HAIR_COLORS[0]! },
   { key: "facialHair", title: "Facial Hair", sub: "Last detail.", label: "Facial hair", focus: "head", kind: "chips", options: FACIAL_HAIR, fallback: "none" },
 ];
 

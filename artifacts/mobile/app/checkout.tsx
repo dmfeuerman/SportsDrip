@@ -151,7 +151,7 @@ export default function CheckoutScreen() {
                 <Text style={[styles.receiptName, { color: c.foreground }]} numberOfLines={1}>
                   {item.name}
                 </Text>
-                <Text style={[styles.receiptPrice, { color: c.mutedForeground }]}>{credits(item.price)}</Text>
+                <Text style={[styles.receiptPrice, { color: c.mutedForeground }]}>{item.price === 0 ? "FREE" : credits(item.price)}</Text>
               </View>
             ))}
             <View style={[styles.divider, { backgroundColor: c.border }]} />
@@ -229,7 +229,7 @@ export default function CheckoutScreen() {
               <Line label={`Subtotal (${items.length} ${items.length === 1 ? "item" : "items"})`} value={credits(total)} />
               <Line label="Fees" value="Free" />
               <View style={[styles.divider, { backgroundColor: c.border }]} />
-              <Line label="Total" value={`${credits(total)} credits`} strong />
+              <Line label="Total" value={total === 0 ? "FREE" : `${credits(total)} credits`} strong />
               <Line label="Your Balance" value={credits(balance)} />
               <Line label="Balance After" value={credits(after)} tone={short ? c.negative : c.positive} />
               {short ? (
@@ -251,7 +251,7 @@ export default function CheckoutScreen() {
               <Text style={[styles.footLabel, { color: c.mutedForeground }]}>Total</Text>
               <View style={styles.footTotal}>
                 <MaterialCommunityIcons name="lightning-bolt" size={18} color={c.primary} />
-                <Text style={[styles.footValue, { color: c.foreground }]}>{credits(total)}</Text>
+                <Text style={[styles.footValue, { color: c.foreground }]}>{total === 0 ? "FREE" : credits(total)}</Text>
               </View>
             </View>
             <TourTarget id="checkout.pay">
@@ -309,7 +309,7 @@ function CartItem({ item, failed, disabled, onRemove }: { item: CatalogItem; fai
         <View style={styles.cardFoot}>
           <View style={styles.priceRow}>
             <MaterialCommunityIcons name="lightning-bolt" size={15} color={c.primary} />
-            <Text style={[styles.price, { color: c.foreground }]}>{credits(item.price)}</Text>
+            <Text style={[styles.price, { color: c.foreground }]}>{item.price === 0 ? "FREE" : credits(item.price)}</Text>
           </View>
           <Pressable
             accessibilityRole="button"

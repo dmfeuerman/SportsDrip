@@ -1,13 +1,12 @@
 import "./setup";
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { balance, call, clock, db, finishGame, key, ledger, notifications, rejects, seedGame, seedUser } from "./helpers";
+import { addPal, balance, call, clock, db, finishGame, key, ledger, notifications, rejects, seedGame, seedUser } from "./helpers";
 import { placeBet, cancelBet } from "../src/callable/bets";
 import { purchaseItem } from "../src/callable/shop";
 import {
   createLeague,
   endLeague,
-  joinLeague,
   leaveLeague,
   peerLoanAction,
   placeLeagueBet,
@@ -16,8 +15,10 @@ import {
   takeBankLoan,
   updateLeagueSettings,
   inviteToLeague,
-  voteEndLeague,
+  voteEndLeague
 } from "../src/callable/leagues";
+import { joinBeforeStart as joinLeague } from "./helpers";
+import { joinLeague as realJoin } from "../src/callable/leagues";
 import { refundStale, settleBetsForGame, settleLeagueBetsForGame } from "../src/scheduled/settleBets";
 import { sweepLeagues } from "../src/scheduled/leagues";
 import { loanSnapshot } from "../src/lib/loanMath";
@@ -180,9 +181,44 @@ test("create and join charge the buy-in once, build the pot, and reject double-j
   await rejects(call(joinLeague, "ben", { code: "ZZZZZZ" }), /No league with that code/);
 });
 
+test("scheduled start: at least a day out, joins only before it, betting only after; full season is one sport", async () => {
+  seedUser("ann", 1000);
+  seedUser("ben", 1000);
+  seedUser("cat", 1000);
+  const t0 = Date.now();
+  await rejects(makeLeague("ann", { startNow: false, startsAt: t0 + 3_600_000 }), /at least a day from now/);
+  await rejects(makeLeague("ann", { duration: "Full Season", sports: ["NBA", "NFL"] }), /covers one sport/);
+
+  const { leagueId, code } = await makeLeague("ann", { startNow: false, startsAt: t0 + 2 * 86_400_000 });
+  const l = league(leagueId);
+  assert.equal(l.startsAt, t0 + 2 * 86_400_000);
+  assert.equal(l.endsAt, t0 + 2 * 86_400_000 + 28 * 86_400_000);
+  await call(realJoin, "ben", { code });
+  seedGame("g_pre", { startsAt: t0 + 3 * 86_400_000 });
+  await rejects(
+    call(placeLeagueBet, "ben", { leagueId, gameId: "g_pre", side: "home", stake: 50, idempotencyKey: key() }),
+    /starts .* Betting opens then/
+  );
+
+  clock.set(t0 + 2 * 86_400_000 + 60_000);
+  await rejects(call(realJoin, "cat", { code }), /already started/);
+
+  // Start Now with nobody else in: it waits, still joinable, and the second player starts it.
+  clock.set(t0);
+  const now = await makeLeague("cat", { startNow: true });
+  await rejects(call(placeLeagueBet, "cat", { leagueId: now.leagueId, gameId: "g_pre", side: "home", stake: 50, idempotencyKey: key() }), /at least 2 players/);
+  clock.set(t0 + 3 * 86_400_000);
+  await call(realJoin, "ann", { code: now.code });
+  const started = league(now.leagueId);
+  assert.equal(started.startsAt, t0 + 3 * 86_400_000, "the season starts when the second player joins");
+  assert.equal(started.endsAt, t0 + 3 * 86_400_000 + 28 * 86_400_000, "with its full length");
+  await rejects(call(realJoin, "ben", { code: now.code }), /already started/);
+});
+
 test("league bets debit league tokens only, respect allowed sports, and settle exactly once", async () => {
   seedUser("ann", 1000);
   const { leagueId } = await makeLeague("ann");
+  await addPal(leagueId);
   seedGame("nba1");
   seedGame("mlb1", { sport: "MLB" });
   await rejects(
@@ -211,6 +247,8 @@ test("one user in two leagues: bets on the same game settle into the right leagu
   seedUser("ann", 2000);
   const a = await makeLeague("ann", { name: "A" });
   const b = await makeLeague("ann", { name: "B" });
+  await addPal(a.leagueId);
+  await addPal(b.leagueId);
   seedGame("g");
   await call(placeLeagueBet, "ann", { leagueId: a.leagueId, gameId: "g", side: "home", stake: 100, idempotencyKey: key() });
   await call(placeLeagueBet, "ann", { leagueId: b.leagueId, gameId: "g", side: "away", stake: 300, idempotencyKey: key() });
@@ -242,6 +280,7 @@ test("non-members can't bet, peek, or end; only the creator ends early", async (
 test("bank loans: flat interest, capped principal, interest-first repayment, idempotent repay", async () => {
   seedUser("ann", 1000);
   const { leagueId } = await makeLeague("ann");
+  await addPal(leagueId);
   await call(takeBankLoan, "ann", { leagueId, amount: 600, idempotencyKey: key() });
   assert.equal(tokens(leagueId, "ann"), 1600);
   await rejects(call(takeBankLoan, "ann", { leagueId, amount: 500, idempotencyKey: key() }), /lends up to 1,000/);
@@ -421,7 +460,7 @@ test("invites go to friends only, as a notification with the code", async () => 
   seedUser("ann", 1000);
   seedUser("ben", 1000);
   seedUser("zed", 1000);
-  const { leagueId, code } = await makeLeague("ann");
+  const { leagueId, code } = await makeLeague("ann", { startNow: false, startsAt: Date.now() + 2 * 86_400_000 });
   db.seed("friendships/ann_ben", { users: ["ann", "ben"] });
   await call(inviteToLeague, "ann", { leagueId, friendUid: "ben" });
   await call(inviteToLeague, "ann", { leagueId, friendUid: "ben" });
@@ -429,4 +468,8 @@ test("invites go to friends only, as a notification with the code", async () => 
   assert.equal(inv.length, 1);
   assert.equal((inv[0]!.data as { code: string }).code, code);
   await rejects(call(inviteToLeague, "ann", { leagueId, friendUid: "zed" }), /only invite friends/);
+  clock.advanceHours(49);
+  // Past its start time with only Ann in, it's still open: it needs a second player to start.
+  await addPal(leagueId);
+  await rejects(call(inviteToLeague, "ann", { leagueId, friendUid: "ben" }), /already started/);
 });

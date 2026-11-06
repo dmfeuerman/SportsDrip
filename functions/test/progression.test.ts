@@ -33,7 +33,7 @@ beforeEach(() => {
   db.seed("catalog/hat_plain", { name: "Plain Cap", slot: "hat", price: 900, available: true });
   db.seed("backgrounds/night_stadium", { name: "Night Game", price: 1200, available: true, levelRequired: null, levelReward: null });
   db.seed("backgrounds/neon_city", { name: "Neon City", price: 7500, available: true, levelRequired: 4, levelReward: null });
-  db.seed("backgrounds/confetti_podium", { name: "Podium", price: 0, available: true, levelRequired: null, levelReward: 5 });
+  db.seed("backgrounds/confetti_podium", { name: "Podium", price: 9000, available: true, levelRequired: null, levelReward: 5 });
 });
 
 const owns = (uid: string, path: string) => !!db.read(`users/${uid}/${path}`);
@@ -109,7 +109,6 @@ test("backgrounds: buy, auto-select, level gates, and only owned ones can be set
   assert.equal(db.read("users/cy")!.background, "night_stadium");
   await rejects(call(purchaseBackground, "cy", { backgroundId: "night_stadium", idempotencyKey: key() }), /already own/);
   await rejects(call(purchaseBackground, "cy", { backgroundId: "neon_city", idempotencyKey: key() }), /Reach level 4/);
-  await rejects(call(purchaseBackground, "cy", { backgroundId: "confetti_podium", idempotencyKey: key() }), /unlocked by reaching level 5/);
   await rejects(call(setBackground, "cy", { backgroundId: "confetti_podium" }), /don't own/);
   await call(setBackground, "cy", { backgroundId: null });
   assert.equal(db.read("users/cy")!.background, "locker_room");
@@ -127,10 +126,10 @@ test("invite codes: both players get credits, become friends, and a code can't b
   assert.equal(check.displayName, "Ref");
   assert.equal((await call<{ valid: boolean }>(checkReferralCode, "ref", { code })).valid, false);
 
-  await rejects(call(createProfile, "nope", { username: "nope_1", displayName: "Nope", referralCode: "ZZZZZZ" }), /isn't valid/);
+  await rejects(call(createProfile, "nope", { username: "nope_1", displayName: "Nope", age: 25, birthMonth: 3, acceptedTerms: true, referralCode: "ZZZZZZ" }), /isn't valid/);
   assert.equal(db.read("users/nope"), undefined);
 
-  const res = await call<{ referred: boolean }>(createProfile, "newbie", { username: "newbie_1", displayName: "Newbie", referralCode: code });
+  const res = await call<{ referred: boolean }>(createProfile, "newbie", { username: "newbie_1", displayName: "Newbie", age: 25, birthMonth: 3, acceptedTerms: true, referralCode: code });
   assert.equal(res.referred, true);
   assert.equal(balance("newbie"), 1000 + REFERRAL.newUserCredits);
   assert.equal(balance("ref"), 1000 + REFERRAL.referrerCredits + levelUpCredits(2));

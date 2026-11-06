@@ -11,20 +11,26 @@ const notifyModel_1 = require("../lib/notifyModel");
 const progression_1 = require("../lib/progression");
 const xp_1 = require("../lib/xp");
 const referrals_1 = require("./referrals");
+const legal_1 = require("../lib/legal");
+const birthdays_1 = require("../scheduled/birthdays");
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 const CreateProfileInput = zod_1.z.object({
     username: zod_1.z.string().trim().toLowerCase(),
     displayName: zod_1.z.string().trim().min(1).max(30),
     avatar: avatar_1.AvatarSchema.optional(),
-    age: zod_1.z.number().int().min(13).max(120).optional(),
-    birthDate: zod_1.z.string().trim().max(20).optional(),
+    /** Self-reported at signup; under-18s are refused. */
+    age: zod_1.z.number().int().min(18, "You must be 18 or older to play.").max(120),
+    /** 1–12. Drives the birthday gift (scheduled/birthdays.ts). */
+    birthMonth: zod_1.z.number().int().min(1).max(12),
+    /** Must be true: Terms of Service + Community Guidelines (zero tolerance). */
+    acceptedTerms: zod_1.z.literal(true, { errorMap: () => ({ message: "Accept the Terms of Service to continue." }) }),
     phoneNumber: zod_1.z.string().trim().max(24).optional(),
     /** A friend's invite code (callable/referrals.ts). Optional; an unknown code is rejected so it can be fixed. */
     referralCode: referrals_1.ReferralInput,
 });
 /**
  * Creates users/{uid} exactly once, claims the username atomically, grants the
- * starting balance and starter outfit, and writes the opening ledger entry.
+ * starting balance, and writes the opening ledger entry.
  *
  * Fixes B4 (no profile documents ever existed) and B3 (nothing to read a real
  * display name from). Callable, so the client cannot set its own balance (S2).
@@ -78,8 +84,9 @@ exports.createProfile = (0, https_1.onCall)({ region: "us-central1" }, async (re
         tx.set(userRef.collection("private").doc("contact"), {
             email: req.auth?.token.email ?? null,
             phoneNumber: input.phoneNumber ?? null,
-            birthDate: input.birthDate ?? null,
-            age: input.age ?? null,
+            age: input.age,
+            ageRecordedAt: economy_1.FieldValue.serverTimestamp(),
+            birthMonth: input.birthMonth,
             createdAt: economy_1.FieldValue.serverTimestamp(),
         });
         tx.set(userRef, {
@@ -92,22 +99,19 @@ exports.createProfile = (0, https_1.onCall)({ region: "us-central1" }, async (re
             level: 1,
             ...(myCode ? { referralCode: myCode } : {}),
             ...(referrerUid ? { referredBy: referrerUid } : {}),
-            ...(input.age != null ? { age: input.age } : {}),
-            // Nothing worn at signup: the starter kit lands in the inventory to put on
-            // (or not) from the wardrobe.
+            termsVersion: legal_1.TERMS_VERSION,
+            termsAcceptedAt: economy_1.FieldValue.serverTimestamp(),
+            // Nothing worn or owned at signup.
             equipped: {},
             stats: { betsPlaced: 0, betsWon: 0, betsLost: 0, betsPush: 0, creditsWon: 0, creditsStaked: 0 },
             onboarded: true,
             createdAt: economy_1.FieldValue.serverTimestamp(),
             updatedAt: economy_1.FieldValue.serverTimestamp(),
         });
-        for (const itemId of economy_1.STARTER_ITEMS) {
-            tx.set(userRef.collection("inventory").doc(itemId), {
-                itemId,
-                source: "starter",
-                acquiredAt: economy_1.FieldValue.serverTimestamp(),
-            });
-        }
+        // No free starter kit in the inventory: new players buy it (0 credits) in the
+        // Drip Shop, walked through by the in-app starter tutorial.
+        // Server-only birthday index (users/{uid} is readable by every signed-in user).
+        tx.set((0, birthdays_1.birthdayRef)(uid), { uid, month: input.birthMonth, lastGiftYear: 0 });
         tx.set(userRef.collection("ledger").doc(`signup_${uid}`), {
             type: "signup_grant",
             delta: economy_1.STARTING_BALANCE,

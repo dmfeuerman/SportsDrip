@@ -3,17 +3,17 @@ import {
   doc,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   updateDoc,
+  where,
   writeBatch,
-  type QuerySnapshot,
 } from "firebase/firestore";
 import * as Notifications from "expo-notifications";
 import { router, type Href } from "expo-router";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
+import { subscribeCached, type CachedHandle } from "@/lib/cachedQuery";
 import { usePolling } from "@/hooks/usePolling";
 import {
   configurePushPresentation,
@@ -82,6 +82,7 @@ export interface AppNotification {
     | "referral_bonus"
     | "gift_received"
     | "credits_received"
+    | "birthday_gift"
     | "win_back";
   title: string;
   body: string;
@@ -139,6 +140,7 @@ export const SOCIAL_TYPES: ReadonlySet<AppNotification["type"]> = new Set([
   "referral_bonus",
   "gift_received",
   "credits_received",
+  "birthday_gift",
 ]);
 
 /** A settled head-to-head carries a `bet` from the player's side, so it renders like a bet result. */
@@ -152,7 +154,7 @@ function isPermanent(err: { code?: string }) {
 }
 
 /** Foreground poll interval. Listener is primary; this catches what it drops. */
-export const NOTIFICATION_POLL_MS = 30_000;
+export const NOTIFICATION_POLL_MS = 2 * 60_000;
 
 interface NotificationContextType {
   notifications: AppNotification[];
@@ -210,8 +212,7 @@ export function NotificationProvider({
 
   const enabled = firebaseConfigured && !!uid && !DEMO;
 
-  const apply = useCallback((snap: QuerySnapshot) => {
-    const list = snap.docs.map((d) => ({ ...(d.data() as AppNotification), id: d.id }));
+  const apply = useCallback((list: AppNotification[]) => {
     // Polls return the same data most of the time; don't re-render for nothing.
     const sig = list.map((n) => `${n.id}:${n.read ? 1 : 0}:${n.createdAtMs}`).join("|");
     if (sig === signature.current) return;
@@ -233,43 +234,73 @@ export function NotificationProvider({
     setToastQueue((q) => enqueue(prune(q, social), social, now));
   }, []);
 
-  const notificationsQuery = useCallback(() => {
-    const db = getDb();
-    if (!db || !uid) return null;
-    return query(collection(db, "users", uid, "notifications"), orderBy("createdAtMs", "desc"), limit(60));
-  }, [uid]);
-
+  /**
+   * The list lives on the phone (lib/cachedQuery.ts): opening the app shows
+   * the cached 60 and reads only notifications created since. Read flags are
+   * set by this phone and patched into the cache as they're written.
+   */
+  const cache = useRef<CachedHandle<AppNotification> | null>(null);
   useEffect(() => {
-    if (!enabled) return;
-    const q = notificationsQuery();
-    if (!q) return;
+    if (!enabled || !uid) return;
+    const db = getDb();
+    if (!db) return;
+    const col = collection(db, "users", uid, "notifications");
     let retry: ReturnType<typeof setTimeout> | null = null;
-    const unsub = onSnapshot(q, apply, (err) => {
-      if (__DEV__) console.warn(`[notifications] listener: ${err.code} — ${err.message}`);
-      // Rules/auth denials are permanent for this session; retrying just
-      // hammers the backend. Anything else (network, stalled channel) retries.
-      if (isPermanent(err)) return;
-      retry = setTimeout(() => setListenGen((g) => g + 1), 5_000);
-    });
+    const handle = subscribeCached<AppNotification>(
+      {
+        key: `sd.cache.notifications.${uid}`,
+        version: 1,
+        cursorType: "number",
+        full: () => query(col, orderBy("createdAtMs", "desc"), limit(60)),
+        delta: (after) => query(col, where("createdAtMs", ">", after), orderBy("createdAtMs", "desc")),
+        cursorOf: (n) => (typeof n.createdAtMs === "number" ? n.createdAtMs : null),
+        keep: (list) => list.sort((x, y) => (y.createdAtMs ?? 0) - (x.createdAtMs ?? 0)).slice(0, 60),
+        fullEveryMs: 7 * 24 * 3_600_000,
+      },
+      (list) => apply(list),
+      (err) => {
+        const e = err as Error & { code?: string };
+        if (__DEV__) console.warn(`[notifications] listener: ${e.code} — ${e.message}`);
+        // Rules/auth denials are permanent for this session; retrying just
+        // hammers the backend. Anything else (network, stalled channel) retries.
+        if (isPermanent(e)) return;
+        retry = setTimeout(() => setListenGen((g) => g + 1), 5_000);
+      }
+    );
+    cache.current = handle;
     return () => {
       if (retry) clearTimeout(retry);
-      unsub();
+      handle.stop();
+      if (cache.current === handle) cache.current = null;
     };
-  }, [enabled, notificationsQuery, apply, listenGen]);
+  }, [enabled, uid, apply, listenGen]);
 
+  const newest = useRef<string | null>(null);
+  newest.current = notifications[0]?.id ?? null;
+
+  /** Pull-to-refresh: re-attach the listener (reads only what's new since the cache). */
   const refresh = useCallback(async () => {
-    if (!enabled) return;
-    const q = notificationsQuery();
-    if (!q) return;
-    // Never rejects: callers (poll timer, pull-to-refresh) fire and forget.
-    try {
-      apply(await getDocs(q));
-    } catch (err) {
-      if (__DEV__) console.warn(`[notifications] poll: ${(err as { code?: string }).code ?? err}`);
-    }
-  }, [enabled, notificationsQuery, apply]);
+    if (enabled) setListenGen((g) => g + 1);
+  }, [enabled]);
 
-  usePolling(refresh, NOTIFICATION_POLL_MS, enabled);
+  /**
+   * Safety net under the listener, for a channel that stalled silently: read
+   * the newest one, and re-attach only if the listener missed something.
+   */
+  const probe = useCallback(async () => {
+    if (!enabled) return;
+    const db = getDb();
+    if (!db || !uid) return;
+    try {
+      const top = await getDocs(query(collection(db, "users", uid, "notifications"), orderBy("createdAtMs", "desc"), limit(1)));
+      const id = top.docs[0]?.id ?? null;
+      if (id !== newest.current) await refresh();
+    } catch (err) {
+      if (__DEV__) console.warn(`[notifications] probe: ${(err as { code?: string }).code ?? err}`);
+    }
+  }, [enabled, uid, refresh]);
+
+  usePolling(probe, NOTIFICATION_POLL_MS, enabled);
 
   const markRead = useCallback(
     (ids: string[]) => {
@@ -277,6 +308,7 @@ export function NotificationProvider({
       // Clear the badge now; the write follows.
       const set = new Set(ids);
       setNotifications((p) => (p.some((n) => set.has(n.id) && !n.read) ? p.map((n) => (set.has(n.id) ? { ...n, read: true } : n)) : p));
+      for (const id of ids) cache.current?.patch(id, { read: true } as Partial<AppNotification>);
       if (DEMO) return;
       const db = getDb();
       if (!db || !uid || ids.length === 0) return;

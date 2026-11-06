@@ -1,5 +1,6 @@
 import BackToLevels from "@/components/BackToLevels";
 import { TourTarget } from "@/components/tour/TourTarget";
+import { tourEvent, tourPractice } from "@/lib/tour/store";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams } from "expo-router";
@@ -80,7 +81,7 @@ export default function LeaguesScreen() {
               <EmptyState
                 icon="trophy-outline"
                 title="No Leagues Yet"
-                body="Everyone starts a season with the same stack of league tokens. Bet them, borrow from the bank or each other, and the best net worth when the clock runs out takes the pot."
+                body="Everyone starts a season with the same stack of league tokens. Bet them, borrow from The House or each other, and the best net worth when the clock runs out takes the pot."
                 action="Start a League"
                 onAction={() => setShowCreate(true)}
                 secondary="Join With a Code"
@@ -92,7 +93,7 @@ export default function LeaguesScreen() {
                 {[
                   ["shield-star", "League tokens are separate from your credits."],
                   ["scale-balance", "Ranked on net worth: tokens, plus what you're owed, minus what you owe."],
-                  ["bank-outline", "Loans charge one flat fee — borrow 100 at 10%, repay 110. Never more."],
+                  ["home-city-outline", "Loans charge one flat fee — borrow 100 at 10%, repay 110. Never more."],
                   ["trophy-outline", "Buy-ins form a pot, paid out in credits when the season ends."],
                 ].map(([icon, text]) => (
                   <View key={text} style={styles.howRow}>
@@ -111,6 +112,14 @@ export default function LeaguesScreen() {
         onClose={() => setShowCreate(false)}
         yourTokens={balance}
         onConfirm={async (name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled, bracketTemplateId, startsAt) => {
+          // Practice tutorial: nothing is created — show the pretend league instead.
+          if (tourPractice()) {
+            buzz.success();
+            setShowCreate(false);
+            // The tutorial's next step opens the pretend league (app/tutorial-league.tsx).
+            tourEvent("league:created");
+            return null;
+          }
           const res = await createLeague({ name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled, bracketTemplateId, startsAt });
           if ("error" in res) return res.error;
           buzz.success();

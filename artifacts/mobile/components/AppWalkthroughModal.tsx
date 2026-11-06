@@ -115,9 +115,9 @@ const SLIDES: Slide[] = [
         desc: "Lock one pick a week for a boost, or build a multi-leg Group Parlay with league-mates.",
       },
       {
-        icon: "bank-outline",
-        title: "League Bank & Loans",
-        desc: "Low on tokens? Borrow from the League Bank or a league-mate — repay before the season ends to climb.",
+        icon: "home-city-outline",
+        title: "The House & Loans",
+        desc: "Low on tokens? Borrow from The House or a league-mate — repay before the season ends to climb.",
       },
     ],
   },

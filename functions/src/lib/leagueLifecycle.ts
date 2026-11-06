@@ -1,4 +1,5 @@
 import { HttpsError } from "firebase-functions/v2/https";
+import { generateLeagueWrapped } from "./wrapped";
 import { logger } from "firebase-functions";
 import { applyCredits, db, FieldValue } from "./economy";
 import { prizeSplit, rankMembers, type LeagueLoanLike } from "./loanMath";
@@ -103,7 +104,7 @@ export async function finalizeLeague(leagueId: string, now: number): Promise<Lea
 
     const byId = new Map(members.map((m) => [m.uid, m]));
     const standings =
-      mode === "pickem"
+      mode === "pickem" || mode === "bracket"
         ? [...baseStandings]
             .map((s) => ({ ...s, netWorth: byId.get(s.uid)?.pickPoints ?? 0 }))
             .sort((a, b) => b.netWorth - a.netWorth || (a.uid < b.uid ? -1 : 1))
@@ -191,6 +192,8 @@ export async function finalizeLeague(leagueId: string, now: number): Promise<Lea
 
   if (freshEnd && results.length > 0) {
     await applySeasonAwards(leagueId, leagueName, results, now);
+    // Drip Wrapped for the season; a failure never blocks the league end.
+    await generateLeagueWrapped(leagueId, now).catch((err) => logger.warn("wrapped failed", { leagueId, error: String(err) }));
   }
   return results;
 }

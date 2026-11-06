@@ -1,6 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { TourModalLayer } from "@/components/tour/TourHost";
+import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
+import { tourEvent, tourPractice } from "@/lib/tour/store";
 import { collection, getDocs, limit, query, where } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -93,7 +96,7 @@ const TEMPLATES: Template[] = [
     id: "sweat",
     label: "Season Sweat",
     icon: "fire",
-    desc: "A month-long bankroll league: everyone starts with 10K tokens, bets at real odds and can borrow from the bank, with a new head-to-head opponent every Monday. Highest net worth takes the 100-credit-a-head pot.",
+    desc: "A month-long bankroll league: everyone starts with 10K tokens, bets at real odds and can borrow from The House, with a new head-to-head opponent every Monday. Highest net worth takes the 100-credit-a-head pot.",
     mode: "bankroll",
     tokens: 10_000,
     buyIn: 100,
@@ -121,7 +124,7 @@ const TEMPLATES: Template[] = [
     id: "season",
     label: "Full Season",
     icon: "calendar-star",
-    desc: "Follows one sport until it crowns a champion (see the end date below). 25K tokens, weekly matchups, and the bank can vote everyone a stimulus if stacks run dry over the long haul.",
+    desc: "Follows one sport until it crowns a champion (see the end date below). 25K tokens, weekly matchups, and members can vote for The House to pay everyone a stimulus if stacks run dry over the long haul.",
     mode: "bankroll",
     tokens: 25_000,
     buyIn: 250,
@@ -135,7 +138,7 @@ const TEMPLATES: Template[] = [
     id: "high",
     label: "High Rollers",
     icon: "diamond-stone",
-    desc: "Three months, 50K-token stacks and a 1,000-credit buy-in. Bank loans and weekly matchups are on — for groups that want big swings and a big pot.",
+    desc: "Three months, 50K-token stacks and a 1,000-credit buy-in. Loans from The House and weekly matchups are on — for groups that want big swings and a big pot.",
     mode: "bankroll",
     tokens: 50_000,
     buyIn: 1_000,
@@ -184,6 +187,14 @@ export default function CreateLeagueModal({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const tourScroll = useTourScroll(scrollRef);
+  // Practice tutorial: a ready-made name, and tell the tour the builder is open.
+  useEffect(() => {
+    if (!visible) return;
+    if (tourPractice()) setName((n) => n || "Practice League");
+    tourEvent("league:create:open");
+  }, [visible]);
   const [mode, setMode] = useState<LeagueMode>("bankroll");
   const [bracketTemplates, setBracketTemplates] = useState<Array<{ id: string; name: string }>>([]);
   const [bracketTemplateId, setBracketTemplateId] = useState<string | null>(null);
@@ -347,7 +358,8 @@ export default function CreateLeagueModal({
         ]}
       >
         <View style={[styles.handle, { backgroundColor: colors.border }]} />
-        <ScrollView showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <ScrollView ref={scrollRef} onScroll={tourScroll.onScroll} scrollEventThrottle={32} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+          <tourScroll.Provider>
           <Text style={[styles.title, { color: colors.foreground }]}>
             Create League
           </Text>
@@ -356,6 +368,7 @@ export default function CreateLeagueModal({
             the prize pot.
           </Text>
 
+          <TourTarget id="league.templates">
           {/* Quick-start templates */}
           <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 4 }]}>
             QUICK-START TEMPLATES
@@ -401,6 +414,8 @@ export default function CreateLeagueModal({
             </Text>
           )}
 
+          </TourTarget>
+          <TourTarget id="league.name">
           {/* League name */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             LEAGUE NAME
@@ -421,6 +436,8 @@ export default function CreateLeagueModal({
             maxLength={32}
           />
 
+          </TourTarget>
+          <TourTarget id="league.mode">
           {/* League Mode */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             LEAGUE FORMAT
@@ -471,6 +488,8 @@ export default function CreateLeagueModal({
             </View>
           ) : null}
 
+          </TourTarget>
+          <TourTarget id="league.tokens">
           {/* Starting league tokens */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             LEAGUE TOKENS (per player)
@@ -537,6 +556,8 @@ export default function CreateLeagueModal({
             })}
           </View>
 
+          </TourTarget>
+          <TourTarget id="league.buyin">
           {/* Buy-in */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             BUY-IN (credits)
@@ -627,6 +648,8 @@ export default function CreateLeagueModal({
             </View>
           )}
 
+          </TourTarget>
+          <TourTarget id="league.prizes">
           {/* Prize distribution */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             PRIZE DISTRIBUTION
@@ -685,6 +708,8 @@ export default function CreateLeagueModal({
             })}
           </View>
 
+          </TourTarget>
+          <TourTarget id="league.sports">
           {/* Sports */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             {fullSeason ? "SPORT (ONE PER SEASON)" : "ALLOWED SPORTS"}
@@ -739,6 +764,8 @@ export default function CreateLeagueModal({
             </Text>
           ) : null}
 
+          </TourTarget>
+          <TourTarget id="league.start">
           {/* Start */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             LEAGUE START
@@ -793,6 +820,8 @@ export default function CreateLeagueModal({
             </View>
           )}
 
+          </TourTarget>
+          <TourTarget id="league.duration">
           {/* Duration */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
             LEAGUE DURATION
@@ -879,6 +908,7 @@ export default function CreateLeagueModal({
             </Text>
           )}
 
+          </TourTarget>
           {/* Weekly H2H Matchups toggle */}
           <View
             style={[
@@ -941,6 +971,7 @@ export default function CreateLeagueModal({
             ) : null}
           </View>
 
+          <TourTarget id="league.bank">
           {/* Bank loan feature */}
           <View
             style={[
@@ -951,7 +982,7 @@ export default function CreateLeagueModal({
             <View style={styles.bankToggleRow}>
               <View style={styles.bankToggleLeft}>
                 <MaterialCommunityIcons
-                  name="bank"
+                  name="home-city"
                   size={16}
                   color={bankLoanEnabled ? colors.accent : colors.mutedForeground}
                 />
@@ -962,7 +993,7 @@ export default function CreateLeagueModal({
                       { color: colors.foreground },
                     ]}
                   >
-                    League Bank Loans
+                    Loans from The House
                   </Text>
                   <Text
                     style={[
@@ -1032,6 +1063,7 @@ export default function CreateLeagueModal({
             )}
           </View>
 
+          </TourTarget>
           {/* Bank stimulus votes */}
           <View style={[styles.bankCard, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
             <View style={styles.bankToggleRow}>
@@ -1040,7 +1072,7 @@ export default function CreateLeagueModal({
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.bankToggleTitle, { color: colors.foreground }]}>Stimulus Votes</Text>
                   <Text style={[styles.bankToggleDesc, { color: colors.mutedForeground }]}>
-                    Anyone can ask the bank to give every member 10–50% of the starting stack. A majority yes pays everyone the same amount — free, not a loan. Once a week at most.
+                    Anyone can ask The House to give every member 10–50% of the starting stack. A majority yes pays everyone the same amount — free, not a loan. Once a week at most.
                   </Text>
                 </View>
               </View>
@@ -1126,6 +1158,7 @@ export default function CreateLeagueModal({
             </View>
           )}
 
+          <TourTarget id="league.create">
           <TouchableOpacity
             style={[
               styles.createBtn,
@@ -1157,6 +1190,7 @@ export default function CreateLeagueModal({
               {submitting ? "Creating…" : buyIn > yourTokens ? "Not enough credits" : "Create League"}
             </Text>
           </TouchableOpacity>
+          </TourTarget>
           {submitError ? (
             <Text
               accessibilityRole="alert"
@@ -1166,10 +1200,12 @@ export default function CreateLeagueModal({
             </Text>
           ) : null}
           <View style={{ height: 32 }} />
+          </tourScroll.Provider>
         </ScrollView>
         <CloseButton onPress={onClose} style={styles.close} />
       </View>
       </KeyboardAvoidingView>
+      <TourModalLayer />
     </Modal>
   );
 }

@@ -40,7 +40,11 @@ export interface ToastInput {
 export interface Toast extends Required<Pick<ToastInput, "id" | "kind" | "title" | "durationMs">>, Omit<ToastInput, "id" | "kind" | "title" | "durationMs"> {}
 
 export interface BetLockedInput {
+  /** Tutorial practice bet: stamped TEST LOCKED IN. */
+  test?: boolean;
   teamName: string;
+  /** Overrides the "<team> to win" line (e.g. parlays). */
+  pickLabel?: string;
   teamAbbr: string;
   teamColor: string;
   odds: number;

@@ -6,6 +6,7 @@ const economy_1 = require("./economy");
 const notify_1 = require("./notify");
 const notifyModel_1 = require("./notifyModel");
 const progression_1 = require("./progression");
+const seasonPass_1 = require("./seasonPass");
 /**
  * Reads every level reward at or below `level` that this player doesn't own.
  * Reads only: call `write()` after the transaction's other reads.
@@ -52,6 +53,8 @@ async function grantXp(uid, amount, key, reason) {
     const none = (xp = 0) => ({ applied: false, xp, level: (0, progression_1.levelFromXp)(xp), levelsGained: 0, credits: 0, unlocks: [] });
     if (!(amount > 0) || !Number.isFinite(amount))
         return none();
+    // Season pass XP: a parallel counter, only from quests and Daily Picks.
+    const season = seasonPass_1.SEASON_XP_REASONS.has(reason) ? await (0, seasonPass_1.activeSeason)().catch(() => null) : null;
     return economy_1.db.runTransaction(async (tx) => {
         const [user, ev] = await Promise.all([tx.get(userRef), tx.get(eventRef)]);
         if (!user.exists)
@@ -94,6 +97,7 @@ async function grantXp(uid, amount, key, reason) {
         tx.update(userRef, {
             xp: after,
             level: newLevel,
+            ...(season ? { [`seasonXp.${season.id}`]: economy_1.FieldValue.increment(Math.floor(amount)) } : {}),
             ...(credits > 0 ? { balance } : {}),
             updatedAt: economy_1.FieldValue.serverTimestamp(),
         });

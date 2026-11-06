@@ -6,6 +6,8 @@ import { quoteMarket } from "@/lib/markets";
 import { useParlay } from "@/context/ParlayContext";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
+import { TourTarget } from "@/components/tour/TourTarget";
+import { tourEvent } from "@/lib/tour/store";
 import Reanimated, {
   cancelAnimation,
   Easing as REasing,
@@ -55,11 +57,19 @@ interface Props {
   onLeaguePress?: (game: Game) => void;
   /** Head-to-head with a friend on the picked side (opens the slip in friend mode). */
   onChallenge?: (game: Game, side: Side) => void;
+  /** Tutorial handle: "first" / "second" mark this card's odds and buttons as tour targets. */
+  tourKey?: string;
+}
+
+/** A tour target when the card has a tutorial handle; a plain View otherwise (same layout). */
+function MaybeTarget({ id, style, children }: { id?: string; style?: object; children: React.ReactNode }) {
+  return id ? <TourTarget id={id} style={style}>{children}</TourTarget> : <View style={style}>{children}</View>;
 }
 
 type Pick = { side: Side; market: Market; selection: Selection; label: string };
 
-function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, onLeaguePress, onChallenge }: Props) {
+function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, onLeaguePress, onChallenge, tourKey }: Props) {
+  const tid = (part: string) => (tourKey ? `game.${tourKey}.${part}` : undefined);
   const c = useColors();
   const oddsFormat = useOddsFormat();
   const isLocked = locked ?? (game.status !== "upcoming" || !!game.disrupted);
@@ -91,7 +101,19 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
     }
     const sel = selection ?? side;
     buzz.tick();
-    setPick((p) => (p && p.market === market && p.selection === sel ? null : { side, market, selection: sel, label: label ?? (side === "home" ? game.homeTeam.abbreviation : game.awayTeam.abbreviation) }));
+    const next = pick && pick.market === market && pick.selection === sel ? null : { side, market, selection: sel, label: label ?? (side === "home" ? game.homeTeam.abbreviation : game.awayTeam.abbreviation) };
+    setPick(next);
+    if (next) tourEvent("pick:selected");
+  }
+
+  function addToParlay() {
+    if (!pick) return;
+    const q = quoteMarket(game, pick.market, pick.selection);
+    if (!q.odds) return;
+    buzz.tick();
+    parlay.add({ gameId: game.id, market: pick.market, selection: pick.selection, label: q.label || pick.label, odds: q.odds, sport: game.sport, matchup: `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`, startsAt: game.startsAt });
+    setPick(null);
+    tourEvent("parlay:add");
   }
 
   return (
@@ -110,7 +132,7 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
     >
       <Header game={game} c={c} />
 
-      <View style={styles.teams}>
+      <MaybeTarget id={tid("odds")} style={styles.teams}>
         <View style={styles.colHead} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           <Text style={[styles.colLabel, { color: c.subtleForeground }]}>MONEYLINE · WHO WINS</Text>
           <Text style={[styles.colLabel, styles.colOdds, { color: c.subtleForeground }]}>TAP TO PICK</Text>
@@ -127,6 +149,7 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
           selected={isPicked("ml", "away")}
           oddsFormat={oddsFormat}
           onPress={() => handleBet("away", "ml", "away", `${game.awayTeam.abbreviation} to win`)}
+          tourId={tid("odds.away")}
           c={c}
         />
         <TeamRow
@@ -141,9 +164,10 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
           selected={isPicked("ml", "home")}
           oddsFormat={oddsFormat}
           onPress={() => handleBet("home", "ml", "home", `${game.homeTeam.abbreviation} to win`)}
+          tourId={tid("odds.home")}
           c={c}
         />
-      </View>
+      </MaybeTarget>
 
       {priced ? <ProbabilityBar game={game} prob={prob} c={c} /> : null}
 
@@ -194,11 +218,39 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
             Your Pick: <Text style={{ color: c.primary }}>{pick.label}</Text>
           </Text>
           <View style={styles.ctaRow}>
+            {parlay.legs.length ? (
+              // A parlay is being built: picks can only go on it (or the parlay is called off).
+              <>
+                <MaybeTarget id={tid("parlay")} style={{ flex: 1.3 }}>
+                <Button
+                  label={parlay.has(game.id, pick.market, pick.selection) ? "On Parlay" : "Add to Parlay"}
+                  icon="link-variant"
+                  size="sm"
+                  accessibilityHint="Adds this pick to your parlay slip"
+                  onPress={addToParlay}
+                />
+                </MaybeTarget>
+                <Button
+                  label="Cancel Parlay"
+                  icon="close"
+                  size="sm"
+                  variant="secondary"
+                  style={{ flex: 1 }}
+                  accessibilityHint="Removes every pick from your parlay slip"
+                  onPress={() => {
+                    buzz.warning();
+                    parlay.clear();
+                    setPick(null);
+                  }}
+                />
+              </>
+            ) : (
+              <>
+            <MaybeTarget id={tid("bet")} style={{ flex: 1.3 }}>
             <Button
               label="Choose Bet Amount"
               icon="cash-multiple"
               size="sm"
-              style={{ flex: 1.3 }}
               accessibilityHint="Opens the bet slip to choose how much to stake"
               onPress={() => {
                 buzz.medium();
@@ -206,21 +258,17 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
                 setPick(null);
               }}
             />
+            </MaybeTarget>
+            <MaybeTarget id={tid("parlay")} style={{ flex: 0.9 }}>
             <Button
-              label={parlay.has(game.id, pick.market, pick.selection) ? "On Parlay" : "+ Parlay"}
+              label="+ Parlay"
               icon="link-variant"
               size="sm"
               variant="secondary"
-              style={{ flex: 0.9 }}
-              accessibilityHint="Adds this pick to your parlay slip"
-              onPress={() => {
-                const q = quoteMarket(game, pick.market, pick.selection);
-                if (!q.odds) return;
-                buzz.tick();
-                parlay.add({ gameId: game.id, market: pick.market, selection: pick.selection, label: q.label || pick.label, odds: q.odds, sport: game.sport, matchup: `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`, startsAt: game.startsAt });
-                setPick(null);
-              }}
+              accessibilityHint="Starts a parlay with this pick"
+              onPress={addToParlay}
             />
+            </MaybeTarget>
             {onChallenge && pick.market === "ml" ? (
               <Button
                 label="Select Friend"
@@ -235,6 +283,8 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
                 }}
               />
             ) : null}
+              </>
+            )}
           </View>
         </View>
       ) : null}
@@ -375,7 +425,9 @@ function TeamRow({
   oddsFormat,
   onPress,
   c,
+  tourId,
 }: {
+  tourId?: string;
   sport: string;
   team: TeamSide;
   score: number | null;
@@ -424,6 +476,7 @@ function TeamRow({
         </Text>
       )}
 
+      <MaybeTarget id={tourId}>
       {priced || backed ? (
         <OddsButton
           team={team}
@@ -438,6 +491,7 @@ function TeamRow({
       ) : (
         <NoLineTile locked={locked} onPress={onPress} c={c} />
       )}
+      </MaybeTarget>
     </View>
   );
 }

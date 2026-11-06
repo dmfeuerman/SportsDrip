@@ -158,7 +158,7 @@ export const demoLeagues: League[] = [
 ];
 
 const loan = (over: Partial<LeagueLoan> & Pick<LeagueLoan, "id" | "kind" | "borrowerId" | "borrowerName" | "principal">): LeagueLoan => ({
-  leagueId: "lg_office", status: "active", lenderId: null, lenderName: "League Bank", principalOutstanding: over.principal, interestAccrued: 0, interestPaid: 0,
+  leagueId: "lg_office", status: "active", lenderId: null, lenderName: "The House", principalOutstanding: over.principal, interestAccrued: 0, interestPaid: 0,
   accruedThrough: now - 3 * D - 4 * H, ratePct: 5, intervalHours: 24, createdAt: now - 3 * D - 4 * H, fundedAt: now - 3 * D - 4 * H, ...over,
 });
 export const demoLoans: Record<string, LeagueLoan[]> = {

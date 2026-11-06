@@ -1,4 +1,5 @@
 import { fake } from "./setup";
+import { joinLeague as realJoinLeague } from "../src/callable/leagues";
 
 export const db = fake.db;
 
@@ -82,3 +83,45 @@ export async function rejects(p: Promise<unknown>, pattern: RegExp) {
 
 let k = 0;
 export const key = () => `testkey_${++k}_${Math.random().toString(36).slice(2, 8)}`;
+
+/**
+ * Joins as if before kickoff. Leagues lock their roster once they start, and
+ * test leagues start at creation, so this opens the window for the call only.
+ */
+type Req = { data?: { code?: string } } & Record<string, unknown>;
+export const joinBeforeStart = {
+  run: async (req: Req) => {
+    const run = (realJoinLeague as unknown as { run: (r: Req) => Promise<unknown> }).run;
+    const code = String(req.data?.code ?? "").trim().toUpperCase();
+    const invite = code ? await db.collection("leagueInvites").doc(code).get() : null;
+    if (!invite?.exists) return run(req);
+    const ref = db.collection("leagues").doc(invite.get("leagueId") as string);
+    const startsAt = (await ref.get()).get("startsAt") as number | undefined;
+    await ref.update({ startsAt: Date.now() + 3_600_000 });
+    try {
+      return await run(req);
+    } finally {
+      await ref.update({ startsAt: startsAt ?? Date.now() });
+    }
+  },
+};
+
+/**
+ * A league needs two players to start (leagueConfig.MIN_LEAGUE_PLAYERS). For
+ * tests about one player's bets or loans, this seats a quiet second member
+ * straight into the document so the league counts as started.
+ */
+export async function addPal(leagueId: string, uid = "pal"): Promise<void> {
+  const ref = db.collection("leagues").doc(leagueId);
+  const l = (await ref.get()).data() as { memberIds: string[]; startingLeagueTokens: number; members: Record<string, unknown> };
+  if (l.memberIds.includes(uid)) return;
+  const start = l.startingLeagueTokens;
+  await ref.update({
+    memberIds: [...l.memberIds, uid],
+    [`members.${uid}`]: {
+      uid, displayName: "Pal", avatarColor: "#888888", leagueTokens: start, startingLeagueTokens: start, joinedAt: Date.now(),
+      betsWon: 0, betsLost: 0, betsPush: 0, locksWon: 0, locksLost: 0, locksPush: 0, lastLockWeek: null,
+      pickPoints: 0, eliminated: false, eliminatedAt: null, eliminatedWeek: null, usedTeams: [], h2h: { w: 0, l: 0, t: 0 },
+    },
+  });
+}

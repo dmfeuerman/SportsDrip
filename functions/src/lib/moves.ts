@@ -21,6 +21,24 @@ export const DEFAULT_LOADOUT: string[] = [...FREE_MOVES];
 
 export const MAX_LOADOUT = 4;
 
+/**
+ * Built-in listings for every move the app can animate (mirrors
+ * scripts/move-data.mjs). A moves/{id} doc overrides these; without one the
+ * move still sells at this price, so an unseeded store isn't empty.
+ */
+export const DEFAULT_MOVE_LISTINGS: Record<string, { name: string; price: number }> = {
+  two_step: { name: "Two-Step", price: 1500 },
+  hype_clap: { name: "Hype Clap", price: 1800 },
+  shoulder_shimmy: { name: "Shoulder Shimmy", price: 3200 },
+  raise_the_roof: { name: "Raise the Roof", price: 3800 },
+  the_dab: { name: "The Dab", price: 4500 },
+  sprinkler: { name: "The Sprinkler", price: 7500 },
+  disco_point: { name: "Disco Point", price: 8500 },
+  the_robot: { name: "The Robot", price: 16000 },
+  the_floss: { name: "The Floss", price: 18000 },
+  champion_spin: { name: "Champion Spin", price: 40000 },
+};
+
 export const MOVE_ID_RE = /^[a-z0-9_]{2,40}$/;
 
 export const isFreeMove = (id: string) => (FREE_MOVES as readonly string[]).includes(id);

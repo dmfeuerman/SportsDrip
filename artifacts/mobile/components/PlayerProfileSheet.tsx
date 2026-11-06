@@ -14,6 +14,8 @@ import WinLossReplyModal from "@/components/chat/WinLossReplyModal";
 import GameQuickView from "@/components/GameQuickView";
 import KeyboardSheet from "@/components/KeyboardSheet";
 import TeamChips from "@/components/TeamChips";
+import ReportDialog from "@/components/ReportDialog";
+import { blockPlayer, unblockPlayer, useBlockedUids } from "@/lib/blocks";
 import { Amount, Button, ChoiceDialog, ConfirmDialog, IconButton, Pill, SegmentedControl, StatTile, TabStrip } from "@/components/ui";
 import { DEFAULT_AVATAR } from "@/constants/avatarOptions";
 import { useApp } from "@/context/AppContext";
@@ -117,7 +119,7 @@ function Body({
   const fmt = useOddsFormat();
   const insets = useSafeAreaInsets();
   const { byId } = useCatalog();
-  const { profile: myProfile, progress: myProgress } = useApp();
+  const { profile: myProfile, progress: myProgress, balance: myBalance } = useApp();
   const { activeLeagues, inviteFriend } = useLeague();
   const { headToHead } = useChallenges();
   const { betComments } = useChat();
@@ -150,6 +152,9 @@ function Body({
   const teams = p?.favoriteTeams?.length ? p.favoriteTeams : seed?.favoriteTeams ?? [];
   const relation = data?.relation;
   const isSelf = uid === myProfile?.uid || relation === "self";
+  const [reporting, setReporting] = useState(false);
+  const [confirmBlock, setConfirmBlock] = useState(false);
+  const blocked = useBlockedUids().has(uid);
   const level = isSelf ? myProgress.level : (p?.level ?? null);
   const sceneText = isSceneBackdrop(isSelf ? myProfile?.background : p?.background);
 
@@ -256,6 +261,24 @@ function Body({
             </View>
           )}
         </View>
+
+        {/* Credits brag */}
+        {(() => {
+          const credits = isSelf ? myBalance : p?.balance;
+          if (credits == null) return null;
+          return (
+            <View style={[styles.brag, { backgroundColor: c.alpha("#FFD54A", 0.12), borderColor: "#FFD54A" }]} accessibilityLabel={`${credits.toLocaleString()} credits`}>
+              <View style={styles.inline}>
+                <MaterialCommunityIcons name="crown" size={16} color="#FFD54A" />
+                <Text style={[styles.bragLabel, { color: "#FFD54A" }]}>{isSelf ? "MY BANKROLL" : "BANKROLL"}</Text>
+              </View>
+              <Text style={[styles.bragValue, { color: c.foreground }]} numberOfLines={1} adjustsFontSizeToFit>
+                {credits.toLocaleString()}
+              </Text>
+              <Text style={[styles.bragUnit, { color: c.mutedForeground }]}>CREDITS</Text>
+            </View>
+          );
+        })()}
 
         {/* Primary Friend Profile Actions directly under profile details: Challenge & Invite to League */}
         {!isSelf && (
@@ -604,7 +627,36 @@ function Body({
             <Text style={[styles.removeText, { color: c.negative }]}>Remove Friend</Text>
           </Pressable>
         ) : null}
+        {!isSelf ? (
+          <View style={styles.safetyRow}>
+            <Pressable accessibilityRole="button" onPress={() => setReporting(true)} style={({ pressed }) => [styles.removeLink, { opacity: pressed ? 0.6 : 1 }]}>
+              <Text style={[styles.removeText, { color: c.mutedForeground }]}>Report</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => (blocked ? void unblockPlayer(uid) : setConfirmBlock(true))}
+              style={({ pressed }) => [styles.removeLink, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Text style={[styles.removeText, { color: c.negative }]}>{blocked ? "Unblock" : "Block"}</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </ScrollView>
+      <ReportDialog target={reporting ? { kind: "user", uid, name } : null} onClose={() => setReporting(false)} />
+      <ConfirmDialog
+        visible={confirmBlock}
+        title={`Block ${name}?`}
+        body="You won't see their messages, they're removed from your friends, and they can't message you or send you friend requests. Unblock any time in Settings."
+        confirmLabel="Block"
+        destructive
+        onCancel={() => setConfirmBlock(false)}
+        onConfirm={() => {
+          setConfirmBlock(false);
+          void blockPlayer(uid).then((err) => {
+            if (!err) onDismiss();
+          });
+        }}
+      />
       {footer ? <View style={[styles.footer, { borderTopColor: c.border, paddingBottom: insets.bottom + 16 }]}>{footer}</View> : null}
       {onRemoveFriend ? (
         <ConfirmDialog
@@ -734,6 +786,11 @@ const styles = StyleSheet.create({
   time: { fontSize: 11, fontFamily: "Inter_500Medium" },
   divider: { height: StyleSheet.hairlineWidth },
   removeLink: { alignSelf: "center", paddingVertical: 8, marginTop: 4 },
+  safetyRow: { flexDirection: "row", justifyContent: "center", gap: 24 },
   removeText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   footer: { paddingHorizontal: 20, paddingTop: 12, gap: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  brag: { borderWidth: 2, borderRadius: 22, paddingVertical: 18, paddingHorizontal: 16, alignItems: "center", gap: 2, shadowColor: "#FFD54A", shadowOpacity: 0.35, shadowRadius: 18, shadowOffset: { width: 0, height: 0 }, elevation: 8 },
+  bragLabel: { fontSize: 12, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.5 },
+  bragValue: { fontSize: 56, fontFamily: "Inter_900Black", letterSpacing: -1.5, fontVariant: ["tabular-nums"] },
+  bragUnit: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: 3 },
 });

@@ -11,7 +11,7 @@
  * so a new id ships with an app release; price and gating live in Firestore.
  *
  *  levelRequired  can only be bought at or above this level
- *  levelReward    never sold: granted free on reaching this level
+ *  levelReward    granted free on reaching this level; buyable before then
  */
 
 export const FREE_BACKGROUNDS = ["locker_room"] as const;

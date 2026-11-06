@@ -1,5 +1,6 @@
-import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
+import { collection, orderBy, query, where } from "firebase/firestore";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { sharedCached } from "@/lib/cachedQuery";
 import type { Game, GameStatus } from "@/types/game";
 import { getDb } from "@/lib/firebase";
 import { firstAnswer } from "@/lib/devtrace";
@@ -37,61 +38,67 @@ export function isCurrent(g: Pick<Game, "status" | "startsAt" | "expired">, now 
  *
  * There is deliberately no mock fallback. If the board is empty, the UI says so.
  */
-export function useGames(statuses: GameStatus[] = ["upcoming", "live"]) {
-  const [games, setGames] = useState<Game[]>(DEMO ? demoGames : []);
-  const [loading, setLoading] = useState(!DEMO);
-  const [error, setError] = useState<string | null>(null);
-  /** When the server last delivered a fresh (non-cache) board. */
-  const [syncedAt, setSyncedAt] = useState<number | null>(DEMO ? Date.now() : null);
+const noop = () => () => {};
 
+/**
+ * The board, cached on the phone (lib/cachedQuery.ts). Opening the app shows
+ * the last board instantly and then reads only games changed since — the
+ * server stamps updatedAt on every write and only writes games that changed.
+ * Finished or stale games drop out locally.
+ */
+function gamesStore(statusKey: string) {
+  const statuses = statusKey.split(",") as GameStatus[];
+  const db = getDb()!;
+  return sharedCached<Game & { id: string }>({
+    key: `sd.cache.games.${statusKey}`,
+    version: 1,
+    cursorType: "number",
+    fullEveryMs: 12 * HOUR,
+    full: () =>
+      query(
+        collection(db, "games"),
+        where("status", "in", statuses),
+        // Nothing that started more than a day ago is still upcoming or live.
+        where("startsAt", ">=", Date.now() - 24 * HOUR),
+        orderBy("startsAt", "asc")
+      ),
+    delta: (after) => query(collection(db, "games"), where("updatedAt", ">", after)),
+    cursorOf: (g) => (typeof g.updatedAt === "number" ? g.updatedAt : null),
+    keep: (list) => {
+      const now = Date.now();
+      return list
+        .filter((g) => statuses.includes(g.status) && g.startsAt >= now - 24 * HOUR && isCurrent(g, now))
+        .sort((a, b) => a.startsAt - b.startsAt);
+    },
+  });
+}
+
+export function useGames(statuses: GameStatus[] = ["upcoming", "live"]) {
   // Stable dependency — a fresh array literal on every render would resubscribe
   // on every render.
   const statusKey = statuses.join(",");
   const now = useNow(60_000);
-  // Re-subscribe once an hour so the window below moves with the clock.
-  const windowHour = Math.floor(now / HOUR);
+  const store = useMemo(() => (DEMO ? null : gamesStore(statusKey)), [statusKey]);
+  const snap = useSyncExternalStore(store?.subscribe ?? noop, () => store?.get() ?? null, () => store?.get() ?? null);
 
   useEffect(() => {
-    if (DEMO) return;
-    const db = getDb();
-    if (!db) {
-      setLoading(false);
-      setError("Firebase is not configured.");
-      return;
-    }
+    if (!store) return;
+    store.acquire();
+    return () => store.release();
+  }, [store]);
 
-    const answer = firstAnswer("games", () => {
-      setError("Can't reach the server. Check your connection.");
-      setLoading(false);
-    });
-    const unsub = onSnapshot(
-      query(
-        collection(db, "games"),
-        where("status", "in", statusKey.split(",")),
-        // Nothing that started more than a day ago is still upcoming or live: a
-        // game the provider stopped reporting would otherwise stay on the board.
-        where("startsAt", ">=", (windowHour - 24) * HOUR),
-        orderBy("startsAt", "asc")
-      ),
-      (snap) => {
-        answer.hit();
-        if (!snap.metadata.fromCache) setSyncedAt(Date.now());
-        setGames(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Game));
-        setError(null);
-        setLoading(false);
-      },
-      (err) => {
-        answer.hit();
-        setError(err.message);
-        setLoading(false);
-      }
-    );
+  // Stalled first load: say so rather than spin forever.
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!store || snap?.items) return;
+    const answer = firstAnswer("games", () => setTimedOut(true));
+    return () => answer.cancel();
+  }, [store, snap?.items]);
 
-    return () => {
-      answer.cancel();
-      unsub();
-    };
-  }, [statusKey, windowHour]);
+  const games = useMemo(() => (DEMO ? demoGames : ((snap?.items as Game[] | null) ?? [])), [snap?.items]);
+  const loading = !DEMO && !snap?.items && !snap?.error && !timedOut;
+  const error = snap?.error?.message ?? (timedOut && !snap?.items ? "Can't reach the server. Check your connection." : null);
+  const syncedAt = DEMO ? Date.now() : snap?.syncedAt ?? null;
 
   const { live, upcoming } = useMemo(
     () => ({

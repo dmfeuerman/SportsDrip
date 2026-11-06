@@ -11,6 +11,12 @@ import type { Market, Outcome, Selection } from "./settlement";
 
 export const MIN_PARLAY_LEGS = 2;
 export const MAX_PARLAY_LEGS = 4;
+/** A parlay stake can't exceed this share of the current league wallet (loss-chasing guard). */
+export const MAX_PARLAY_SHARE = 0.25;
+
+export function parlayStakeCap(walletTokens: number): number {
+  return Math.floor(Math.max(0, walletTokens) * MAX_PARLAY_SHARE);
+}
 export const MAX_PARLAY_ODDS = 20.0;
 
 export type ParlayLegStatus = "pending" | "won" | "lost" | "push" | "void";

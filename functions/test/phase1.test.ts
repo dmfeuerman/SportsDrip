@@ -1,9 +1,10 @@
 import "./setup";
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { balance, call, clock, db, key, notifications, rejects, seedGame, seedUser } from "./helpers";
+import { addPal, balance, call, clock, db, key, notifications, rejects, seedGame, seedUser } from "./helpers";
 import { placeBet } from "../src/callable/bets";
-import { createLeague, joinLeague, placeLeagueBet } from "../src/callable/leagues";
+import { createLeague, placeLeagueBet } from "../src/callable/leagues";
+import { joinBeforeStart as joinLeague } from "./helpers";
 import { registerPushToken } from "../src/callable/push";
 import { settleLeagueBetsForGame } from "../src/scheduled/settleBets";
 import { extractMoneylines, priceMarket } from "../src/lib/sportsProvider";
@@ -80,6 +81,7 @@ test("placeBet refuses an unpriced game and a legacy game with no priced flag, a
 test("placeLeagueBet refuses an unpriced game and leaves league tokens alone", async () => {
   seedUser("ann", 1000);
   const { leagueId } = await league("ann");
+  await addPal(leagueId);
   seedGame("nl", { priced: false });
   await rejects(call(placeLeagueBet, "ann", { leagueId, gameId: "nl", side: "away", stake: 100, idempotencyKey: key() }), /No line yet/);
   assert.equal(tokens(leagueId, "ann"), 1000);

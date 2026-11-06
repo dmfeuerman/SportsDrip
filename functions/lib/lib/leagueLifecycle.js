@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.finalizeLeague = finalizeLeague;
 exports.payoutLeague = payoutLeague;
 const https_1 = require("firebase-functions/v2/https");
+const wrapped_1 = require("./wrapped");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("./economy");
 const loanMath_1 = require("./loanMath");
@@ -73,7 +74,7 @@ async function finalizeLeague(leagueId, now) {
         const mode = league.get("mode") ?? "bankroll";
         const baseStandings = (0, loanMath_1.rankMembers)(members.map((m) => ({ uid: m.uid, leagueTokens: tokens.get(m.uid) ?? m.leagueTokens, joinedAt: m.joinedAt })), loanList, asOf);
         const byId = new Map(members.map((m) => [m.uid, m]));
-        const standings = mode === "pickem"
+        const standings = mode === "pickem" || mode === "bracket"
             ? [...baseStandings]
                 .map((s) => ({ ...s, netWorth: byId.get(s.uid)?.pickPoints ?? 0 }))
                 .sort((a, b) => b.netWorth - a.netWorth || (a.uid < b.uid ? -1 : 1))
@@ -153,6 +154,8 @@ async function finalizeLeague(leagueId, now) {
     });
     if (freshEnd && results.length > 0) {
         await (0, awards_1.applySeasonAwards)(leagueId, leagueName, results, now);
+        // Drip Wrapped for the season; a failure never blocks the league end.
+        await (0, wrapped_1.generateLeagueWrapped)(leagueId, now).catch((err) => firebase_functions_1.logger.warn("wrapped failed", { leagueId, error: String(err) }));
     }
     return results;
 }

@@ -29,6 +29,7 @@ async function webSignIn(auth: Auth, provider: FirebaseAuthProvider) {
     throw e;
   }
 }
+import { clearCachedQueries } from "@/lib/cachedQuery";
 import { setPendingSignupMeta, type PendingSignupMeta } from "@/lib/settings";
 
 interface AuthContextType {
@@ -106,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // doesn't receive the previous account's pushes.
     await unregisterPush();
     await signOutSocial();
+    await clearCachedQueries();
     await firebaseSignOut(auth);
   }
 

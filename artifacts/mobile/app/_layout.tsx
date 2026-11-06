@@ -37,6 +37,7 @@ import EngagementWatchers from "@/components/EngagementWatchers";
 import InviteToastHost from "@/components/InviteToastHost";
 import LevelUpHost from "@/components/LevelUpHost";
 import ToastHost from "@/components/ToastHost";
+import TermsGate from "@/components/TermsGate";
 import GlobalHosts from "@/components/GlobalHosts";
 import { ToastProvider } from "@/context/ToastContext";
 import { ParlayProvider } from "@/context/ParlayContext";
@@ -104,12 +105,12 @@ function AppShell() {
 
   if (!ready) return <Splash />;
 
-  if (needsOnboarding && segments[0] !== "onboarding") {
+  if (needsOnboarding && segments[0] !== "onboarding" && segments[0] !== "legal") {
     return <Redirect href="/onboarding" />;
   }
 
   const uid = profile?.uid ?? null;
-  const inMainApp = !needsOnboarding && top !== "onboarding" && top !== "login";
+  const inMainApp = !needsOnboarding && top !== "onboarding" && top !== "login" && top !== "legal";
 
   return (
     <LeagueProvider uid={uid}>
@@ -132,8 +133,11 @@ function AppShell() {
                     <Stack.Screen name="levels" options={{ animation: "slide_from_right" }} />
                     <Stack.Screen name="trophies" options={{ animation: "slide_from_right" }} />
                     <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="legal" options={{ animation: "slide_from_bottom" }} />
                     <Stack.Screen name="customize" options={{ animation: "slide_from_bottom" }} />
                     <Stack.Screen name="checkout" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="parlay" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="tutorial-league" options={{ animation: "slide_from_right" }} />
                     <Stack.Screen name="activity" />
                     <Stack.Screen name="feed" options={{ animation: "slide_from_right" }} />
                     <Stack.Screen name="challenges" options={{ animation: "slide_from_right" }} />
@@ -150,6 +154,7 @@ function AppShell() {
                   <ToastHost />
                   {uid ? <GlobalHosts /> : null}
                   {uid && inMainApp ? <TourHost /> : null}
+                  {uid && inMainApp ? <TermsGate /> : null}
                 </ChatProvider>
               </ParlayProvider>
               </ToastProvider>
@@ -187,7 +192,8 @@ function RootLayoutNav() {
   if (loading) return <Splash />;
 
   if (firebaseConfigured && !currentUser) {
-    if (segments[0] !== "login") return <Redirect href="/login" />;
+    // Terms / Privacy stay readable signed out (linked from sign-up).
+    if (segments[0] !== "login" && segments[0] !== "legal") return <Redirect href="/login" />;
   }
 
   const uid = currentUser?.uid ?? "local";

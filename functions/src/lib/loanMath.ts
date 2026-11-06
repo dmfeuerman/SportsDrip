@@ -218,18 +218,34 @@ export function rankMembers(members: StandingMember[], loans: LeagueLoanLike[], 
 export function rankByMode(
   standings: Standing[],
   mode: string | undefined,
-  h2h: (uid: string) => { w?: number; l?: number; t?: number } | undefined
+  h2h: (uid: string) => { w?: number; l?: number; t?: number } | undefined,
+  member?: (uid: string) => { pickPoints?: number; eliminated?: boolean; eliminatedAt?: number | null } | undefined
 ): Standing[] {
-  if (mode !== "matchups") return standings;
-  const pts = (uid: string) => {
-    const h = h2h(uid);
-    return (h?.w ?? 0) * 2 + (h?.t ?? 0);
-  };
-  const sorted = [...standings].sort((a, b) => pts(b.uid) - pts(a.uid) || b.netWorth - a.netWorth || (a.uid < b.uid ? -1 : 1));
+  // Mirrors finalizeLeague's season-end order so live standings match the payout.
+  let score: ((uid: string) => number) | null = null;
+  if (mode === "matchups") {
+    score = (uid) => {
+      const h = h2h(uid);
+      return (h?.w ?? 0) * 2 + (h?.t ?? 0);
+    };
+  } else if ((mode === "pickem" || mode === "bracket") && member) {
+    score = (uid) => member(uid)?.pickPoints ?? 0;
+  } else if (mode === "survivor" && member) {
+    score = (uid) => {
+      const m = member(uid);
+      return m?.eliminated ? (m.eliminatedAt ?? 0) : Number.MAX_SAFE_INTEGER;
+    };
+  }
+  if (!score) return standings;
+  const pts = score;
+  const tieOnNetWorth = mode === "matchups";
+  const sorted = [...standings].sort(
+    (a, b) => pts(b.uid) - pts(a.uid) || (tieOnNetWorth ? b.netWorth - a.netWorth : 0) || (a.uid < b.uid ? -1 : 1)
+  );
   let rank = 1;
   return sorted.map((s, i) => {
     const prev = sorted[i - 1];
-    if (prev && (pts(prev.uid) !== pts(s.uid) || prev.netWorth !== s.netWorth)) rank = i + 1;
+    if (prev && (pts(prev.uid) !== pts(s.uid) || (tieOnNetWorth && prev.netWorth !== s.netWorth))) rank = i + 1;
     return { ...s, rank };
   });
 }

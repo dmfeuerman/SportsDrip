@@ -37,6 +37,19 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------------------
+    // presence/{uid}: "online now" for friends. The owner writes only `at`.
+    // ---------------------------------------------------------------------
+    match /presence/{uid} {
+      allow read: if isSelf(uid) || isFriend(uid);
+      allow create, update: if isSelf(uid) &&
+                            request.resource.data.keys().hasOnly(['at', 'gameId']) &&
+                            request.resource.data.at is int &&
+                            (!('gameId' in request.resource.data) || request.resource.data.gameId == null ||
+                             (request.resource.data.gameId is string && request.resource.data.gameId.size() <= 64));
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------------
     // users/{uid}
     // ---------------------------------------------------------------------
     match /users/{uid} {
@@ -70,6 +83,12 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Daily free bet tokens (placeFreeBet). Server-only.
+      match /freeBets/{day} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
       match /xpEvents/{eventId} {
         allow read, write: if false;
       }
@@ -99,16 +118,74 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Players this user blocked (callable/account.ts). Owner reads; server writes.
+      match /blocks/{otherUid} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
       // Private subdoc for anything that must not be visible to other users.
       match /private/{docId} {
         allow read: if isSelf(uid);
         allow write: if false;
+      }
+
+      // Engagement push counter per local day (triggers/push.ts). Server-only.
+      match /pushBudget/{day} {
+        allow read, write: if false;
+      }
+
+      // Weekly social-quest counters (reactions). Server-only writes.
+      match /questProgress/{week} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      // Season pass claim receipts (claimSeasonTier). Server-only writes.
+      match /seasonClaims/{claimId} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      // Drip Wrapped recaps. Owner reads; shared out via share cards, not rules.
+      match /wrapped/{periodId} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      // Live Activity push tokens, written through a callable.
+      match /liveActivities/{gameId} {
+        allow read, write: if false;
       }
     }
 
     // ---------------------------------------------------------------------
     // usernames/{usernameLower} -> { uid }
     // ---------------------------------------------------------------------
+    // Config docs (experiments, co-op rewards, ladder gate). Read-only to clients.
+    match /meta/{docId} {
+      allow read: if signedIn() && docId in ['experiments', 'coopRewards', 'ladder', 'achievementStats'];
+      allow write: if false;
+    }
+
+    // Season pass definitions (item 20). Read-only to clients.
+    match /seasons/{seasonId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Bracket templates (item 21; content is live-ops).
+    match /bracketTemplates/{templateId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Weekly ladder cohorts (scheduled/ladder.ts). Signed-in read; server-only writes.
+    match /ladderCohorts/{cohortId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     match /usernames/{username} {
       allow get: if signedIn();
       allow list: if false;
@@ -148,6 +225,13 @@ service cloud.firestore {
              (p[1] == request.auth.uid || p[2] == request.auth.uid);
     }
 
+    // friendLoans/{id}: credit loans between friends, outside leagues. Written only by
+    // functions (callable/friendMoney.ts); the two parties read.
+    match /friendLoans/{loanId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.parties;
+      allow write: if false;
+    }
+
     match /directMessages/{threadId}/messages/{messageId} {
       allow read: if inDmThread(threadId);
       allow create: if inDmThread(threadId) &&
@@ -157,6 +241,8 @@ service cloud.firestore {
                     request.resource.data.threadId == threadId &&
                     threadId == 'dm_' + pairId(request.auth.uid, request.resource.data.recipientUid) &&
                     isFriend(request.resource.data.recipientUid) &&
+                    !exists(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)/blocks/$(request.auth.uid)) &&
+                    !exists(/databases/$(database)/documents/users/$(request.auth.uid)/blocks/$(request.resource.data.recipientUid)) &&
                     request.resource.data.kind == 'text' &&
                     request.resource.data.text is string &&
                     request.resource.data.text.size() >= 1 &&
@@ -183,6 +269,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Bet-slip parlays (placeParlay). Server-written.
+    match /slipParlays/{parlayId} {
+      allow get: if signedIn() &&
+                 (resource.data.uid == request.auth.uid ||
+                  isFriend(resource.data.uid));
+      allow list: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
     // ---------------------------------------------------------------------
     // challenges/{challengeId}
     // ---------------------------------------------------------------------
@@ -200,6 +295,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Model-line team ratings (lib/ratings.ts). Server-written.
+    match /ratings/{sport} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     // Daily Pick: the featured game is public; picks are server-written.
     match /sweat/{gameId} {
       allow read, write: if false;
@@ -213,6 +314,12 @@ service cloud.firestore {
     // ---------------------------------------------------------------------
     // catalog/{itemId} & moves/{moveId}
     // ---------------------------------------------------------------------
+    // Store lists mirrored into one doc each (functions/src/triggers/bundles.ts).
+    match /bundles/{name} {
+      allow read: if signedIn() && name in ['catalog', 'moves', 'backgrounds'];
+      allow write: if false;
+    }
+
     match /catalog/{itemId} {
       allow read: if signedIn();
       allow write: if false;
@@ -239,6 +346,11 @@ service cloud.firestore {
     function isLeagueMember(leagueId) {
       return signedIn() && request.auth.uid in
         get(/databases/$(database)/documents/leagues/$(leagueId)).data.memberIds;
+    }
+
+    function leagueStartMs(leagueId) {
+      let lg = get(/databases/$(database)/documents/leagues/$(leagueId)).data;
+      return lg.get('startsAt', lg.get('createdAt', 0));
     }
 
     function memberDisplayName(leagueId) {
@@ -283,7 +395,35 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // Pre-season Bold Predictions: one per member, editable until the league starts.
+      match /predictions/{uid} {
+        allow read: if isLeagueMember(leagueId);
+        allow create, update: if isLeagueMember(leagueId) &&
+                              request.auth.uid == uid &&
+                              request.time.toMillis() < leagueStartMs(leagueId) &&
+                              request.resource.data.keys().hasOnly(['uid', 'name', 'text', 'at']) &&
+                              request.resource.data.uid == uid &&
+                              request.resource.data.name == memberDisplayName(leagueId) &&
+                              request.resource.data.text is string &&
+                              request.resource.data.text.size() >= 1 &&
+                              request.resource.data.text.size() <= 140 &&
+                              request.resource.data.at is int;
+        allow delete: if false;
+      }
+
       match /gameSides/{gameId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      // Co-op weekly goal (lib/coop.ts). Server-only writes.
+      match /coop/{week} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      // Bracket picks (bracket mode). Members read; writes go through submitBracket.
+      match /brackets/{memberUid} {
         allow read: if isLeagueMember(leagueId);
         allow write: if false;
       }
@@ -333,6 +473,25 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------------------
+    // analyticsBatches/{batchId}: one write per flush, up to 50 events.
+    // Write-only from the app; nothing reads it back or pays out from it.
+    // ---------------------------------------------------------------------
+    match /analyticsBatches/{batchId} {
+      allow create: if signedIn() &&
+                    batchId.size() <= 64 &&
+                    request.resource.data.keys().hasOnly(['uid', 'at', 'platform', 'sessionId', 'schema', 'events']) &&
+                    request.resource.data.uid == request.auth.uid &&
+                    request.resource.data.at == request.time &&
+                    request.resource.data.platform is string &&
+                    request.resource.data.platform.size() <= 16 &&
+                    request.resource.data.sessionId is string &&
+                    request.resource.data.sessionId.size() <= 32 &&
+                    request.resource.data.events is list &&
+                    request.resource.data.events.size() <= 50;
+      allow read, update, delete: if false;
+    }
+
+    // ---------------------------------------------------------------------
     // analyticsEvents/{eventId}
     // ---------------------------------------------------------------------
     match /analyticsEvents/{eventId} {
@@ -342,7 +501,11 @@ service cloud.firestore {
                     request.resource.data.uid == request.auth.uid &&
                     request.resource.data.name in [
                       'onboarding_completed', 'invite_code_captured', 'league_created', 'league_joined',
-                      'bet_placed', 'bet_tailed', 'bet_faded', 'share_card_tapped'
+                      'bet_placed', 'bet_tailed', 'bet_faded', 'share_card_tapped',
+                      'slip_opened', 'slip_stake_set', 'slip_confirmed', 'slip_error',
+                      'share_completed', 'reaction_sent', 'prompt_shown', 'prompt_accepted',
+                      'prompt_declined', 'daily_pick_made', 'quest_claimed', 'feed_item_tapped',
+                      'tail_from_chat', 'activation_reached'
                     ] &&
                     request.resource.data.params is map &&
                     request.resource.data.params.size() <= 12 &&

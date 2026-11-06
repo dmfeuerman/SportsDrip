@@ -17,6 +17,7 @@ import LoanCard from "@/components/LoanCard";
 import Shimmer from "@/components/fx/Shimmer";
 import MemberAvatar from "@/components/MemberAvatar";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
+import ReportDialog, { type ReportTarget } from "@/components/ReportDialog";
 import BetChatCard from "@/components/chat/BetChatCard";
 import BracketFill from "@/components/BracketFill";
 import CoopGoalCard from "@/components/CoopGoalCard";
@@ -337,7 +338,7 @@ const FEED_ICON: Record<string, React.ComponentProps<typeof MaterialCommunityIco
   bet_lost: "arrow-down-bold",
   bet_push: "minus",
   bet_voided: "undo-variant",
-  bank_loan: "bank-outline",
+  bank_loan: "home-city-outline",
   loan_request: "hand-coin-outline",
   loan_funded: "handshake-outline",
   repayment: "cash-refund",
@@ -1491,7 +1492,7 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
             return (
               <View key={l.id} style={styles.inline}>
                 <Text style={[styles.memberSub, { color: c.foreground, flex: 1 }]} numberOfLines={1}>
-                  {l.borrowerId === uid ? "You" : l.borrowerName} → {l.kind === "bank" ? "League Bank" : l.lenderId === uid ? "You" : l.lenderName}
+                  {l.borrowerId === uid ? "You" : l.borrowerName} → {l.kind === "bank" ? "The House" : l.lenderId === uid ? "You" : l.lenderName}
                 </Text>
                 <Amount value={snap.totalOwed} currency="league" size="sm" tone="debt" />
               </View>
@@ -1520,8 +1521,8 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
       {league.bankLoanEnabled && !closed ? (
         <Card style={{ gap: 10 }}>
           <View style={styles.inline}>
-            <MaterialCommunityIcons name="bank-outline" size={18} color={c.league} />
-            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>League Bank</Text>
+            <MaterialCommunityIcons name="home-city-outline" size={18} color={c.league} />
+            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>The House</Text>
             <Pill label={`${league.bankInterestRate}% flat`} tone="league" />
           </View>
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
@@ -1566,19 +1567,19 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
       ) : !closed ? (
         <Card style={{ gap: 10 }}>
           <View style={styles.inline}>
-            <MaterialCommunityIcons name="bank-off-outline" size={18} color={c.mutedForeground} />
-            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>League Bank Is Closed</Text>
+            <MaterialCommunityIcons name="home-off-outline" size={18} color={c.mutedForeground} />
+            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>The House Is Closed</Text>
           </View>
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
             {isCreator
               ? "Open it so members can borrow league tokens for a flat fee."
-              : "Only the league creator can open the bank. You can still borrow from friends above."}
+              : "Only the league creator can open The House. You can still borrow from friends above."}
           </Text>
           {err ? <Text style={[styles.muted, { color: c.negative }]}>{err}</Text> : null}
           {isCreator && (
             <Button
-              label={`Open the bank · ${league.bankInterestRate || 10}% flat`}
-              icon="bank-outline"
+              label={`Open The House · ${league.bankInterestRate || 10}% flat`}
+              icon="home-city-outline"
               variant="league"
               loading={opening}
               onPress={async () => {
@@ -1605,7 +1606,7 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
   );
 }
 
-/** Bank stimulus: ask the bank to top everyone up; a majority yes pays out. */
+/** Stimulus: ask The House to top everyone up; a majority yes pays out. */
 function StimulusCard({ league, uid, now }: { league: League; uid: string | null; now: number }) {
   const c = useColors();
   const { stimulus } = useLeague();
@@ -1633,7 +1634,7 @@ function StimulusCard({ league, uid, now }: { league: League; uid: string | null
       {open ? (
         <>
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
-            {open.uid === uid ? "You" : open.name} asked the bank to give every member {open.amount.toLocaleString()} tokens ({open.pct}% of the
+            {open.uid === uid ? "You" : open.name} asked The House to give every member {open.amount.toLocaleString()} tokens ({open.pct}% of the
             starting stack). It pays out the moment {needed} of {league.memberIds.length} members say yes · closes{" "}
             {new Date(open.expiresAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}.
           </Text>
@@ -1664,7 +1665,7 @@ function StimulusCard({ league, uid, now }: { league: League; uid: string | null
       ) : (
         <>
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
-            Stacks running low? Ask the bank to give everyone the same top-up. It's free money, not a loan, and needs {needed} of{" "}
+            Stacks running low? Ask The House to give everyone the same top-up. It's free money, not a loan, and needs {needed} of{" "}
             {league.memberIds.length} members to agree.
           </Text>
           <View style={styles.inline}>
@@ -1841,6 +1842,7 @@ function FeedTab({
   bottomPad: number;
 }) {
   const c = useColors();
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { sendMessage, reactToItem } = useLeague();
   const { leagueReplyQuotes, recordLeagueMessageQuote, setActiveChatId } = useChat();
   const [text, setText] = useState("");
@@ -1950,6 +1952,11 @@ function FeedTab({
                           <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#007AFF" }}>Reply</Text>
                         </Pressable>
                       )}
+                      {!mine && m.kind === "text" ? (
+                        <Pressable hitSlop={8} onPress={() => setReportTarget({ kind: "league_message", uid: m.uid, name: m.name, path: `leagues/${league.id}/messages/${m.id}`, text: m.text })}>
+                          <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: c.mutedForeground }}>Report</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                     <Text style={[styles.feedText, { color: c.foreground }]}>{chatText(m.text)}</Text>
                     {m.kind === "taunt" ? (
@@ -2060,6 +2067,7 @@ function FeedTab({
         </View>
       )}
 
+      <ReportDialog target={reportTarget} onClose={() => setReportTarget(null)} />
       <PlayerProfileSheet
         uid={profileUid}
         leagueId={league.id}
@@ -2134,7 +2142,7 @@ function InfoTab({
     ["Length", league.duration === "Full Season" ? "Full season (follows the sports' calendars)" : league.duration ?? `${league.durationWeeks ?? "–"} weeks`],
     [closed ? "Ended" : "Ends", new Date(league.endedAt ?? league.endsAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })],
     ["Matchups", league.mode === "matchups" || league.matchupsEnabled ? cadenceLabel(league.matchupCadence) : "Off"],
-    ["Bank", league.bankLoanEnabled ? `${league.bankInterestRate}% flat` : "Closed"],
+    ["The House", league.bankLoanEnabled ? `${league.bankInterestRate}% flat` : "Closed"],
     ["Stimulus votes", league.stimulusEnabled ? "On" : "Off"],
   ];
 
@@ -2223,8 +2231,8 @@ function InfoTab({
       {isCreator && !closed && (
         <Card style={{ gap: 10 }}>
           <View style={styles.inline}>
-            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Bank Settings</Text>
-            <Switch value={enabled} onValueChange={setEnabled} trackColor={{ false: c.border, true: c.league }} accessibilityLabel="Bank open" />
+            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>The House Settings</Text>
+            <Switch value={enabled} onValueChange={setEnabled} trackColor={{ false: c.border, true: c.league }} accessibilityLabel="The House open" />
           </View>
           {enabled && (
             <NumericInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={rate} onChangeText={setRate} keyboardType="decimal-pad" placeholder="Flat rate % (0.5–50)" placeholderTextColor={c.subtleForeground} accessibilityLabel="Bank rate" />
@@ -2232,7 +2240,7 @@ function InfoTab({
           <Text style={[styles.memberSub, { color: c.subtleForeground }]}>Changes apply to new loans. Existing loans keep the terms they were taken at.</Text>
           {saved ? <Text style={[styles.memberSub, { color: saved === "Saved" ? c.positive : c.negative }]}>{saved}</Text> : null}
           <Button
-            label="Save Bank Settings"
+            label="Save House Settings"
             variant="secondary"
             loading={saving}
             disabled={enabled && !(Number.parseFloat(rate) >= 0.5 && Number.parseFloat(rate) <= 50)}
@@ -2266,7 +2274,7 @@ function InfoTab({
             />
           </View>
           <Text style={[styles.memberSub, { color: c.subtleForeground }]}>
-            Lets any member ask the bank to give everyone 10–50% of the starting stack. A majority yes pays all members the same amount (at most once a week). You can switch this on or off any time.
+            Lets any member ask The House to give everyone 10–50% of the starting stack. A majority yes pays all members the same amount (at most once a week). You can switch this on or off any time.
           </Text>
         </Card>
       )}

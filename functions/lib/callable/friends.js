@@ -6,6 +6,8 @@ const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const notify_1 = require("../lib/notify");
 const notifyModel_1 = require("../lib/notifyModel");
+const friendStreak_1 = require("../lib/friendStreak");
+const account_1 = require("./account");
 const MAX_FRIENDS = 500;
 /**
  * Friend requests are keyed `${from}_${to}` and friendships are keyed by a
@@ -19,6 +21,8 @@ exports.sendFriendRequest = (0, https_1.onCall)({ region: "us-central1" }, async
     const to = zod_1.z.string().min(1).parse(req.data?.toUid);
     if (from === to)
         throw new https_1.HttpsError("invalid-argument", "You can't friend yourself.");
+    if (await (0, account_1.blockedEitherWay)(from, to))
+        throw new https_1.HttpsError("failed-precondition", "You can't add this player.");
     const targetRef = economy_1.db.collection("users").doc(to);
     const friendshipRef = economy_1.db.collection("friendships").doc((0, economy_1.pairId)(from, to));
     const outgoingRef = economy_1.db.collection("friendRequests").doc(`${from}_${to}`);
@@ -149,6 +153,14 @@ exports.listFriends = (0, https_1.onCall)({ region: "us-central1" }, async (req)
     // accidental N+1 here.
     const refs = otherIds.map((id) => economy_1.db.collection("users").doc(id));
     const docs = await economy_1.db.getAll(...refs);
+    const now = Date.now();
+    const streakByUid = new Map();
+    for (const d of snap.docs) {
+        const other = d.get("users").find((u) => u !== me);
+        const s = d.get("streak");
+        if (other)
+            streakByUid.set(other, { count: (0, friendStreak_1.activeFriendStreak)(s, now), longest: Math.floor(s?.longest ?? 0) });
+    }
     return {
         friends: docs
             .filter((d) => d.exists)
@@ -161,6 +173,7 @@ exports.listFriends = (0, https_1.onCall)({ region: "us-central1" }, async (req)
             balance: d.get("balance"),
             stats: d.get("stats"),
             favoriteTeams: d.get("favoriteTeams") ?? [],
+            friendStreak: streakByUid.get(d.id) ?? { count: 0, longest: 0 },
         })),
     };
 });

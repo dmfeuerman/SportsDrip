@@ -361,14 +361,16 @@ const THE_DAB: MoveSpec = {
     k.rot(p, "Spine", 0.06 * w, -0.05 * dir * w, 0.05 * dir * w);
     k.rot(p, "Spine1", 0.08 * w, -0.06 * dir * w, 0.06 * dir * w);
     k.rot(p, "Spine2", 0.08 * w, -0.06 * dir * w, 0.06 * dir * w);
-    k.rot(p, "Neck", 0.3 * w + 0.06 * bounce, 0.25 * dir * w, 0.12 * dir * w);
-    k.rot(p, "Head", 0.42 * w + 0.06 * bounce, 0.3 * dir * w, 0.12 * dir * w);
+    // Head dips toward the elbow but stays behind the forearm.
+    k.rot(p, "Neck", 0.2 * w + 0.06 * bounce, 0.22 * dir * w, 0.1 * dir * w);
+    k.rot(p, "Head", 0.26 * w + 0.06 * bounce, 0.26 * dir * w, 0.1 * dir * w);
     for (const { s } of SIDE) {
       const tucked = (dir > 0 && s === "Left") || (dir < 0 && s === "Right");
       const relaxedOff = V(-0.02, -0.3, 0.2);
       if (tucked) {
         // Elbow up in front of the face, forearm across it, hand past the far shoulder.
-        k.hand(p, s, swing(relaxedOff, V(-0.45, 0.33, 0.06), w), V(-0.2, 0.15, 1).lerp(V(0.6, -1, -0.5), 1 - w), on);
+        // Hand stays well forward of the face so the forearm crosses in front, never through the head.
+        k.hand(p, s, swing(relaxedOff, V(-0.34, 0.26, 0.36), w), V(0.35, 0.5, 1).lerp(V(0.6, -1, -0.5), 1 - w), on);
       } else {
         // Straight out and up to the side.
         k.hand(p, s, swing(relaxedOff, V(0.43, 0.3, 0.1), w), V(0, -0.3, -1).lerp(V(0.6, -1, -0.5), 1 - w), on);
@@ -538,9 +540,11 @@ const THE_FLOSS: MoveSpec = {
     const span = 0.45;
     for (const { s, g } of SIDE) {
       const isFront = (s === "Left") === frontIsLeft;
-      const z = (isFront ? 0.3 : -0.28) * smooth(edge, 0, 0.7);
-      const target = V(hip.x + span * x + 0.06 * g, hip.y - 0.16 + 0.04 * Math.abs(x), hip.z + z);
-      k.handAt(p, s, target, isFront ? V(g * 0.3, 0.2, -1) : V(g * 0.6, 0.1, -1), on);
+      // Clear the hips/torso front and back well before the hands reach the middle,
+      // so the forearms pass in front of / behind the body instead of through it.
+      const z = (isFront ? 0.4 : -0.38) * smooth(edge, 0, 0.35);
+      const target = V(hip.x + span * x + 0.1 * g, hip.y - 0.14 + 0.04 * Math.abs(x), hip.z + z);
+      k.handAt(p, s, target, isFront ? V(g * 0.5, 0.1, 1) : V(g * 0.8, 0.1, -1), on);
     }
     return p;
   },

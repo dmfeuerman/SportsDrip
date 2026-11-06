@@ -22,6 +22,7 @@ import FriendSendSheet from "@/components/chat/FriendSendSheet";
 import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
 import MemberAvatar from "@/components/MemberAvatar";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
+import ReportDialog, { type ReportTarget } from "@/components/ReportDialog";
 import { BackButton, EmptyState, Pill, TabStrip } from "@/components/ui";
 import type { LeagueMessage } from "@/constants/leagueTypes";
 import { useApp } from "@/context/AppContext";
@@ -108,6 +109,7 @@ export default function MessagesScreen() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [profileUid, setProfileUid] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const [quickGame, setQuickGame] = useState<string | null>(null);
   const [follow, setFollow] = useState<FollowIntent | null>(null);
   const now = useNow(30_000);
@@ -465,6 +467,11 @@ export default function MessagesScreen() {
                             {repliesCount > 0 ? `${repliesCount} ${repliesCount === 1 ? "Reply" : "Replies"} · Reply` : "Reply"}
                           </Text>
                         </Pressable>
+                        {!mine ? (
+                          <Pressable hitSlop={8} onPress={() => setReportTarget({ kind: "dm", uid: m.senderUid, name: m.senderName, path: `directMessages/${m.threadId}/messages/${m.id}`, text: m.text })}>
+                            <Text style={[styles.replyLink, { color: c.mutedForeground }]}>Report</Text>
+                          </Pressable>
+                        ) : null}
                       </View>
                       <ReactionRow
                         reactors={m.reactors}
@@ -604,6 +611,11 @@ export default function MessagesScreen() {
                           {repliesCount > 0 ? `${repliesCount} ${repliesCount === 1 ? "Reply" : "Replies"} · Reply` : "Reply"}
                         </Text>
                       </Pressable>
+                      {!mine && m.kind === "text" && activeLeague ? (
+                        <Pressable hitSlop={8} onPress={() => setReportTarget({ kind: "league_message", uid: m.uid, name: m.name, path: `leagues/${activeLeague.id}/messages/${m.id}`, text: m.text })}>
+                          <Text style={[styles.replyLink, { color: c.mutedForeground }]}>Report</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                     {m.kind !== "system" && activeLeague ? (
                       <ReactionRow
@@ -706,6 +718,8 @@ export default function MessagesScreen() {
         friend={sendOpen && activeFriend ? { uid: activeFriend.uid, name: activeFriend.displayName } : null}
         onClose={() => setSendOpen(false)}
       />
+
+      <ReportDialog target={reportTarget} onClose={() => setReportTarget(null)} />
 
       {/* Friend Profile Sheet with Challenge & Invite to League actions */}
       <PlayerProfileSheet

@@ -441,10 +441,10 @@ test("updateAvatar and createProfile validate appearance against the shared rule
   await call(updateAvatar, "dee", { avatar: { ...DEFAULT_AVATAR, hairStyle: "braids" } });
   assert.equal((db.read("users/dee")!.avatar as { hairStyle: string }).hairStyle, "braids");
 
-  await call(createProfile, "eve", { username: "eve_1", displayName: "Eve" });
+  await call(createProfile, "eve", { username: "eve_1", displayName: "Eve", age: 25, birthMonth: 3, acceptedTerms: true });
   assert.deepEqual(db.read("users/eve")!.avatar, DEFAULT_AVATAR);
   await rejects(
-    call(createProfile, "fay", { username: "fay_1", displayName: "Fay", avatar: { ...DEFAULT_AVATAR, faceShape: "triangle" } }),
+    call(createProfile, "fay", { username: "fay_1", displayName: "Fay", age: 25, birthMonth: 3, acceptedTerms: true, avatar: { ...DEFAULT_AVATAR, faceShape: "triangle" } }),
     /faceShape/
   );
   assert.equal(db.read("users/fay"), undefined);

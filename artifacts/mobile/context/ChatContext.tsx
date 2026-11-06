@@ -28,6 +28,9 @@ import { DEMO, demoUid } from "@/lib/demo";
 import { firebaseConfigured, getDb } from "@/lib/firebase";
 import { chatText } from "@/lib/chatText";
 import { markChatSeen, useAllChatSeen } from "@/lib/settings";
+import { isObjectionable } from "@/lib/moderation";
+import { BLOCKED_TEXT_ERROR } from "@/lib/chatText";
+import { isBlocked, useBlockedUids, useBlocksSync } from "@/lib/blocks";
 
 const BET_BANNER_GAP_MS = 60 * 60 * 1000;
 
@@ -252,7 +255,7 @@ function buildInitialDemoComments(myUid: string): Record<string, BetComment[]> {
         betId: "lb3",
         uid: "maya",
         name: "Maya R",
-        text: "Tough beat Theo, League Bank is open if you need a loan 👀",
+        text: "Tough beat Theo, The House is open if you need a loan 👀",
         at: now - 5 * 3_600_000,
         parentQuote: {
           id: "lb3",
@@ -276,13 +279,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const uid = profile?.uid ?? (DEMO ? demoUid : null);
   const myName = profile?.displayName ?? "You";
+  useBlocksSync(profile?.uid ?? null);
+  const blockedUids = useBlockedUids();
 
-  const [dmMessagesByThread, setDmMessagesByThread] = useState<Record<string, DirectMessage[]>>(() =>
+  const [rawDmMessagesByThread, setRawDmMessagesByThread] = useState<Record<string, DirectMessage[]>>(() =>
     uid && DEMO ? buildInitialDemoDms(uid) : {}
   );
-  const [betComments, setBetComments] = useState<Record<string, BetComment[]>>(() =>
+  const [rawBetComments, setBetComments] = useState<Record<string, BetComment[]>>(() =>
     uid && DEMO ? buildInitialDemoComments(uid) : {}
   );
+  // Blocked players' messages and replies are hidden everywhere.
+  const dmMessagesByThread = useMemo(() => {
+    if (!blockedUids.size) return rawDmMessagesByThread;
+    const out: Record<string, DirectMessage[]> = {};
+    for (const [tId, list] of Object.entries(rawDmMessagesByThread)) out[tId] = list.filter((m) => !blockedUids.has(m.senderUid));
+    return out;
+  }, [rawDmMessagesByThread, blockedUids]);
+  const betComments = useMemo(() => {
+    if (!blockedUids.size) return rawBetComments;
+    const out: Record<string, BetComment[]> = {};
+    for (const [betId, list] of Object.entries(rawBetComments)) out[betId] = list.filter((m) => !blockedUids.has(m.uid));
+    return out;
+  }, [rawBetComments, blockedUids]);
   const [leagueReplyQuotes, setLeagueReplyQuotes] = useState<Record<string, ReplyQuote>>({});
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   // Read by the snapshot listeners without resubscribing every time a chat opens.
@@ -321,10 +339,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 else delete parsed[tId];
               }
             }
-            setDmMessagesByThread((prev) => ({ ...prev, ...parsed }));
+            setRawDmMessagesByThread((prev) => ({ ...prev, ...parsed }));
           } catch {}
         } else {
-          if (DEMO) setDmMessagesByThread((prev) => (Object.keys(prev).length ? prev : buildInitialDemoDms(uid)));
+          if (DEMO) setRawDmMessagesByThread((prev) => (Object.keys(prev).length ? prev : buildInitialDemoDms(uid)));
         }
         if (cmtRaw) {
           try {
@@ -377,7 +395,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             };
             // Text and other members' bet cards banner; system rows never do.
             if (data.kind !== "text" && data.kind !== "bet") continue;
-            if (!data.uid || data.uid === uid) continue;
+            if (!data.uid || data.uid === uid || isBlocked(data.uid)) continue;
             const isBet = data.kind === "bet";
             const at = typeof data.at === "number" ? data.at : 0;
             if (!isBet) incoming.push(at);
@@ -426,10 +444,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         (snap) => {
           if (snap.empty) return;
           const list = snap.docs.map((d) => ({ ...(d.data() as DirectMessage), id: d.id }));
-          setDmMessagesByThread((prev) => ({ ...prev, [tId]: list }));
+          setRawDmMessagesByThread((prev) => ({ ...prev, [tId]: list }));
           for (const m of list) {
             // STRICT FILTER: Only real DM text messages from the other user
-            if (m.kind !== "text" || m.senderUid === uid) continue;
+            if (m.kind !== "text" || m.senderUid === uid || isBlocked(m.senderUid)) continue;
             if (activeChatRef.current === tId) markChatSeen(tId, m.at);
             if (m.at < bootTimeRef.current) continue;
             const notifyKey = `dm_${m.id}`;
@@ -495,6 +513,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const text = rawText.trim();
       if (!text) return "Write a message first.";
       if (text.length > 500) return "Messages are capped at 500 characters.";
+      if (isObjectionable(text)) return BLOCKED_TEXT_ERROR;
+      if (isBlocked(recipientUid)) return "You've blocked this player. Unblock them in Settings to message them.";
       const senderUid = uid ?? "local";
       const tId = canonicalPairId(senderUid, recipientUid);
       const msgId = `dm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -511,7 +531,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         replyTo: replyTo ?? null,
       };
 
-      setDmMessagesByThread((prev) => {
+      setRawDmMessagesByThread((prev) => {
         const existing = prev[tId] ?? [];
         const next = { ...prev, [tId]: [...existing, msg] };
         AsyncStorage.setItem(STORAGE_DM_KEY, JSON.stringify(next)).catch(() => {});
@@ -551,6 +571,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const text = rawText.trim();
       if (!text) return "Write a comment first.";
       if (text.length > 500) return "Comments are capped at 500 characters.";
+      if (isObjectionable(text)) return BLOCKED_TEXT_ERROR;
       const quote = cleanQuote(parentQuote);
       const cmtId = `cmt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
       const entry: BetComment = {

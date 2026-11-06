@@ -6,6 +6,7 @@ exports.closeMatchups = closeMatchups;
 exports.openWeekMatchups = openWeekMatchups;
 exports.sweepMissedSurvivorWeek = sweepMissedSurvivorWeek;
 const scheduler_1 = require("firebase-functions/v2/scheduler");
+const widgetRefresh_1 = require("../lib/widgetRefresh");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const loanMath_1 = require("../lib/loanMath");
@@ -235,7 +236,7 @@ async function openWeekMatchups(leagueId, now = Date.now(), explicitWeek) {
         const cadence = league.get("matchupCadence") ?? "weekly";
         const periodDays = leagueConfig_1.CADENCE_DAYS[cadence];
         const endsAt = league.get("endsAt") ?? 0;
-        const createdAt = league.get("createdAt") ?? now;
+        const createdAt = (0, leagueConfig_1.leagueStartsAt)(league) || now;
         const totalPeriods = endsAt > createdAt
             ? Math.max(2, Math.floor((endsAt - createdAt) / (periodDays * 86_400_000)))
             : (league.get("durationWeeks") ?? 4);
@@ -304,6 +305,8 @@ exports.tuesdayLeagueReport = (0, scheduler_1.onSchedule)({ schedule: "0 9 * * 2
     let count = 0;
     for (const d of active.docs) {
         try {
+            if (!(0, leagueConfig_1.leagueStarted)(d, now))
+                continue;
             const rep = await generateTuesdayReport(d.id, now);
             if (rep)
                 count++;
@@ -325,14 +328,21 @@ exports.leagueMatchupJobs = (0, scheduler_1.onSchedule)({ schedule: "0 9 * * *",
     const active = await economy_1.db.collection("leagues").where("status", "==", "active").limit(500).get();
     for (const d of active.docs) {
         try {
+            // Matchups begin once the league has started.
+            if (!(0, leagueConfig_1.leagueStarted)(d, now))
+                continue;
             const cadence = d.get("matchupCadence") ?? "weekly";
             const key = (0, weekly_1.matchupPeriodKey)(cadence, now);
             const open = d.get("openMatchupWeek");
-            if (open && open !== key)
+            const rolled = !!open && open !== key;
+            if (rolled)
                 await closeMatchups(d.id, now);
             if (d.get("matchupsEnabled") && open !== key && (0, weekly_1.isPeriodStart)(cadence, now)) {
                 await openWeekMatchups(d.id, now, key);
             }
+            // H2H changed: wake members' apps to refresh the home-screen widget.
+            if (rolled)
+                await (0, widgetRefresh_1.sendWidgetRefresh)(d.get("memberIds") ?? []).catch(() => 0);
         }
         catch (err) {
             firebase_functions_1.logger.error("leagueMatchupJobs failed", { leagueId: d.id, err });
@@ -345,6 +355,8 @@ exports.mondayLeagueJobs = (0, scheduler_1.onSchedule)({ schedule: "0 9 * * 1", 
     const active = await economy_1.db.collection("leagues").where("status", "==", "active").limit(200).get();
     for (const d of active.docs) {
         try {
+            if (!(0, leagueConfig_1.leagueStarted)(d, now))
+                continue;
             // Head-to-head periods turn over in leagueMatchupJobs.
             if (d.get("mode") === "survivor") {
                 await sweepMissedSurvivorWeek(d.id, prevWeek, now);

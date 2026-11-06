@@ -1,4 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { isValidTz } from "../lib/pushBudget";
 import { z } from "zod";
 import { db, FieldValue, pairId, requireAuth, Timestamp } from "../lib/economy";
 import { isFreeMove, loadoutOf } from "../lib/moves";
@@ -49,6 +50,18 @@ export const updateFavoriteTeams = onCall({ region: "us-central1" }, async (req)
     updatedAt: FieldValue.serverTimestamp(),
   });
   return { ok: true, teams };
+});
+
+/** Pins one of your own trophies to the top of your profile (null clears it). */
+export const setFeaturedTrophy = onCall({ region: "us-central1" }, async (req) => {
+  const uid = requireAuth(req.auth);
+  const id = z.string().min(1).max(80).nullable().parse(req.data?.trophyId ?? null);
+  if (id) {
+    const t = await db.collection("users").doc(uid).collection("trophies").doc(id).get();
+    if (!t.exists) throw new HttpsError("not-found", "You don't have that trophy.");
+  }
+  await db.collection("users").doc(uid).update({ featuredTrophy: id, updatedAt: FieldValue.serverTimestamp() });
+  return { ok: true, trophyId: id };
 });
 
 function ms(v: unknown): number | null {
@@ -169,6 +182,7 @@ export const getPlayerProfile = onCall({ region: "us-central1" }, async (req) =>
       streak: user.get("streak") ?? null,
       punishment: user.get("punishment") ?? null,
       trophies: trophiesSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+      featuredTrophy: (user.get("featuredTrophy") as string | null | undefined) ?? null,
       memberSince: ms(user.get("createdAt")),
       balance: self || friend ? ((user.get("balance") as number | undefined) ?? null) : null,
     },
@@ -207,10 +221,20 @@ export const setPlayLimits = onCall({ region: "us-central1" }, async (req) => {
   return { ok: true };
 });
 
-/** Opt in/out of live "sweat" lead-change pushes. */
+/** Alert prefs: live "sweat" pushes, quiet hours, and the device timezone (sent at sign-in). */
 export const setAlertPrefs = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
-  const { sweat } = z.object({ sweat: z.boolean() }).parse(req.data);
-  await db.collection("users").doc(uid).update({ sweatAlerts: sweat, updatedAt: FieldValue.serverTimestamp() });
+  const input = z
+    .object({
+      sweat: z.boolean().optional(),
+      quietHours: z.boolean().optional(),
+      tz: z.string().max(64).refine(isValidTz, "Unknown timezone").optional(),
+    })
+    .parse(req.data ?? {});
+  const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+  if (input.sweat !== undefined) update.sweatAlerts = input.sweat;
+  if (input.quietHours !== undefined) update.quietHours = input.quietHours;
+  if (input.tz !== undefined) update.tz = input.tz;
+  await db.collection("users").doc(uid).update(update);
   return { ok: true };
 });

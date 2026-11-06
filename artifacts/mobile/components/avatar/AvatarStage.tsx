@@ -522,6 +522,7 @@ function StageScene({
 
   const cam = useRef({ target: new THREE.Vector3(...FOCUS[focus].target), distance: FOCUS[focus].distance, height: FOCUS[focus].height });
   const goalTarget = useMemo(() => new THREE.Vector3(), []);
+  const yaw = useRef(FOCUS[focus].yaw ?? 0);
 
   // Report the first frame drawn with the outfit bound (the frame after this one is on screen).
   const frames = useRef(0);
@@ -536,7 +537,10 @@ function StageScene({
       v.velocity *= Math.pow(0.04, d);
       if (autoRotate && Math.abs(v.velocity) < 0.05) v.angle += d * 0.35;
     }
-    rig.root.rotation.y = v.angle;
+    // Framings like hairSide turn the character to a profile; dragging still spins from there.
+    const yawGoal = v.free || v.manual ? 0 : FOCUS[focus].yaw ?? 0;
+    yaw.current += (yawGoal - yaw.current) * (1 - Math.pow(0.0005, Math.min(dt, 0.5)));
+    rig.root.rotation.y = v.angle + yaw.current;
 
     // Overlays cover part of the stage: frame the character inside what's
     // left, by shifting the projection and pulling back to fit.

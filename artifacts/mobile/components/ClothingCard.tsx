@@ -100,9 +100,9 @@ function ClothingCard({
             </View>
           ) : (
             <View style={styles.priceRow}>
-              <MaterialCommunityIcons name="lightning-bolt" size={13} color={colors.primary} />
+              {item.price > 0 ? <MaterialCommunityIcons name="lightning-bolt" size={13} color={colors.primary} /> : null}
               <Text style={[styles.price, { color: canAfford ? colors.primary : colors.mutedForeground }]}>
-                {item.price.toLocaleString()}
+                {item.price === 0 ? "FREE" : item.price.toLocaleString()}
               </Text>
             </View>
           )}

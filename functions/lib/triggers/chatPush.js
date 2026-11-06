@@ -1,12 +1,33 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pushOnLeagueMessage = exports.pushOnDirectMessage = void 0;
+exports.notifyOnDmReaction = exports.moderateBetComment = exports.pushOnLeagueMessage = exports.pushOnDirectMessage = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
+const questProgress_1 = require("../lib/questProgress");
+const notify_1 = require("../lib/notify");
+const notifyModel_1 = require("../lib/notifyModel");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const chatText_1 = require("../lib/chatText");
 const push_1 = require("../lib/push");
 const push_2 = require("../callable/push");
+const moderation_1 = require("../lib/moderation");
+const account_1 = require("../callable/account");
+/**
+ * Server-side backstop for the in-app filter: masks objectionable words in a
+ * newly written message and flags it. Returns true when it masked, so the
+ * caller skips the push.
+ */
+async function moderate(ref, text) {
+    if (!text || !(0, moderation_1.isObjectionable)(text))
+        return false;
+    await ref.update({ text: (0, moderation_1.maskObjectionable)(text), moderated: true });
+    return true;
+}
+/** Recipients who haven't blocked the sender. */
+async function notBlocking(recipients, sender) {
+    const snaps = await Promise.all(recipients.map((r) => (0, account_1.blockRef)(r, sender).get()));
+    return recipients.filter((_, i) => !snaps[i].exists);
+}
 /**
  * Chat pushes. Chat messages are not notification documents (they'd flood the
  * activity feed), so they fan out to the recipients' phones directly. While
@@ -65,6 +86,10 @@ exports.pushOnDirectMessage = (0, firestore_1.onDocumentCreated)({ document: "di
     const parts = event.params.threadId.split("_");
     if (parts[0] !== "dm" || !parts.includes(m.senderUid) || !parts.includes(m.recipientUid))
         return;
+    if (await moderate(snap.ref, m.text))
+        return;
+    if (!(await notBlocking([m.recipientUid], m.senderUid)).length)
+        return;
     if (!(await claim(snap.ref)))
         return;
     const name = m.senderName || "A friend";
@@ -87,11 +112,16 @@ exports.pushOnLeagueMessage = (0, firestore_1.onDocumentCreated)({ document: "le
     // Real chat only — bet cards and system rows already notify through their own paths.
     if (m.kind !== "text" || !m.uid)
         return;
+    // Game-thread chatter is in-app only; push for game threads is off by default.
+    if (m.gameId)
+        return;
     const leagueId = event.params.leagueId;
     const league = await economy_1.db.collection("leagues").doc(leagueId).get();
     if (!league.exists)
         return;
-    const recipients = (league.get("memberIds") ?? []).filter((u) => u !== m.uid);
+    if (await moderate(snap.ref, m.text))
+        return;
+    const recipients = await notBlocking((league.get("memberIds") ?? []).filter((u) => u !== m.uid), m.uid);
     if (!recipients.length)
         return;
     if (!(await claim(snap.ref)))
@@ -107,5 +137,43 @@ exports.pushOnLeagueMessage = (0, firestore_1.onDocumentCreated)({ document: "le
         data: { type: "chat_league", url, leagueId },
     }));
     firebase_functions_1.logger.info("league chat push sent", { leagueId, recipients: recipients.length, sent });
+});
+/** Bet-result replies get the same objectionable-content backstop. */
+exports.moderateBetComment = (0, firestore_1.onDocumentCreated)({ document: "betComments/{betId}/comments/{commentId}", region: "us-central1", timeoutSeconds: 30 }, async (event) => {
+    const snap = event.data;
+    if (snap)
+        await moderate(snap.ref, snap.get("text"));
+});
+/**
+ * DM reactions reach the sender: one in-app notification per message per hour
+ * (fixed id), pushed only when first created.
+ */
+exports.notifyOnDmReaction = (0, firestore_1.onDocumentUpdated)({ document: "directMessages/{threadId}/messages/{messageId}", region: "us-central1", timeoutSeconds: 30 }, async (event) => {
+    const before = event.data?.before.get("reactors") ?? {};
+    const after = event.data?.after.get("reactors") ?? {};
+    const sender = event.data?.after.get("senderUid");
+    const recipient = event.data?.after.get("recipientUid");
+    if (!sender || !recipient)
+        return;
+    const emoji = after[recipient];
+    if (!emoji || before[recipient] === emoji)
+        return;
+    const name = event.data?.after.get("recipientName") ?? "A friend";
+    const hour = Math.floor(Date.now() / 3_600_000);
+    const progressRef = (0, questProgress_1.questProgressRef)(recipient);
+    await economy_1.db.runTransaction(async (tx) => {
+        const progress = await tx.get(progressRef);
+        const next = (0, questProgress_1.nextReactionProgress)(progress.exists ? progress.data() : undefined, `dm_${event.params.messageId}`);
+        if (next)
+            tx.set(progressRef, next, { merge: true });
+        (0, notify_1.writeNotification)(tx, sender, (0, notifyModel_1.simpleNotification)({
+            id: `dmreact_${event.params.messageId}_${hour}`.slice(0, 120),
+            type: "reaction",
+            title: `${name} ${emoji} your message`,
+            body: String(event.data?.after.get("text") ?? "").slice(0, 80),
+            now: Date.now(),
+            data: { friendUid: recipient },
+        }));
+    });
 });
 //# sourceMappingURL=chatPush.js.map

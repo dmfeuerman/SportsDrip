@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { NO_CASH_VALUE } from "@/constants/legal";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useIsFocused, useLocalSearchParams, useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
@@ -282,6 +283,7 @@ export default function ShopScreen() {
                   ? `${ownedBackgrounds.size} scenes owned · Level ${progress.level}`
                   : `${owned.size} ${owned.size === 1 ? "item" : "items"} owned`}
             </Text>
+            <Text style={[styles.subtitle, { color: colors.subtleForeground, fontSize: 11 }]}>Bought with {NO_CASH_VALUE.toLowerCase()}</Text>
           </View>
           <View style={styles.headerActions}>
             <TourTarget id="shop.cart"><CartButton from="shop" /></TourTarget>
@@ -500,7 +502,7 @@ export default function ShopScreen() {
                         ? `Reach level ${preview.levelRequired} to buy`
                         : cart.has(preview.id)
                       ? "Remove from cart"
-                      : `Add to cart · ${preview.price.toLocaleString()}`}
+                      : `Add to cart · ${preview.price === 0 ? "Free" : preview.price.toLocaleString()}`}
                 </Text>
               )}
             </Pressable>

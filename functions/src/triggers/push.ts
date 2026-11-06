@@ -4,6 +4,8 @@ import { db } from "../lib/economy";
 import { buildPushMessages, sendExpoPush, type StoredPushToken } from "../lib/push";
 import type { NotificationModel } from "../lib/notifyModel";
 import { pushDocRef } from "../callable/push";
+import { classifyPush, decidePush, localDay, LOSS_TYPES, RECENT_LOSS_MS, BET_PROMPT_TYPES } from "../lib/pushBudget";
+import { nyDay } from "../lib/streak";
 
 /**
  * Fans every in-app notification out to the user's phones.
@@ -29,11 +31,52 @@ export const pushOnNotification = onDocumentCreated(
     const tokens = ((tokensSnap.get("pushTokens") as StoredPushToken[] | undefined) ?? []).map((t) => t?.token).filter(Boolean) as string[];
     if (tokens.length === 0) return;
 
-    // Claim the push. If another delivery of this event already did, stop.
+    const now = Date.now();
+    const userRef = db.collection("users").doc(uid);
+    const engagement = classifyPush(n.type) === "engagement";
+    let recentLoss = false;
+    if (engagement && BET_PROMPT_TYPES.has(n.type)) {
+      const losses = await userRef
+        .collection("notifications")
+        .where("type", "in", LOSS_TYPES)
+        .where("createdAtMs", ">=", now - RECENT_LOSS_MS)
+        .limit(1)
+        .get()
+        .catch(() => null);
+      // If the check fails, err toward not prompting.
+      recentLoss = losses ? !losses.empty : true;
+    }
+
+    // Claim the push (and spend budget) atomically. If another delivery already did, stop.
     const claimed = await db.runTransaction(async (tx) => {
       const fresh = await tx.get(snap.ref);
       if (!fresh.exists || fresh.get("pushedAt")) return false;
-      tx.update(snap.ref, { pushedAt: Date.now() });
+      if (!engagement) {
+        tx.update(snap.ref, { pushedAt: now });
+        return true;
+      }
+      const user = await tx.get(userRef);
+      const tz = user.get("tz") as string | undefined;
+      const budgetRef = userRef.collection("pushBudget").doc(localDay(now, tz));
+      const budget = await tx.get(budgetRef);
+      const picks = user.get("picksToday") as { day?: string; count?: number } | undefined;
+      const cap = user.get("limits.dailyPicks") as number | null | undefined;
+      const decision = decidePush({
+        type: n.type!,
+        now,
+        tz,
+        quietHours: user.get("quietHours") as boolean | undefined,
+        sentToday: (budget.get("count") as number | undefined) ?? 0,
+        breakUntil: user.get("limits.breakUntil") as number | undefined,
+        atDailyLimit: typeof cap === "number" && cap > 0 && picks?.day === nyDay(now) && (picks.count ?? 0) >= cap,
+        recentLoss,
+      });
+      if (!decision.send) {
+        tx.update(snap.ref, { pushedAt: now, pushSuppressed: decision.reason });
+        return false;
+      }
+      tx.update(snap.ref, { pushedAt: now });
+      tx.set(budgetRef, { count: ((budget.get("count") as number | undefined) ?? 0) + 1, updatedAt: now }, { merge: true });
       return true;
     });
     if (!claimed) return;

@@ -3,6 +3,8 @@ import { z } from "zod";
 import { db, FieldValue, pairId, requireAuth } from "../lib/economy";
 import { writeNotification } from "../lib/notify";
 import { simpleNotification } from "../lib/notifyModel";
+import { activeFriendStreak, type FriendStreakState } from "../lib/friendStreak";
+import { blockedEitherWay } from "./account";
 
 const MAX_FRIENDS = 500;
 
@@ -19,6 +21,7 @@ export const sendFriendRequest = onCall({ region: "us-central1" }, async (req) =
   const to = z.string().min(1).parse(req.data?.toUid);
 
   if (from === to) throw new HttpsError("invalid-argument", "You can't friend yourself.");
+  if (await blockedEitherWay(from, to)) throw new HttpsError("failed-precondition", "You can't add this player.");
 
   const targetRef = db.collection("users").doc(to);
   const friendshipRef = db.collection("friendships").doc(pairId(from, to));
@@ -171,6 +174,13 @@ export const listFriends = onCall({ region: "us-central1" }, async (req) => {
   // accidental N+1 here.
   const refs = otherIds.map((id) => db.collection("users").doc(id));
   const docs = await db.getAll(...refs);
+  const now = Date.now();
+  const streakByUid = new Map<string, { count: number; longest: number }>();
+  for (const d of snap.docs) {
+    const other = (d.get("users") as string[]).find((u) => u !== me);
+    const s = d.get("streak") as Partial<FriendStreakState> | undefined;
+    if (other) streakByUid.set(other, { count: activeFriendStreak(s, now), longest: Math.floor(s?.longest ?? 0) });
+  }
 
   return {
     friends: docs
@@ -184,6 +194,7 @@ export const listFriends = onCall({ region: "us-central1" }, async (req) => {
         balance: d.get("balance"),
         stats: d.get("stats"),
         favoriteTeams: d.get("favoriteTeams") ?? [],
+        friendStreak: streakByUid.get(d.id) ?? { count: 0, longest: 0 },
       })),
   };
 });

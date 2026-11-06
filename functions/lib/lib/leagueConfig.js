@@ -4,15 +4,16 @@
  * the copy that is enforced — the client's copy only drives the pickers.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MEMBER_COLORS = exports.MAX_OPEN_REQUESTS = exports.PEER_RATE_MAX = exports.PEER_LOAN_MAX_PCT = exports.BANK_PRINCIPAL_CAP_MULTIPLIER = exports.BANK_INTERVAL_MAX_H = exports.BANK_INTERVAL_MIN_H = exports.BANK_RATE_MAX = exports.BANK_RATE_MIN = exports.MIN_LEAGUE_STAKE = exports.MAX_MEMBERS = exports.PRIZE_PRESETS = exports.BUY_IN_OPTIONS = exports.TOKEN_START_OPTIONS = exports.STIMULUS_COOLDOWN_MS = exports.STIMULUS_TTL_MS = exports.STIMULUS_PCTS = exports.CADENCE_DAYS = exports.MATCHUP_CADENCES = exports.durationWeeks = exports.weeksBetween = exports.SEASONS = exports.MAX_SEASON_DAYS = exports.MAX_DURATION_DAYS = exports.MIN_DURATION_DAYS = exports.DURATION_KEYS = exports.FULL_SEASON = exports.DURATIONS = exports.LEAGUE_MODES = exports.SPORTS = void 0;
+exports.MEMBER_COLORS = exports.MAX_OPEN_REQUESTS = exports.PEER_RATE_MAX = exports.PEER_LOAN_MAX_PCT = exports.BANK_PRINCIPAL_CAP_MULTIPLIER = exports.BANK_INTERVAL_MAX_H = exports.BANK_INTERVAL_MIN_H = exports.BANK_RATE_MAX = exports.BANK_RATE_MIN = exports.MIN_LEAGUE_STAKE = exports.MAX_MEMBERS = exports.PRIZE_PRESETS = exports.BUY_IN_OPTIONS = exports.TOKEN_START_OPTIONS = exports.STIMULUS_COOLDOWN_MS = exports.STIMULUS_TTL_MS = exports.STIMULUS_PCTS = exports.CADENCE_DAYS = exports.MATCHUP_CADENCES = exports.durationWeeks = exports.weeksBetween = exports.leagueStarted = exports.MIN_LEAGUE_PLAYERS = exports.MAX_START_LEAD_MS = exports.MIN_START_LEAD_MS = exports.FULL_SEASON_SPORTS = exports.SEASONS = exports.MAX_SEASON_DAYS = exports.MAX_DURATION_DAYS = exports.MIN_DURATION_DAYS = exports.DURATION_KEYS = exports.FULL_SEASON = exports.DURATIONS = exports.LEAGUE_MODES = exports.SPORTS = void 0;
 exports.sportSeasonEnd = sportSeasonEnd;
 exports.seasonEndFor = seasonEndFor;
 exports.endsAtFor = endsAtFor;
+exports.leagueStartsAt = leagueStartsAt;
 exports.peerLoanRequestsEnabled = peerLoanRequestsEnabled;
 exports.randomCode = randomCode;
 exports.SPORTS = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "NCAAB", "Soccer"];
 /** "matchups": a bankroll league ranked by head-to-head record instead of net worth. */
-exports.LEAGUE_MODES = ["bankroll", "pickem", "survivor", "matchups"];
+exports.LEAGUE_MODES = ["bankroll", "pickem", "survivor", "matchups", "bracket"];
 /**
  * Season lengths in days. One month (4 weeks) is the floor: short leagues
  * never built enough history for standings, rivalries or the weekly ritual to
@@ -61,6 +62,8 @@ function sportSeasonEnd(sport, now) {
         return spans[i + 1];
     return cur;
 }
+/** A full-season league covers exactly one sport's season. */
+exports.FULL_SEASON_SPORTS = 1;
 /** When a full-season league with these sports ends: the latest of their seasons. */
 function seasonEndFor(sports, now) {
     const end = Math.max(...sports.map((s) => sportSeasonEnd(s, now).end), now + exports.MIN_DURATION_DAYS * DAY);
@@ -70,6 +73,27 @@ function seasonEndFor(sports, now) {
 function endsAtFor(d, sports, from) {
     return d === exports.FULL_SEASON ? seasonEndFor(sports, from) : from + exports.DURATIONS[d] * DAY;
 }
+// ---------------------------------------------------------------------------
+// Start date: a league starts now or at least a day out (so friends can join).
+// Nobody new can join once it has started.
+// ---------------------------------------------------------------------------
+/** A scheduled start must be at least this far out. */
+exports.MIN_START_LEAD_MS = DAY;
+/** ...and no further than this. */
+exports.MAX_START_LEAD_MS = 60 * DAY;
+/** When the league starts; leagues created before scheduled starts began at creation. */
+function leagueStartsAt(league) {
+    return league.get("startsAt") ?? league.get("createdAt") ?? 0;
+}
+/** A league needs at least this many players to start; until then it stays open to join. */
+exports.MIN_LEAGUE_PLAYERS = 2;
+/**
+ * Started: its start time has come AND it has at least two players. A league
+ * nobody else has joined stays in preseason (still joinable) past its start
+ * time; the second player to join starts it (joinLeague).
+ */
+const leagueStarted = (league, now) => now >= leagueStartsAt(league) && (league.get("memberIds")?.length ?? 0) >= exports.MIN_LEAGUE_PLAYERS;
+exports.leagueStarted = leagueStarted;
 /** Whole weeks between start and end (for the playoff week / report cadence). */
 const weeksBetween = (from, to) => Math.max(4, Math.ceil((to - from) / (7 * DAY)));
 exports.weeksBetween = weeksBetween;

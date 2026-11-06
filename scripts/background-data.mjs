@@ -7,7 +7,7 @@
  *
  * Fields: name, description, price, rarity, available, releaseAt (epoch ms),
  *   levelRequired  only buyable at or above this level
- *   levelReward    never sold; granted on reaching this level (price 0)
+ *   levelReward    granted free on reaching this level; still buyable before then
  */
 const bg = (id, name, price, rarity, description, extra = {}) => ({
   id,
@@ -28,9 +28,9 @@ export const BACKGROUNDS = [
   bg("beach_court", "Beach Court", 2900, "uncommon", "Sand, sun and a net."),
   bg("sunset_field", "Golden Hour", 3200, "uncommon", "The field at sunset."),
   bg("ice_rink", "Ice Rink", 3600, "uncommon", "Fresh sheet, cold air."),
-  bg("neon_city", "Neon City", 7500, "rare", "Skyline after dark. Level 4 and up.", { levelRequired: 4 }),
-  bg("confetti_podium", "Podium", 0, "rare", "Confetti and a top step. Reach level 5.", { levelReward: 5 }),
-  bg("gold_vault", "Gold Vault", 16000, "epic", "Bars stacked to the ceiling. Level 10 and up.", { levelRequired: 10 }),
-  bg("champions_hall", "Champions Hall", 0, "epic", "Banners and trophies. Reach level 15.", { levelReward: 15 }),
-  bg("galaxy", "Deep Space", 42000, "legendary", "Out of this world. Level 20 and up.", { levelRequired: 20 }),
+  bg("neon_city", "Neon City", 7500, "rare", "Skyline after dark. Buy it, or unlock free at level 4.", { levelReward: 4 }),
+  bg("confetti_podium", "Podium", 9000, "rare", "Confetti and a top step. Buy it, or unlock free at level 5.", { levelReward: 5 }),
+  bg("gold_vault", "Gold Vault", 16000, "epic", "Bars stacked to the ceiling. Buy it, or unlock free at level 10.", { levelReward: 10 }),
+  bg("champions_hall", "Champions Hall", 24000, "epic", "Banners and trophies. Buy it, or unlock free at level 15.", { levelReward: 15 }),
+  bg("galaxy", "Deep Space", 42000, "legendary", "Out of this world. Buy it, or unlock free at level 20.", { levelReward: 20 }),
 ];

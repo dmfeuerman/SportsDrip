@@ -28,7 +28,8 @@ exports.purchaseMove = (0, https_1.onCall)({ region: "us-central1" }, async (req
     const ownRef = userRef.collection("moves").doc(moveId);
     return economy_1.db.runTransaction(async (tx) => {
         const [move, owned, user] = await Promise.all([tx.get(moveRef), tx.get(ownRef), tx.get(userRef)]);
-        if (!move.exists)
+        const fallback = moves_1.DEFAULT_MOVE_LISTINGS[moveId];
+        if (!move.exists && !fallback)
             throw new https_1.HttpsError("not-found", "That move isn't in the store.");
         if (owned.exists)
             throw new https_1.HttpsError("already-exists", "You already own this move.");
@@ -39,7 +40,7 @@ exports.purchaseMove = (0, https_1.onCall)({ region: "us-central1" }, async (req
         const releaseAt = move.get("releaseAt");
         if (releaseAt && releaseAt > Date.now())
             throw new https_1.HttpsError("failed-precondition", "That move hasn't dropped yet.");
-        const price = move.get("price");
+        const price = (move.exists ? move.get("price") : fallback.price);
         if (typeof price !== "number" || !Number.isFinite(price) || price < 0) {
             throw new https_1.HttpsError("internal", "Move is misconfigured.");
         }
@@ -49,7 +50,7 @@ exports.purchaseMove = (0, https_1.onCall)({ region: "us-central1" }, async (req
             type: "purchase",
             idempotencyKey: `move_${idempotencyKey}`,
             ref: `move:${moveId}`,
-            note: move.get("name") ?? moveId,
+            note: (move.exists ? move.get("name") : fallback?.name) ?? moveId,
         });
         // A replayed key: the first call already granted it.
         if (balance === null)

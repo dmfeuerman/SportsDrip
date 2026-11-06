@@ -116,6 +116,19 @@ export class FakeDb {
   collectionGroup(id: string) {
     return new Query(this, { group: id });
   }
+  /** Minimal WriteBatch: queued ops applied in order on commit. */
+  batch() {
+    const ops: Array<() => Promise<unknown>> = [];
+    const b = {
+      set: (ref: DocRef, data: Data, opts?: { merge?: boolean }) => (ops.push(() => ref.set(data, opts)), b),
+      update: (ref: DocRef, data: Data) => (ops.push(() => ref.update(data)), b),
+      delete: (ref: DocRef) => (ops.push(() => ref.delete()), b),
+      commit: async () => {
+        for (const op of ops) await op();
+      },
+    };
+    return b;
+  }
   async runTransaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
     for (let attempt = 0; attempt < 25; attempt++) {
       const tx = new Transaction(this);

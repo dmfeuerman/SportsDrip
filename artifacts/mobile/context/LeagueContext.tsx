@@ -49,6 +49,9 @@ import { useApp } from "@/context/AppContext";
 import { firebaseConfigured, getDb } from "@/lib/firebase";
 import { DEMO, demoActivity, demoLeagueBets, demoLeagues, demoLoans } from "@/lib/demo";
 import { rankByMode, rankMembers, type Standing } from "@/lib/loanMath";
+import { isObjectionable } from "@/lib/moderation";
+import { BLOCKED_TEXT_ERROR } from "@/lib/chatText";
+import { useBlockedUids } from "@/lib/blocks";
 
 export interface CreateLeagueInput {
   name: string;
@@ -312,6 +315,7 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
       const text = rawText.trim();
       if (!text) return "Write a message first.";
       if (text.length > 500) return "Messages are capped at 500 characters.";
+      if (isObjectionable(text)) return BLOCKED_TEXT_ERROR;
       const league = leaguesRef.current.find((l) => l.id === leagueId);
       if (!league || !uid) return "You're not signed in to this league.";
       const me = league.members?.[uid];
@@ -452,7 +456,10 @@ export function useLeagueDetail(league: League | undefined): LeagueDetail {
   const [loans, setLoans] = useState<LeagueLoan[]>([]);
   const [bets, setBets] = useState<LeagueBet[]>([]);
   const [activity, setActivity] = useState<LeagueActivity[]>([]);
-  const [messages, setMessages] = useState<LeagueMessage[]>([]);
+  const [rawMessages, setMessages] = useState<LeagueMessage[]>([]);
+  const blockedUids = useBlockedUids();
+  // Blocked players' chat is hidden (their bets still count in standings).
+  const messages = useMemo(() => (blockedUids.size ? rawMessages.filter((m) => !m.uid || !blockedUids.has(m.uid)) : rawMessages), [rawMessages, blockedUids]);
   const [audit, setAudit] = useState<LeagueAuditEntry[]>([]);
   const [reports, setReports] = useState<LeagueReport[]>([]);
   const [matchups, setMatchups] = useState<LeagueMatchupDoc[]>([]);

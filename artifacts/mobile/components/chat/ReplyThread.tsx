@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React from "react";
+import React, { useState } from "react";
+import ReportDialog, { type ReportTarget } from "@/components/ReportDialog";
 import { StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { Pill } from "@/components/ui";
@@ -206,9 +207,11 @@ export function WinLossReplyThread({
   onPressAuthor?: (uid: string, name: string) => void;
 }) {
   const c = useColors();
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
   return (
     <View style={styles.threadContainer}>
+      <ReportDialog target={reportTarget} onClose={() => setReportTarget(null)} />
       {replies.length > 0 && (
         <View style={styles.threadList}>
           {/* Quoted parent snippet at the top of the thread */}
@@ -260,7 +263,13 @@ export function WinLossReplyThread({
                         <Text style={[styles.replySenderName, { color: c.mutedForeground }]}>{r.name}</Text>
                       </Pressable>
                     )}
-                    <View
+                    <Pressable
+                      accessibilityHint={mine ? undefined : "Long-press to report"}
+                      onLongPress={
+                        mine
+                          ? undefined
+                          : () => setReportTarget({ kind: "bet_comment", uid: r.uid, name: r.name, path: `betComments/${parentQuote.id}/comments/${r.id}`, text: r.text })
+                      }
                       style={[
                         styles.replyBubble,
                         mine
@@ -271,7 +280,7 @@ export function WinLossReplyThread({
                       <Text style={[styles.replyBubbleText, { color: mine ? "#FFFFFF" : c.foreground }]}>
                         {chatText(r.text)}
                       </Text>
-                    </View>
+                    </Pressable>
                   </View>
                 </View>
               </View>

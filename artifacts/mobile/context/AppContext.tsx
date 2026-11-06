@@ -17,6 +17,7 @@ import React, {
   useState,
 } from "react";
 import * as api from "@/lib/api";
+import { subscribeCached, toMillis } from "@/lib/cachedQuery";
 import type { AvatarConfig, BoxTier, FavoriteTeam, PunishmentInfo, Slot, StreakInfo, UserStats } from "@/lib/api";
 import type { TrophyItem } from "@/constants/leagueTypes";
 import type { Market, Selection } from "@/lib/markets";
@@ -115,6 +116,10 @@ export interface Profile {
   referralCount?: number;
   referredBy?: string;
   onboarded: boolean;
+  /** Terms of Service version accepted (constants/legal.ts TERMS_VERSION). */
+  termsVersion?: number;
+  /** When the first-bet tutorial's prize box was paid (once per account). */
+  tutorialGiftAt?: number;
 }
 
 interface AppContextType {
@@ -124,6 +129,8 @@ interface AppContextType {
   balance: number;
   bets: Bet[];
   inventory: string[];
+  /** False until the inventory has been read at least once this session (cache or server). */
+  inventoryLoaded: boolean;
   trophies: TrophyItem[];
   /** Moves this player can dance: the free ones plus everything bought. */
   ownedMoves: Set<string>;
@@ -230,6 +237,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
   const [serverProfile, setProfile] = useState<Profile | null>(DEMO ? demoProfile : null);
   const [serverBets, setBets] = useState<Bet[]>(DEMO ? demoBets : []);
   const [serverInventory, setInventory] = useState<string[]>(DEMO ? demoInventory : []);
+  const [inventoryLoaded, setInventoryLoaded] = useState(DEMO);
   const [trophies, setTrophies] = useState<TrophyItem[]>([]);
   const [serverMoves, setBoughtMoves] = useState<string[]>([]);
   const [serverBackgrounds, setBoughtBackgrounds] = useState<string[]>(DEMO ? ["night_stadium"] : []);
@@ -389,35 +397,76 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       )
     );
 
+    // Bets: open ones live; the rest from the phone's cache plus only what
+    // settled since (lib/cachedQuery.ts). Results are still decided and paid
+    // server-side — the cache is only what this phone remembers having seen.
+    const toBet = (d: { id: string } & Record<string, unknown>) => ({ ...d, side: (d.side === "away" ? "away" : "home") as "home" | "away" }) as unknown as Bet;
+    let pendingNow: Bet[] = [];
+    let pendingLoaded = false;
+    let history: Bet[] = [];
+    const publishBets = () => {
+      const byId = new Map<string, Bet>();
+      for (const b of history) byId.set(b.id, b);
+      // The live open copy beats a cached "pending" one; a settled copy beats both.
+      for (const b of pendingNow) {
+        const had = byId.get(b.id);
+        if (!had || had.status === "pending") byId.set(b.id, b);
+      }
+      const open = new Set(pendingNow.map((b) => b.id));
+      setBets(
+        [...byId.values()]
+          // Cached as open but no longer open: its settled copy is on the way; don't show it as open meanwhile.
+          .filter((b) => b.status !== "pending" || !pendingLoaded || open.has(b.id))
+          .sort((a, b) => (toMillis(b.placedAt) ?? 0) - (toMillis(a.placedAt) ?? 0))
+          .slice(0, 200)
+      );
+    };
     unsubs.push(
       onSnapshot(
-        query(
-          collection(db, "bets"),
-          where("uid", "==", uid),
-          orderBy("placedAt", "desc"),
-          limit(200)
-        ),
-        (snap) =>
-          setBets(
-            snap.docs.map((d) => {
-              const raw = d.data();
-              return {
-                id: d.id,
-                ...raw,
-                side: (raw.side === "away" ? "away" : "home") as "home" | "away",
-              } as Bet;
-            })
-          ),
+        query(collection(db, "bets"), where("uid", "==", uid), where("status", "==", "pending")),
+        (snap) => {
+          pendingNow = snap.docs.map((d) => toBet({ ...d.data(), id: d.id }));
+          pendingLoaded = true;
+          publishBets();
+        },
         (err) => setError(api.friendlyError(err))
       )
     );
+    unsubs.push(
+      subscribeCached<{ id: string } & Record<string, unknown>>(
+        {
+          key: `sd.cache.bets.${uid}`,
+          version: 1,
+          cursorType: "timestamp",
+          full: () => query(collection(db, "bets"), where("uid", "==", uid), orderBy("placedAt", "desc"), limit(200)),
+          delta: (after) => query(collection(db, "bets"), where("uid", "==", uid), where("settledAt", ">", after)),
+          cursorOf: (b) => toMillis(b.settledAt),
+          keep: (list) => list.sort((a, b) => (toMillis(b.placedAt) ?? 0) - (toMillis(a.placedAt) ?? 0)).slice(0, 200),
+        },
+        (items) => {
+          history = items.map(toBet);
+          publishBets();
+        },
+        (err) => setError(api.friendlyError(err))
+      ).stop
+    );
 
     unsubs.push(
-      onSnapshot(
-        collection(db, "users", uid, "inventory"),
-        (snap) => setInventory(snap.docs.map((d) => d.id)),
+      subscribeCached<{ id: string } & Record<string, unknown>>(
+        {
+          key: `sd.cache.inventory.${uid}`,
+          version: 1,
+          cursorType: "timestamp",
+          full: () => collection(db, "users", uid, "inventory"),
+          delta: (after) => query(collection(db, "users", uid, "inventory"), where("acquiredAt", ">", after)),
+          cursorOf: (d) => toMillis(d.acquiredAt),
+        },
+        (items) => {
+          setInventory(items.map((d) => d.id));
+          setInventoryLoaded(true);
+        },
         () => {}
-      )
+      ).stop
     );
 
     unsubs.push(
@@ -434,19 +483,33 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
     );
 
     unsubs.push(
-      onSnapshot(
-        collection(db, "users", uid, "moves"),
-        (snap) => setBoughtMoves(snap.docs.map((d) => d.id)),
+      subscribeCached<{ id: string } & Record<string, unknown>>(
+        {
+          key: `sd.cache.moves.${uid}`,
+          version: 1,
+          cursorType: "timestamp",
+          full: () => collection(db, "users", uid, "moves"),
+          delta: (after) => query(collection(db, "users", uid, "moves"), where("acquiredAt", ">", after)),
+          cursorOf: (d) => toMillis(d.acquiredAt),
+        },
+        (items) => setBoughtMoves(items.map((d) => d.id)),
         () => {}
-      )
+      ).stop
     );
 
     unsubs.push(
-      onSnapshot(
-        collection(db, "users", uid, "backgrounds"),
-        (snap) => setBoughtBackgrounds(snap.docs.map((d) => d.id)),
+      subscribeCached<{ id: string } & Record<string, unknown>>(
+        {
+          key: `sd.cache.backgrounds.${uid}`,
+          version: 1,
+          cursorType: "timestamp",
+          full: () => collection(db, "users", uid, "backgrounds"),
+          delta: (after) => query(collection(db, "users", uid, "backgrounds"), where("acquiredAt", ">", after)),
+          cursorOf: (d) => toMillis(d.acquiredAt),
+        },
+        (items) => setBoughtBackgrounds(items.map((d) => d.id)),
         () => {}
-      )
+      ).stop
     );
 
     unsubs.push(
@@ -900,6 +963,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       balance: profile?.balance ?? 0,
       bets,
       inventory,
+      inventoryLoaded,
       trophies,
       ownedMoves,
       loadout,
@@ -936,6 +1000,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       signedIn,
       bets,
       inventory,
+      inventoryLoaded,
       trophies,
       ownedMoves,
       loadout,

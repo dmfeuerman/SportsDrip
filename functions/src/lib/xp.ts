@@ -2,6 +2,7 @@ import { db, FieldValue, type Tx } from "./economy";
 import { writeNotification } from "./notify";
 import { simpleNotification } from "./notifyModel";
 import { levelFromXp, levelUpCredits } from "./progression";
+import { activeSeason, SEASON_XP_REASONS } from "./seasonPass";
 
 /**
  * XP and level-ups. Kept out of the money transactions on purpose: the
@@ -87,6 +88,8 @@ export async function grantXp(uid: string, amount: number, key: string, reason: 
   const eventRef = userRef.collection("xpEvents").doc(key);
   const none = (xp = 0): XpResult => ({ applied: false, xp, level: levelFromXp(xp), levelsGained: 0, credits: 0, unlocks: [] });
   if (!(amount > 0) || !Number.isFinite(amount)) return none();
+  // Season pass XP: a parallel counter, only from quests and Daily Picks.
+  const season = SEASON_XP_REASONS.has(reason) ? await activeSeason().catch(() => null) : null;
 
   return db.runTransaction(async (tx) => {
     const [user, ev] = await Promise.all([tx.get(userRef), tx.get(eventRef)]);
@@ -129,6 +132,7 @@ export async function grantXp(uid: string, amount: number, key: string, reason: 
     tx.update(userRef, {
       xp: after,
       level: newLevel,
+      ...(season ? { [`seasonXp.${season.id}`]: FieldValue.increment(Math.floor(amount)) } : {}),
       ...(credits > 0 ? { balance } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { TourModalLayer } from "@/components/tour/TourHost";
 import {
   Animated,
   Dimensions,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -70,16 +70,22 @@ export default function KeyboardSheet({
   // The keyboard already covers the home-indicator area, so keeping the
   // safe-area bottom padding while it's up floats the sheet's footer ~50pt
   // above the keyboard. Drop it so the bottom action sits right on top.
-  const [keyboardUp, setKeyboardUp] = useState(false);
+  // The sheet reaches the bottom of the screen and pads itself by the keyboard's
+  // height, so its background runs under the keyboard (nothing behind shows through)
+  // and the bottom action sits right on top of it.
+  const [kbH, setKbH] = useState(0);
+  const keyboardUp = kbH > 0;
   useEffect(() => {
     if (!visible) return;
     const ios = Platform.OS === "ios";
-    const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardUp(true));
-    const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardUp(false));
+    const h = (e: { endCoordinates: { screenY: number; height: number } }) =>
+      setKbH(Math.max(0, ios ? Dimensions.get("screen").height - e.endCoordinates.screenY : e.endCoordinates.height));
+    const show = Keyboard.addListener(ios ? "keyboardWillChangeFrame" : "keyboardDidShow", h);
+    const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", () => setKbH(0));
     return () => {
       show.remove();
       hide.remove();
-      setKeyboardUp(false);
+      setKbH(0);
     };
   }, [visible]);
 
@@ -109,7 +115,7 @@ export default function KeyboardSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
-      <KeyboardAvoidingView behavior="padding" style={styles.fill}>
+      <View style={styles.fill}>
         <Pressable style={[styles.fill, { backgroundColor: c.overlay }]} onPress={close} accessibilityLabel="Close" />
         <Animated.View
           style={[
@@ -118,7 +124,7 @@ export default function KeyboardSheet({
             style,
             // The keyboard covers the home indicator, so the bottom action sits right on
             // top of it whatever padding the sheet asked for.
-            keyboardUp ? { paddingBottom: 8 } : null,
+            keyboardUp ? { paddingBottom: kbH + 8 } : null,
           ]}
         >
           <View {...pan.panHandlers} style={[styles.grab, headerStyle]} hitSlop={{ top: 12 }}>
@@ -127,7 +133,8 @@ export default function KeyboardSheet({
           </View>
           {children}
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
+      <TourModalLayer />
     </Modal>
   );
 }

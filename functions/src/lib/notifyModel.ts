@@ -48,7 +48,11 @@ export type NotificationType =
   | "stimulus_request"
   | "stimulus_approved"
   | "level_up"
-  | "referral_bonus";
+  | "referral_bonus"
+  | "gift_received"
+  | "credits_received"
+  | "birthday_gift"
+  | "win_back";
 
 export type Wallet = "credits" | "league";
 
@@ -195,10 +199,15 @@ export function notificationRoute(n: Pick<NotificationModel, "type" | "leagueId"
     case "bet_tailed":
     case "bet_faded":
       return league ? `${league}?tab=bets` : "/(tabs)/leagues";
+    case "credits_received":
+      return n.data?.fromUid ? `/messages?uid=${encodeURIComponent(n.data.fromUid)}&name=${encodeURIComponent(n.data.fromName ?? "")}` : "/messages";
     case "loan_funded":
     case "loan_repaid":
     case "loan_countered":
     case "loan_request":
+      // Friend loans (no league) live in the DM thread.
+      if (!league && n.data?.fromUid) return `/messages?uid=${encodeURIComponent(n.data.fromUid)}&name=${encodeURIComponent(n.data.fromName ?? "")}`;
+      return league ? `${league}?tab=bank` : "/(tabs)/leagues";
     case "margin_call":
     case "stimulus_request":
     case "stimulus_approved":
@@ -211,7 +220,10 @@ export function notificationRoute(n: Pick<NotificationModel, "type" | "leagueId"
     case "referral_bonus":
       return "/(tabs)/friends";
     case "achievement":
+    case "gift_received":
       return "/(tabs)/avatar";
+    case "win_back":
+      return "/(tabs)";
     case "level_up":
       return "/levels";
     default:

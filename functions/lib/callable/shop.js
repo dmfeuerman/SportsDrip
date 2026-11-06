@@ -1,11 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.equipItem = exports.purchaseItem = exports.SLOTS = void 0;
+exports.assertSellable = assertSellable;
+exports.rotationArmFor = rotationArmFor;
 const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const avatar_1 = require("./avatar");
 const progression_1 = require("../lib/progression");
+const storeWindow_1 = require("../lib/storeWindow");
+const experiments_1 = require("../lib/experiments");
 exports.SLOTS = [
     "hat",
     "top",
@@ -15,6 +19,39 @@ exports.SLOTS = [
     "eyewear",
     "accessory",
 ];
+/**
+ * Shared sale checks for purchase and gifting: time window, level rules, price.
+ * `xp` is the level-gated party's xp (the buyer; for gifts, the recipient).
+ * Returns the server price.
+ */
+function assertSellable(item, xp, now, rotationArm = experiments_1.CONTROL) {
+    const data = item.data() ?? {};
+    // shop_rotation_v1: control / holdout keep the static shop (rotating items always
+    // on sale, windows ignored) so the rotation's retention lift is measured.
+    const staticShop = data.rotation === true && rotationArm === experiments_1.CONTROL;
+    const err = (0, storeWindow_1.windowError)(staticShop ? (data.available === false ? "disabled" : "on_sale") : (0, storeWindow_1.windowState)(data, now));
+    if (err)
+        throw new https_1.HttpsError("failed-precondition", err);
+    // Level-exclusive items are granted by reaching the level (lib/xp.ts), never sold.
+    const reward = item.get("levelReward");
+    if (typeof reward === "number" && reward > 0) {
+        throw new https_1.HttpsError("failed-precondition", `Not for sale — unlocked by reaching level ${reward}.`);
+    }
+    const required = item.get("levelRequired") ?? 0;
+    if (required > (0, progression_1.levelFromXp)(xp)) {
+        throw new https_1.HttpsError("failed-precondition", `Reach level ${required} to buy this.`);
+    }
+    const price = item.get("price");
+    if (typeof price !== "number" || price < 0) {
+        throw new https_1.HttpsError("internal", "Catalog item is misconfigured.");
+    }
+    return price;
+}
+/** shop_rotation_v1 arm for the buyer. Read inside the transaction, before any write. */
+async function rotationArmFor(tx, uid) {
+    const snap = await tx.get(economy_1.db.collection("meta").doc("experiments"));
+    return (0, experiments_1.assignArm)(snap.exists ? snap.data() : null, experiments_1.EXPERIMENTS.shopRotation, { uid });
+}
 /**
  * Buys a catalog item.
  *
@@ -40,26 +77,7 @@ exports.purchaseItem = (0, https_1.onCall)({ region: "us-central1" }, async (req
             throw new https_1.HttpsError("not-found", "That item isn't in the store.");
         if (owned.exists)
             throw new https_1.HttpsError("already-exists", "You already own this.");
-        if (item.get("available") === false) {
-            throw new https_1.HttpsError("failed-precondition", "That item isn't available right now.");
-        }
-        const releaseAt = item.get("releaseAt");
-        if (releaseAt && releaseAt > Date.now()) {
-            throw new https_1.HttpsError("failed-precondition", "That item hasn't dropped yet.");
-        }
-        // Level-exclusive items are granted by reaching the level (lib/xp.ts), never sold.
-        const reward = item.get("levelReward");
-        if (typeof reward === "number" && reward > 0) {
-            throw new https_1.HttpsError("failed-precondition", `Not for sale — unlocked by reaching level ${reward}.`);
-        }
-        const required = item.get("levelRequired") ?? 0;
-        if (required > (0, progression_1.levelFromXp)(user.get("xp"))) {
-            throw new https_1.HttpsError("failed-precondition", `Reach level ${required} to buy this.`);
-        }
-        const price = item.get("price");
-        if (typeof price !== "number" || price < 0) {
-            throw new https_1.HttpsError("internal", "Catalog item is misconfigured.");
-        }
+        const price = assertSellable(item, user.get("xp"), Date.now(), await rotationArmFor(tx, uid));
         const balance = await (0, economy_1.applyCredits)(tx, uid, {
             delta: -price,
             type: "purchase",

@@ -1,0 +1,16 @@
+{
+  "_note": "Placeholder only. Real season content and cadence are live-ops; seed seasons/{id} from the live-ops doc and keep it passing validateSeason.",
+  "seasons": [
+    {
+      "id": "s0-placeholder",
+      "startsAt": 1798761600000,
+      "endsAt": 1804032000000,
+      "tiers": [
+        { "xp": 50, "reward": { "kind": "credits", "amount": 100 } },
+        { "xp": 150, "reward": { "kind": "credits", "amount": 150 } },
+        { "xp": 300, "reward": { "kind": "credits", "amount": 250 } }
+      ],
+      "premium": null
+    }
+  ]
+}

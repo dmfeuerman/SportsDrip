@@ -8,12 +8,18 @@
  * When any leg loses, `bustedBy` records whose leg killed the ticket.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_PARLAY_ODDS = exports.MAX_PARLAY_LEGS = exports.MIN_PARLAY_LEGS = void 0;
+exports.MAX_PARLAY_ODDS = exports.MAX_PARLAY_SHARE = exports.MAX_PARLAY_LEGS = exports.MIN_PARLAY_LEGS = void 0;
+exports.parlayStakeCap = parlayStakeCap;
 exports.combinedParlayOdds = combinedParlayOdds;
 exports.gradeParlayLegs = gradeParlayLegs;
 exports.applyOutcomeToLeg = applyOutcomeToLeg;
 exports.MIN_PARLAY_LEGS = 2;
 exports.MAX_PARLAY_LEGS = 4;
+/** A parlay stake can't exceed this share of the current league wallet (loss-chasing guard). */
+exports.MAX_PARLAY_SHARE = 0.25;
+function parlayStakeCap(walletTokens) {
+    return Math.floor(Math.max(0, walletTokens) * exports.MAX_PARLAY_SHARE);
+}
 exports.MAX_PARLAY_ODDS = 20.0;
 const round2 = (n) => Math.round(n * 100) / 100;
 /** Combined decimal price across legs, treating push/void legs as 1.0x and capping at 20x. */

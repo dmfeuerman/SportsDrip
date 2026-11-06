@@ -1,4 +1,5 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { nextReactionProgress, questProgressRef } from "../lib/questProgress";
 import { writeNotification } from "../lib/notify";
 import { simpleNotification } from "../lib/notifyModel";
 import { logger } from "firebase-functions";
@@ -6,6 +7,25 @@ import { db } from "../lib/economy";
 import { chatText } from "../lib/chatText";
 import { isExpoPushToken, sendExpoPush, type ExpoPushMessage, type StoredPushToken } from "../lib/push";
 import { pushDocRef } from "../callable/push";
+import { isObjectionable, maskObjectionable } from "../lib/moderation";
+import { blockRef } from "../callable/account";
+
+/**
+ * Server-side backstop for the in-app filter: masks objectionable words in a
+ * newly written message and flags it. Returns true when it masked, so the
+ * caller skips the push.
+ */
+async function moderate(ref: FirebaseFirestore.DocumentReference, text: string | undefined): Promise<boolean> {
+  if (!text || !isObjectionable(text)) return false;
+  await ref.update({ text: maskObjectionable(text), moderated: true });
+  return true;
+}
+
+/** Recipients who haven't blocked the sender. */
+async function notBlocking(recipients: string[], sender: string): Promise<string[]> {
+  const snaps = await Promise.all(recipients.map((r) => blockRef(r, sender).get()));
+  return recipients.filter((_, i) => !snaps[i]!.exists);
+}
 
 /**
  * Chat pushes. Chat messages are not notification documents (they'd flood the
@@ -69,6 +89,8 @@ export const pushOnDirectMessage = onDocumentCreated(
     // The thread id names both members; ignore anything that doesn't match.
     const parts = event.params.threadId.split("_");
     if (parts[0] !== "dm" || !parts.includes(m.senderUid) || !parts.includes(m.recipientUid)) return;
+    if (await moderate(snap.ref, m.text)) return;
+    if (!(await notBlocking([m.recipientUid], m.senderUid)).length) return;
     if (!(await claim(snap.ref))) return;
 
     const name = m.senderName || "A friend";
@@ -98,7 +120,8 @@ export const pushOnLeagueMessage = onDocumentCreated(
     const leagueId = event.params.leagueId;
     const league = await db.collection("leagues").doc(leagueId).get();
     if (!league.exists) return;
-    const recipients = ((league.get("memberIds") as string[] | undefined) ?? []).filter((u) => u !== m.uid);
+    if (await moderate(snap.ref, m.text)) return;
+    const recipients = await notBlocking(((league.get("memberIds") as string[] | undefined) ?? []).filter((u) => u !== m.uid), m.uid);
     if (!recipients.length) return;
     if (!(await claim(snap.ref))) return;
 
@@ -113,6 +136,15 @@ export const pushOnLeagueMessage = onDocumentCreated(
       data: { type: "chat_league", url, leagueId },
     }));
     logger.info("league chat push sent", { leagueId, recipients: recipients.length, sent });
+  }
+);
+
+/** Bet-result replies get the same objectionable-content backstop. */
+export const moderateBetComment = onDocumentCreated(
+  { document: "betComments/{betId}/comments/{commentId}", region: "us-central1", timeoutSeconds: 30 },
+  async (event) => {
+    const snap = event.data;
+    if (snap) await moderate(snap.ref, snap.get("text") as string | undefined);
   }
 );
 
@@ -132,7 +164,11 @@ export const notifyOnDmReaction = onDocumentUpdated(
     if (!emoji || before[recipient] === emoji) return;
     const name = (event.data?.after.get("recipientName") as string | undefined) ?? "A friend";
     const hour = Math.floor(Date.now() / 3_600_000);
+    const progressRef = questProgressRef(recipient);
     await db.runTransaction(async (tx) => {
+      const progress = await tx.get(progressRef);
+      const next = nextReactionProgress(progress.exists ? (progress.data() as { reacted?: Record<string, boolean> }) : undefined, `dm_${event.params.messageId}`);
+      if (next) tx.set(progressRef, next, { merge: true });
       writeNotification(
         tx,
         sender,

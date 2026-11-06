@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import { Platform, View, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from "react-native";
-import { registerTarget, tourPressed } from "@/lib/tour/store";
+import { registerScrollTop, registerTarget, tourPressed } from "@/lib/tour/store";
 
 type ScrollBy = (dy: number) => void;
 const TourScrollContext = createContext<ScrollBy | undefined>(undefined);
@@ -25,6 +25,16 @@ export function useTourScroll(ref: React.RefObject<Scrollable | null>, onScrollE
       if (list?.scrollToOffset) list.scrollToOffset({ offset: to, animated: true });
       else list?.scrollTo?.({ y: to, animated: true });
     },
+    [ref]
+  );
+  // Ending a tour returns the screen to its top.
+  useEffect(
+    () =>
+      registerScrollTop(() => {
+        const list = ref.current;
+        if (list?.scrollToOffset) list.scrollToOffset({ offset: 0, animated: true });
+        else list?.scrollTo?.({ y: 0, animated: true });
+      }),
     [ref]
   );
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {

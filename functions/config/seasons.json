@@ -1,0 +1,163 @@
+{
+  "_note": "Live season pass content. Seeded to seasons/{id} by scripts/seed-liveops.mjs; must pass validateSeason (functions/test/liveOps.test.ts). ~10-week seasons, back to back.",
+  "seasons": [
+    {
+      "id": "s1-winter-drip",
+      "name": "Winter Drip",
+      "startsAt": 1794200400000,
+      "endsAt": 1800248400000,
+      "tiers": [
+        {
+          "xp": 100,
+          "reward": {
+            "kind": "credits",
+            "amount": 150
+          }
+        },
+        {
+          "xp": 250,
+          "reward": {
+            "kind": "background",
+            "id": "ice_rink"
+          }
+        },
+        {
+          "xp": 450,
+          "reward": {
+            "kind": "item",
+            "id": "hat_arctic_beanie"
+          }
+        },
+        {
+          "xp": 700,
+          "reward": {
+            "kind": "credits",
+            "amount": 250
+          }
+        },
+        {
+          "xp": 1000,
+          "reward": {
+            "kind": "move",
+            "id": "shoulder_shimmy"
+          }
+        },
+        {
+          "xp": 1350,
+          "reward": {
+            "kind": "item",
+            "id": "outerwear_forest_puffer"
+          }
+        },
+        {
+          "xp": 1750,
+          "reward": {
+            "kind": "credits",
+            "amount": 400
+          }
+        },
+        {
+          "xp": 2200,
+          "reward": {
+            "kind": "background",
+            "id": "neon_city"
+          }
+        },
+        {
+          "xp": 2700,
+          "reward": {
+            "kind": "item",
+            "id": "outerwear_ice_puffer"
+          }
+        },
+        {
+          "xp": 3200,
+          "reward": {
+            "kind": "move",
+            "id": "disco_point"
+          }
+        }
+      ],
+      "premium": null
+    },
+    {
+      "id": "s2-playoff-push",
+      "name": "Playoff Push",
+      "startsAt": 1800248400000,
+      "endsAt": 1806292800000,
+      "tiers": [
+        {
+          "xp": 100,
+          "reward": {
+            "kind": "credits",
+            "amount": 150
+          }
+        },
+        {
+          "xp": 250,
+          "reward": {
+            "kind": "background",
+            "id": "hardwood_court"
+          }
+        },
+        {
+          "xp": 450,
+          "reward": {
+            "kind": "item",
+            "id": "top_volt_tee"
+          }
+        },
+        {
+          "xp": 700,
+          "reward": {
+            "kind": "credits",
+            "amount": 250
+          }
+        },
+        {
+          "xp": 1000,
+          "reward": {
+            "kind": "move",
+            "id": "raise_the_roof"
+          }
+        },
+        {
+          "xp": 1350,
+          "reward": {
+            "kind": "item",
+            "id": "shoes_volt_runners"
+          }
+        },
+        {
+          "xp": 1750,
+          "reward": {
+            "kind": "credits",
+            "amount": 400
+          }
+        },
+        {
+          "xp": 2200,
+          "reward": {
+            "kind": "background",
+            "id": "confetti_podium"
+          }
+        },
+        {
+          "xp": 2700,
+          "reward": {
+            "kind": "item",
+            "id": "outerwear_crimson_varsity"
+          }
+        },
+        {
+          "xp": 3200,
+          "reward": {
+            "kind": "move",
+            "id": "sprinkler"
+          }
+        }
+      ],
+      "premium": null
+    }
+  ]
+}

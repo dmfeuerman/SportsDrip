@@ -1,4 +1,7 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { applyResultToRatings, rateRecentFinals } from "../lib/ratings";
+import { settleBracketsForGame } from "../callable/brackets";
+import { recordCoopWins } from "../lib/coop";
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions";
 import { applyCredits, db, FieldValue, pairId } from "../lib/economy";
@@ -16,6 +19,7 @@ import { voidReason, type GameLike } from "../lib/gameState";
 import { settlePicksForGame } from "../callable/picks";
 import { gradeParlays, voidDisruptedParlayLegs } from "../callable/parlays";
 import { settleDailyPicksForGame } from "../callable/dailyPick";
+import { settleSlipParlaysForGame, voidSlipParlayLegs } from "../callable/slipParlays";
 import { balanceSheet, type LeagueLoanLike } from "../lib/loanMath";
 
 function summarize(
@@ -448,6 +452,8 @@ export async function settleLeagueBetsForGame(gameId: string): Promise<number> {
   if (settledRows.length >= 2) {
     await recordRivalries(gameId, settledRows, Date.now());
   }
+  const wins = settledRows.filter((r) => r.outcome === "won");
+  if (wins.length) await recordCoopWins(wins, Date.now()).catch(() => 0);
   return settled;
 }
 
@@ -566,6 +572,7 @@ export async function voidDisrupted(now = Date.now()): Promise<number> {
   }
 
   refunded += await voidDisruptedParlayLegs(now);
+  refunded += await voidSlipParlayLegs(now).catch(() => 0);
   return refunded;
 }
 
@@ -587,13 +594,18 @@ export const onGameFinal = onDocumentUpdated(
 
     if (before === "final" || after !== "final") return;
 
+    // Results feed the model line's team ratings (once per game).
+    await applyResultToRatings(gameId).catch((err) => logger.warn("ratings update failed", { gameId, error: String(err) }));
+
     const settled = await settleBetsForGame(gameId);
     const leagueSettled = await settleLeagueBetsForGame(gameId);
     const challenges = await settleChallengesForGame(gameId);
     const picks = await settlePicksForGame(gameId);
     const parlays = await gradeParlays(gameId);
     const daily = await settleDailyPicksForGame(gameId).catch(() => 0);
-    logger.info("onGameFinal settled", { gameId, settled, leagueSettled, challenges, picks, parlays, daily });
+    const slips = await settleSlipParlaysForGame(gameId).catch((err) => (logger.warn("slip parlays failed", { gameId, error: String(err) }), 0));
+    await settleBracketsForGame(gameId).catch((err) => logger.warn("brackets failed", { gameId, error: String(err) }));
+    logger.info("onGameFinal settled", { gameId, settled, leagueSettled, challenges, picks, parlays, daily, slips });
   }
 );
 
@@ -616,6 +628,11 @@ export const settleBetsSweep = onSchedule(
     for (const gameId of leagueGameIds) total += await settleLeagueBetsForGame(gameId);
     total += await sweepChallenges();
     total += await voidDisrupted(Date.now());
+    // Bet-slip parlays: any leg on a game that's final.
+    const slips = await db.collection("slipParlays").where("status", "==", "pending").limit(500).get();
+    for (const gameId of new Set(slips.docs.flatMap((d) => (d.get("gameIds") as string[]) ?? []))) total += await settleSlipParlaysForGame(gameId);
+    const rated = await rateRecentFinals().catch(() => 0);
+    if (rated) logger.info("ratings caught up", { rated });
 
     // Pick'em / survivor picks and group parlay legs on finished games.
     const [picks, parlays] = await Promise.all([

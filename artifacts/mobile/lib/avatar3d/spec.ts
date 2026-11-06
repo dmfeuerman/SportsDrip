@@ -25,11 +25,13 @@ export const hairAssetKey = (style: string | undefined | null) => (style && styl
 export const facialHairAssetKey = (style: string | undefined | null) => (style && style !== "none" ? `beard_${style}` : null);
 
 /** Camera framings, in the avatar's rest-pose metres (sd_base_v3: 1.78 tall, eyes at 1.64). */
-export type Focus = "full" | "head" | "torso" | "legs" | "feet" | "reaction" | "hero";
+export type Focus = "full" | "head" | "hairSide" | "torso" | "legs" | "feet" | "reaction" | "hero";
 
-export const FOCUS: Record<Focus, { target: [number, number, number]; distance: number; height: number }> = {
+export const FOCUS: Record<Focus, { target: [number, number, number]; distance: number; height: number; yaw?: number }> = {
   full: { target: [0, 0.9, 0], distance: 4.5, height: 0.02 },
   head: { target: [0, 1.63, 0], distance: 1.3, height: 0.02 },
+  /** Close on the head, turned to a near-profile so the hair reads from the side. */
+  hairSide: { target: [0, 1.66, 0], distance: 1.45, height: 0.06, yaw: 1.15 },
   torso: { target: [0, 1.24, 0], distance: 2.55, height: 0.05 },
   legs: { target: [0, 0.55, 0], distance: 2.6, height: 0.05 },
   feet: { target: [0, 0.12, 0], distance: 1.6, height: 0.13 },
@@ -45,7 +47,7 @@ type Framing3 = (typeof FOCUS)[Focus];
 
 /** Where a category's framing sits on the manual zoom path. */
 export function focusToZoom(f: Focus): number {
-  return f === "head" ? 2 : f === "torso" ? 1 : 0;
+  return f === "head" || f === "hairSide" ? 2 : f === "torso" ? 1 : 0;
 }
 
 /** Continuous framing along full body (0) → torso (1) → face (2), for pinch and wheel. */

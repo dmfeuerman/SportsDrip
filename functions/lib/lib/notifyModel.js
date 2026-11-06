@@ -86,6 +86,8 @@ function notificationRoute(n) {
         case "league_report":
             return league ? `${league}/recap${n.data?.week ? `?week=${encodeURIComponent(n.data.week)}` : ""}` : "/(tabs)/leagues";
         case "lock_reminder":
+        case "team_reminder":
+        case "sweat_alert":
         case "clutch_alert":
             return n.data?.gameId ? `/game/${encodeURIComponent(n.data.gameId)}` : league ?? "/(tabs)/games";
         case "bet_won":
@@ -95,13 +97,23 @@ function notificationRoute(n) {
         case "bet_voided":
         case "dispute_reported":
             return n.wallet === "league" && league ? `${league}?tab=bets` : "/bets";
+        case "reaction":
+            if (!league)
+                return "/messages";
+            return league ? (n.data?.targetType === "messages" ? `/messages?leagueId=${encodeURIComponent(n.leagueId)}` : `${league}?tab=bets`) : "/(tabs)/leagues";
         case "bet_tailed":
         case "bet_faded":
             return league ? `${league}?tab=bets` : "/(tabs)/leagues";
+        case "credits_received":
+            return n.data?.fromUid ? `/messages?uid=${encodeURIComponent(n.data.fromUid)}&name=${encodeURIComponent(n.data.fromName ?? "")}` : "/messages";
         case "loan_funded":
         case "loan_repaid":
         case "loan_countered":
         case "loan_request":
+            // Friend loans (no league) live in the DM thread.
+            if (!league && n.data?.fromUid)
+                return `/messages?uid=${encodeURIComponent(n.data.fromUid)}&name=${encodeURIComponent(n.data.fromName ?? "")}`;
+            return league ? `${league}?tab=bank` : "/(tabs)/leagues";
         case "margin_call":
         case "stimulus_request":
         case "stimulus_approved":
@@ -113,6 +125,11 @@ function notificationRoute(n) {
         case "friend_accepted":
         case "referral_bonus":
             return "/(tabs)/friends";
+        case "achievement":
+        case "gift_received":
+            return "/(tabs)/avatar";
+        case "win_back":
+            return "/(tabs)";
         case "level_up":
             return "/levels";
         default:
@@ -210,7 +227,7 @@ function challengeResultNotification(args) {
         popup: result === "won" || result === "lost",
         read: false,
         createdAtMs: args.now,
-        data: { challengeId: args.challengeId, friendName },
+        data: { challengeId: args.challengeId, friendName, ...(args.friendUid ? { friendUid: args.friendUid } : {}) },
     };
 }
 //# sourceMappingURL=notifyModel.js.map

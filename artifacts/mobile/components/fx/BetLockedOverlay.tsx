@@ -39,7 +39,7 @@ export default function BetLockedOverlay({ bet, onDone }: { bet: BetLockedInput;
   const sweep = useSharedValue(0);
 
   useEffect(() => {
-    AccessibilityInfo.announceForAccessibility(`Bet locked in. ${bet.stake} on ${bet.teamName}.`);
+    AccessibilityInfo.announceForAccessibility(`${bet.test ? "Test bet" : "Bet"} locked in. ${bet.stake} on ${bet.teamName}.`);
     haptic.medium();
     card.value = reduced ? 1 : withSpring(1, SPRING.pop);
     stamp.value = reduced ? 1 : withDelay(260, withSpring(1, { damping: 11, stiffness: 260, mass: 0.7 }));
@@ -76,7 +76,7 @@ export default function BetLockedOverlay({ bet, onDone }: { bet: BetLockedInput;
             <View style={{ flex: 1 }}>
               <Text style={[styles.k, { color: c.mutedForeground }]}>YOUR PICK</Text>
               <Text style={[styles.team, { color: c.foreground }]} numberOfLines={1}>
-                {bet.teamName} to win
+                {bet.pickLabel ?? `${bet.teamName} to win`}
               </Text>
               <Text style={[styles.k2, { color: c.mutedForeground }]}>
                 {bet.odds.toFixed(2)}x{bet.walletLabel ? ` · ${bet.walletLabel}` : ""}
@@ -102,7 +102,7 @@ export default function BetLockedOverlay({ bet, onDone }: { bet: BetLockedInput;
 
           <Animated.View style={[styles.stamp, { borderColor: tint }, stampStyle]}>
             <MaterialCommunityIcons name="lock-check" size={18} color={tint} />
-            <Text style={[styles.stampText, { color: tint }]}>LOCKED IN</Text>
+            <Text style={[styles.stampText, { color: tint }]}>{bet.test ? "TEST LOCKED IN" : "LOCKED IN"}</Text>
           </Animated.View>
         </Animated.View>
       </Animated.View>

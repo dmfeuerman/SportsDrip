@@ -3,6 +3,8 @@ import { z } from "zod";
 import { applyCredits, db, FieldValue, requireAuth } from "../lib/economy";
 import { equipOne } from "./avatar";
 import { levelFromXp } from "../lib/progression";
+import { windowError, windowState } from "../lib/storeWindow";
+import { assignArm, CONTROL, EXPERIMENTS, type ExperimentsDoc } from "../lib/experiments";
 
 export const SLOTS = [
   "hat",
@@ -14,6 +16,42 @@ export const SLOTS = [
   "accessory",
 ] as const;
 export type Slot = (typeof SLOTS)[number];
+
+/**
+ * Shared sale checks for purchase and gifting: time window, level rules, price.
+ * `xp` is the level-gated party's xp (the buyer; for gifts, the recipient).
+ * Returns the server price.
+ */
+export function assertSellable(item: FirebaseFirestore.DocumentSnapshot, xp: unknown, now: number, rotationArm: string = CONTROL): number {
+  const data = item.data() ?? {};
+  // shop_rotation_v1: control / holdout keep the static shop (rotating items always
+  // on sale, windows ignored) so the rotation's retention lift is measured.
+  const staticShop = data.rotation === true && rotationArm === CONTROL;
+  const err = windowError(staticShop ? (data.available === false ? "disabled" : "on_sale") : windowState(data, now));
+  if (err) throw new HttpsError("failed-precondition", err);
+
+  // Level-exclusive items are granted by reaching the level (lib/xp.ts), never sold.
+  const reward = item.get("levelReward") as number | null | undefined;
+  if (typeof reward === "number" && reward > 0) {
+    throw new HttpsError("failed-precondition", `Not for sale — unlocked by reaching level ${reward}.`);
+  }
+  const required = (item.get("levelRequired") as number | null | undefined) ?? 0;
+  if (required > levelFromXp(xp)) {
+    throw new HttpsError("failed-precondition", `Reach level ${required} to buy this.`);
+  }
+
+  const price = item.get("price") as number;
+  if (typeof price !== "number" || price < 0) {
+    throw new HttpsError("internal", "Catalog item is misconfigured.");
+  }
+  return price;
+}
+
+/** shop_rotation_v1 arm for the buyer. Read inside the transaction, before any write. */
+export async function rotationArmFor(tx: FirebaseFirestore.Transaction, uid: string): Promise<string> {
+  const snap = await tx.get(db.collection("meta").doc("experiments"));
+  return assignArm(snap.exists ? (snap.data() as ExperimentsDoc) : null, EXPERIMENTS.shopRotation, { uid });
+}
 
 /**
  * Buys a catalog item.
@@ -41,29 +79,7 @@ export const purchaseItem = onCall({ region: "us-central1" }, async (req) => {
 
     if (!item.exists) throw new HttpsError("not-found", "That item isn't in the store.");
     if (owned.exists) throw new HttpsError("already-exists", "You already own this.");
-    if (item.get("available") === false) {
-      throw new HttpsError("failed-precondition", "That item isn't available right now.");
-    }
-
-    const releaseAt = item.get("releaseAt") as number | undefined;
-    if (releaseAt && releaseAt > Date.now()) {
-      throw new HttpsError("failed-precondition", "That item hasn't dropped yet.");
-    }
-
-    // Level-exclusive items are granted by reaching the level (lib/xp.ts), never sold.
-    const reward = item.get("levelReward") as number | null | undefined;
-    if (typeof reward === "number" && reward > 0) {
-      throw new HttpsError("failed-precondition", `Not for sale — unlocked by reaching level ${reward}.`);
-    }
-    const required = (item.get("levelRequired") as number | null | undefined) ?? 0;
-    if (required > levelFromXp(user.get("xp"))) {
-      throw new HttpsError("failed-precondition", `Reach level ${required} to buy this.`);
-    }
-
-    const price = item.get("price") as number;
-    if (typeof price !== "number" || price < 0) {
-      throw new HttpsError("internal", "Catalog item is misconfigured.");
-    }
+    const price = assertSellable(item, user.get("xp"), Date.now(), await rotationArmFor(tx, uid));
 
     const balance = await applyCredits(tx, uid, {
       delta: -price,

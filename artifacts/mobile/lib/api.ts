@@ -65,14 +65,28 @@ export const createProfile = callable<
     username: string;
     displayName: string;
     avatar?: AvatarConfig;
-    age?: number;
-    birthDate?: string;
+    age: number;
+    /** 1–12 */
+    birthMonth: number;
+    acceptedTerms: true;
     phoneNumber?: string;
     /** A friend's invite code. */
     referralCode?: string;
   },
   { ok: true; username: string; referred?: boolean }
 >("createProfile");
+
+// ── account & safety (App Review 5.1.1(v), 1.2) ─────────────────────────────
+export const deleteAccount = callable<{ confirm: "DELETE" }, { ok: true }>("deleteAccount");
+export const blockUser = callable<{ otherUid: string }, { ok: true }>("blockUser");
+export const unblockUser = callable<{ otherUid: string }, { ok: true }>("unblockUser");
+export type ReportKind = "user" | "league_message" | "dm" | "bet_comment";
+export type ReportReason = "harassment" | "hate" | "sexual" | "spam" | "threat" | "other";
+export const reportContent = callable<
+  { kind: ReportKind; targetUid: string; reason: ReportReason; path?: string; text?: string; details?: string },
+  { ok: true; reportId: string }
+>("reportContent");
+export const acceptTerms = callable<{ version: number }, { ok: true; version: number }>("acceptTerms");
 
 export const checkUsername = callable<
   { username: string },
@@ -377,6 +391,7 @@ export const repayFriendLoan = callable<
 
 /** Returning-player Prize Box (functions/src/callable/winBack.ts). */
 export const claimWinBackBox = callable<Record<string, never>, { ok: true; credits: number; balance: number | null }>("claimWinBackBox");
+export const claimTutorialGift = callable<Record<string, never>, { ok: true; credits: number; balance: number | null; already: boolean }>("claimTutorialGift");
 
 export const saveAppearance = callable<
   { avatar: AvatarConfig; equipped: Partial<Record<Slot, string | null>> },

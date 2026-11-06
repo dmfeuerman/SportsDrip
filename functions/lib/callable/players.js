@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getPlayerProfile = exports.updateFavoriteTeams = exports.MAX_FAVORITE_TEAMS = void 0;
+exports.setAlertPrefs = exports.setPlayLimits = exports.getPlayerProfile = exports.setFeaturedTrophy = exports.updateFavoriteTeams = exports.MAX_FAVORITE_TEAMS = void 0;
 const https_1 = require("firebase-functions/v2/https");
+const pushBudget_1 = require("../lib/pushBudget");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const moves_1 = require("../lib/moves");
@@ -29,6 +30,7 @@ const FavoriteTeam = zod_1.z.object({
 exports.updateFavoriteTeams = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
     const parsed = zod_1.z.array(FavoriteTeam).max(exports.MAX_FAVORITE_TEAMS).safeParse(req.data?.teams);
+    const reminders = typeof req.data?.reminders === "boolean" ? req.data.reminders : undefined;
     if (!parsed.success)
         throw new https_1.HttpsError("invalid-argument", `Pick up to ${exports.MAX_FAVORITE_TEAMS} teams.`);
     const seen = new Set();
@@ -39,8 +41,26 @@ exports.updateFavoriteTeams = (0, https_1.onCall)({ region: "us-central1" }, asy
         seen.add(k);
         return true;
     });
-    await economy_1.db.collection("users").doc(uid).update({ favoriteTeams: teams, updatedAt: economy_1.FieldValue.serverTimestamp() });
+    // favoriteTeamKeys ("NFL:KC") is the queryable mirror the team-reminder job uses.
+    await economy_1.db.collection("users").doc(uid).update({
+        favoriteTeams: teams,
+        favoriteTeamKeys: teams.map((t) => `${t.sport}:${t.abbr}`),
+        ...(reminders !== undefined ? { teamReminders: reminders } : {}),
+        updatedAt: economy_1.FieldValue.serverTimestamp(),
+    });
     return { ok: true, teams };
+});
+/** Pins one of your own trophies to the top of your profile (null clears it). */
+exports.setFeaturedTrophy = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
+    const uid = (0, economy_1.requireAuth)(req.auth);
+    const id = zod_1.z.string().min(1).max(80).nullable().parse(req.data?.trophyId ?? null);
+    if (id) {
+        const t = await economy_1.db.collection("users").doc(uid).collection("trophies").doc(id).get();
+        if (!t.exists)
+            throw new https_1.HttpsError("not-found", "You don't have that trophy.");
+    }
+    await economy_1.db.collection("users").doc(uid).update({ featuredTrophy: id, updatedAt: economy_1.FieldValue.serverTimestamp() });
+    return { ok: true, trophyId: id };
 });
 function ms(v) {
     if (v instanceof economy_1.Timestamp)
@@ -155,6 +175,7 @@ exports.getPlayerProfile = (0, https_1.onCall)({ region: "us-central1" }, async 
             streak: user.get("streak") ?? null,
             punishment: user.get("punishment") ?? null,
             trophies: trophiesSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+            featuredTrophy: user.get("featuredTrophy") ?? null,
             memberSince: ms(user.get("createdAt")),
             balance: self || friend ? (user.get("balance") ?? null) : null,
         },
@@ -175,5 +196,42 @@ exports.getPlayerProfile = (0, https_1.onCall)({ region: "us-central1" }, async 
             }
             : null,
     };
+});
+/** Player-set play limits: a daily pick cap and/or a break of 1, 7 or 30 days. */
+exports.setPlayLimits = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
+    const uid = (0, economy_1.requireAuth)(req.auth);
+    const input = zod_1.z
+        .object({
+        dailyPicks: zod_1.z.number().int().min(1).max(100).nullable().optional(),
+        breakDays: zod_1.z.union([zod_1.z.literal(1), zod_1.z.literal(7), zod_1.z.literal(30)]).optional(),
+    })
+        .parse(req.data ?? {});
+    const update = { updatedAt: economy_1.FieldValue.serverTimestamp() };
+    if (input.dailyPicks !== undefined)
+        update["limits.dailyPicks"] = input.dailyPicks;
+    if (input.breakDays)
+        update["limits.breakUntil"] = Date.now() + input.breakDays * 86_400_000;
+    await economy_1.db.collection("users").doc(uid).update(update);
+    return { ok: true };
+});
+/** Alert prefs: live "sweat" pushes, quiet hours, and the device timezone (sent at sign-in). */
+exports.setAlertPrefs = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
+    const uid = (0, economy_1.requireAuth)(req.auth);
+    const input = zod_1.z
+        .object({
+        sweat: zod_1.z.boolean().optional(),
+        quietHours: zod_1.z.boolean().optional(),
+        tz: zod_1.z.string().max(64).refine(pushBudget_1.isValidTz, "Unknown timezone").optional(),
+    })
+        .parse(req.data ?? {});
+    const update = { updatedAt: economy_1.FieldValue.serverTimestamp() };
+    if (input.sweat !== undefined)
+        update.sweatAlerts = input.sweat;
+    if (input.quietHours !== undefined)
+        update.quietHours = input.quietHours;
+    if (input.tz !== undefined)
+        update.tz = input.tz;
+    await economy_1.db.collection("users").doc(uid).update(update);
+    return { ok: true };
 });
 //# sourceMappingURL=players.js.map

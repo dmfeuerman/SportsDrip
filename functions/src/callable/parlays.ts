@@ -3,11 +3,13 @@ import { logger } from "firebase-functions";
 import { z } from "zod";
 import { db, FieldValue, requireAuth } from "../lib/economy";
 import { voidReason } from "../lib/gameState";
-import { MIN_LEAGUE_STAKE } from "../lib/leagueConfig";
+import { leagueStarted, MIN_LEAGUE_STAKE } from "../lib/leagueConfig";
 import {
   combinedParlayOdds,
   gradeParlayLegs,
   MAX_PARLAY_LEGS,
+  MAX_PARLAY_SHARE,
+  parlayStakeCap,
   MIN_PARLAY_LEGS,
   type ParlayLeg,
 } from "../lib/parlay";
@@ -112,6 +114,7 @@ export const createGroupParlay = onCall({ region: "us-central1" }, async (req) =
     if (!league.exists || league.get("status") !== "active") {
       throw new HttpsError("failed-precondition", "That league is not active.");
     }
+    if (!leagueStarted(league, now)) throw new HttpsError("failed-precondition", "This league hasn't started yet.");
     const me = league.get(`members.${uid}`) as { displayName: string; leagueTokens: number } | undefined;
     if (!me) throw new HttpsError("permission-denied", "You're not in this league.");
 
@@ -122,6 +125,9 @@ export const createGroupParlay = onCall({ region: "us-central1" }, async (req) =
 
     const riders: Record<string, RiderEntry> = {};
     if (input.stake !== undefined) {
+      if (input.stake > parlayStakeCap(me.leagueTokens)) {
+        throw new HttpsError("failed-precondition", `Parlay stakes are capped at ${Math.round(MAX_PARLAY_SHARE * 100)}% of your wallet (${parlayStakeCap(me.leagueTokens).toLocaleString("en-US")} tokens).`);
+      }
       if (input.stake > me.leagueTokens) {
         throw new HttpsError("failed-precondition", "Not enough league tokens.");
       }
@@ -192,6 +198,7 @@ export const addParlayLeg = onCall({ region: "us-central1" }, async (req) => {
     if (!league.exists || league.get("status") !== "active") {
       throw new HttpsError("failed-precondition", "That league is not active.");
     }
+    if (!leagueStarted(league, now)) throw new HttpsError("failed-precondition", "This league hasn't started yet.");
     const me = league.get(`members.${uid}`) as { displayName: string; leagueTokens: number } | undefined;
     if (!me) throw new HttpsError("permission-denied", "You're not in this league.");
     if (!parlay.exists) throw new HttpsError("not-found", "Parlay not found.");
@@ -216,6 +223,9 @@ export const addParlayLeg = onCall({ region: "us-central1" }, async (req) => {
 
     const riders = { ...((parlay.get("riders") as Record<string, RiderEntry> | undefined) ?? {}) };
     if (input.stake !== undefined && !riders[uid]) {
+      if (input.stake > parlayStakeCap(me.leagueTokens)) {
+        throw new HttpsError("failed-precondition", `Parlay stakes are capped at ${Math.round(MAX_PARLAY_SHARE * 100)}% of your wallet (${parlayStakeCap(me.leagueTokens).toLocaleString("en-US")} tokens).`);
+      }
       if (input.stake > me.leagueTokens) {
         throw new HttpsError("failed-precondition", "Not enough league tokens.");
       }
@@ -250,6 +260,7 @@ export const rideParlay = onCall({ region: "us-central1" }, async (req) => {
     if (!league.exists || league.get("status") !== "active") {
       throw new HttpsError("failed-precondition", "That league is not active.");
     }
+    if (!leagueStarted(league, now)) throw new HttpsError("failed-precondition", "This league hasn't started yet.");
     const me = league.get(`members.${uid}`) as { displayName: string; leagueTokens: number } | undefined;
     if (!me) throw new HttpsError("permission-denied", "You're not in this league.");
     if (!parlay.exists) throw new HttpsError("not-found", "Parlay not found.");
@@ -266,6 +277,9 @@ export const rideParlay = onCall({ region: "us-central1" }, async (req) => {
     const riders = { ...((parlay.get("riders") as Record<string, RiderEntry> | undefined) ?? {}) };
     if (riders[uid]) {
       throw new HttpsError("already-exists", "You're already riding this parlay.");
+    }
+    if (input.stake > parlayStakeCap(me.leagueTokens)) {
+      throw new HttpsError("failed-precondition", `Parlay stakes are capped at ${Math.round(MAX_PARLAY_SHARE * 100)}% of your wallet (${parlayStakeCap(me.leagueTokens).toLocaleString("en-US")} tokens).`);
     }
     if (input.stake > me.leagueTokens) {
       throw new HttpsError("failed-precondition", "Not enough league tokens.");
@@ -299,6 +313,7 @@ export const lockParlay = onCall({ region: "us-central1" }, async (req) => {
     if (!league.exists || league.get("status") !== "active") {
       throw new HttpsError("failed-precondition", "That league is not active.");
     }
+    if (!leagueStarted(league, now)) throw new HttpsError("failed-precondition", "This league hasn't started yet.");
     requireAuth(req.auth);
     if (!league.get(`members.${uid}`)) {
       throw new HttpsError("permission-denied", "You're not in this league.");

@@ -37,7 +37,7 @@ export default function LoanCard({
   const pay = Math.min(Number.parseInt(amount, 10) || 0, tokens);
   const preview = useMemo(() => (pay > 0 ? applyRepayment(loan, pay, now) : null), [loan, pay, now]);
   const repaid = loan.status === "repaid";
-  const counterparty = loan.kind === "bank" ? "League Bank" : viewer === "lender" ? loan.borrowerName : loan.lenderName ?? "—";
+  const counterparty = loan.kind === "bank" ? "The House" : viewer === "lender" ? loan.borrowerName : loan.lenderName ?? "—";
 
   async function submit() {
     if (!onRepay || pay <= 0) return;
@@ -56,7 +56,7 @@ export default function LoanCard({
     <Card tone={repaid ? undefined : viewer === "lender" ? "league" : "debt"} style={styles.card}>
       <View style={styles.head}>
         <View style={[styles.icon, { backgroundColor: viewer === "lender" ? c.leagueSoft : c.debtSoft }]}>
-          <MaterialCommunityIcons name={loan.kind === "bank" ? "bank-outline" : "handshake-outline"} size={18} color={viewer === "lender" ? c.league : c.debt} />
+          <MaterialCommunityIcons name={loan.kind === "bank" ? "home-city-outline" : "handshake-outline"} size={18} color={viewer === "lender" ? c.league : c.debt} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.title, { color: c.foreground }]} numberOfLines={1}>
@@ -85,8 +85,8 @@ export default function LoanCard({
       <View style={[styles.grid, { borderTopColor: c.border }]}>
         <Cell label="Original Principal" value={snap.principal} />
         <Cell label="Principal Left" value={snap.principalOutstanding} />
-        <Cell label={`Interest (${loan.ratePct}%)`} value={snap.interestCharged} />
-        <Cell label="Interest Paid" value={snap.interestPaid} />
+        <Cell label={`Fee (${loan.ratePct}%)`} value={snap.interestCharged} />
+        <Cell label="Fee Paid" value={snap.interestPaid} />
       </View>
 
       {viewer === "borrower" && !repaid && onRepay && (
@@ -110,7 +110,7 @@ export default function LoanCard({
               </View>
               <View style={styles.quick}>
                 {snap.interestOutstanding > 0 && (
-                  <Button size="sm" variant="secondary" label="Interest Only" onPress={() => setAmount(String(Math.min(snap.interestOutstanding, tokens)))} />
+                  <Button size="sm" variant="secondary" label="Fee Only" onPress={() => setAmount(String(Math.min(snap.interestOutstanding, tokens)))} />
                 )}
                 <Button size="sm" variant="secondary" label="Pay It Off" onPress={() => setAmount(String(Math.min(snap.totalOwed, tokens)))} />
               </View>

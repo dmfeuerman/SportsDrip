@@ -1,4 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
+import { NO_CASH_VALUE } from "@/constants/legal";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useIsFocused, useLocalSearchParams } from "expo-router";
@@ -17,6 +18,7 @@ import LadderPromotionHost from "@/components/LadderPromotionHost";
 import QuestsCard from "@/components/QuestsCard";
 import RewardsCard from "@/components/RewardsCard";
 import WinBackCard from "@/components/WinBackCard";
+import PlayerProfileSheet from "@/components/PlayerProfileSheet";
 import NextActionCard from "@/components/NextActionCard";
 import LiveSweatCard, { type SweatBet } from "@/components/LiveSweatCard";
 import WeeklyRecapCard from "@/components/WeeklyRecapCard";
@@ -50,6 +52,7 @@ export default function HomeScreen() {
   const now = useNow(30_000);
 
   const { profile, balance, bets, totalWon, progress, background } = useApp();
+  const [showCard, setShowCard] = useState(false);
   const { nextAfter } = useLevelRewards();
   const onScene = isSceneBackdrop(background);
   const { myLeagueBets, leagues } = useLeague();
@@ -142,7 +145,7 @@ export default function HomeScreen() {
           active={focused}
           onGesture={setAvatarGesture}
           background={background}
-          footer={<TourTarget id="home.level"><LevelBar progress={progress} nextReward={nextAfter(progress.level)} onPress={() => router.push("/levels" as never)} /></TourTarget>}
+          footer={<TourTarget id="home.level" style={{ flex: 1 }}><LevelBar progress={progress} nextReward={nextAfter(progress.level)} onPress={() => router.push("/levels" as never)} /></TourTarget>}
           header={
             <>
               <Text accessibilityRole="header" style={[styles.h1, { color: onScene ? "#FFFFFF" : c.foreground, flex: 1 }, onScene && styles.onScene]} numberOfLines={1}>
@@ -178,6 +181,7 @@ export default function HomeScreen() {
         {/* Wallet */}
         <SectionHeader title="Wallet" icon="wallet-outline" />
         <TourTarget id="home.wallet">
+        <Pressable accessibilityRole="button" accessibilityLabel="Open your player card" onPress={() => { buzz.tick(); setShowCard(true); }}>
         <Card style={[styles.wallet, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.28) }]}>
           <LinearGradient
             pointerEvents="none"
@@ -188,6 +192,7 @@ export default function HomeScreen() {
           />
           <Text style={[styles.label, { color: c.mutedForeground }]}>CREDITS</Text>
           <Amount value={balance} size="xl" animate />
+          <Text style={{ fontSize: 11, fontFamily: "Inter_500Medium", color: c.subtleForeground }}>{NO_CASH_VALUE}</Text>
           <View style={styles.walletStats}>
             <WalletStat
               label="In Play"
@@ -199,10 +204,11 @@ export default function HomeScreen() {
               label="League Debt"
               value={totalDebt.toLocaleString()}
               color={totalDebt > 0 ? c.debt : undefined}
-              hint={totalDebt > 0 ? "flat interest" : "none"}
+              hint={totalDebt > 0 ? "flat fee" : "none"}
             />
           </View>
         </Card>
+        </Pressable>
         </TourTarget>
 
         {/* Live games you have money on */}
@@ -424,6 +430,11 @@ export default function HomeScreen() {
         onOpenGame={(gId) => setQuickGame(gId)}
       />
       <GameQuickView gameId={quickGame} onClose={() => setQuickGame(null)} />
+      <PlayerProfileSheet
+        uid={showCard ? profile?.uid ?? null : null}
+        onClose={() => setShowCard(false)}
+        seed={profile ? { displayName: profile.displayName, username: profile.username, avatar: profile.avatar, equipped: profile.equipped, moves: profile.moves, favoriteTeams: profile.favoriteTeams } : undefined}
+      />
     </View>
   );
 }
