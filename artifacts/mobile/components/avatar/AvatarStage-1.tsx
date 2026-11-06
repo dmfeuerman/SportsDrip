@@ -226,7 +226,7 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
       {showControls ? (
         <View style={styles.zoom} pointerEvents="box-none">
           <ZoomButton icon="plus" label="Zoom in" onPress={() => zoomBy(1, true)} />
-          <ZoomButton icon="minus" label="Zoom out" onPress={() => zoomBy(-1, true)} />
+          <ZoomButton icon="minus" label="Zoom Out" onPress={() => zoomBy(-1, true)} />
         </View>
       ) : null}
     </View>

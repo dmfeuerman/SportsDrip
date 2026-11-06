@@ -57,7 +57,8 @@ export interface BetLockedInput {
 
 interface ToastContextType {
   /** Queue a banner. Returns its id. */
-  show: (t: ToastInput) => string;
+  /** Returns the id, or null when dropped (duplicate, or within 5 min of the last one shown). */
+  show: (t: ToastInput) => string | null;
   dismiss: (id?: string) => void;
   /** The "Bet locked in" stamp + burst, over everything. */
   betLocked: (b: BetLockedInput) => void;
@@ -78,16 +79,22 @@ let seq = 0;
  * queued oldest-first. Anything in the app can call `useToast().show(...)`;
  * ToastHost (mounted once, above the navigator) draws them.
  */
+/** Never two notifications within this gap; one that lands inside it is dropped. */
+export const TOAST_MIN_GAP_MS = 5 * 60_000;
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<Toast[]>([]);
   const [locked, setLocked] = useState<(BetLockedInput & { key: number }) | null>(null);
   const recent = useRef(new Map<string, number>());
+  const lastShownAt = useRef(0);
 
   const show = useCallback((t: ToastInput) => {
     const id = t.id ?? `t${Date.now()}_${seq++}`;
     // The same event can be reported twice (a listener replay, a poll); show it once a minute at most.
     const last = recent.current.get(id);
-    if (last && Date.now() - last < 60_000) return id;
+    if (last && Date.now() - last < 60_000) return null;
+    if (Date.now() - lastShownAt.current < TOAST_MIN_GAP_MS) return null;
+    lastShownAt.current = Date.now();
     recent.current.set(id, Date.now());
     if (recent.current.size > 200) recent.current = new Map([...recent.current].slice(-100));
     const toast: Toast = { ...t, id, kind: t.kind ?? "info", durationMs: t.durationMs ?? 5500 };

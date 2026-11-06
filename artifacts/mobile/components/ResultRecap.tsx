@@ -146,7 +146,7 @@ export default function ResultRecap({ items, onDismiss }: { items: AppNotificati
 
           <View style={styles.actions}>
             <Button
-              label="My bets"
+              label="My Bets"
               variant="secondary"
               style={{ flex: 1 }}
               onPress={() => {
@@ -192,14 +192,14 @@ const styles = StyleSheet.create({
   tally: { flexDirection: "row", gap: 22, marginTop: 4 },
   tallyItem: { alignItems: "center" },
   tallyValue: { fontSize: 20, fontFamily: "Inter_900Black" },
-  tallyLabel: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  tallyLabel: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
   list: { flexGrow: 0 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 14, borderWidth: 1 },
   chip: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   chipText: { color: "#FFFFFF", fontSize: 11, fontFamily: "Inter_900Black" },
   rowTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
   rowSub: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  badge: { fontSize: 10, fontFamily: "Inter_900Black", letterSpacing: 1 },
+  badge: { fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 1 },
   rowAmt: { fontSize: 15, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
   actions: { flexDirection: "row", gap: 10, paddingHorizontal: 14, paddingBottom: 16, paddingTop: 4 },
 });

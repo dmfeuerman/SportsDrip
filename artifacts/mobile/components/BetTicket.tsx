@@ -29,6 +29,8 @@ export type TicketBet = Pick<
   | "odds"
   | "potentialPayout"
   | "status"
+  | "freeBet"
+  | "freeStake"
   | "finalHomeScore"
   | "finalAwayScore"
 > & {
@@ -207,7 +209,11 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen 
         <View style={[styles.divider, { backgroundColor: c.border }]} />
 
         <View style={styles.cells}>
-          <Cell label="Stake" value={bet.stake.toLocaleString()} hint={walletLabel ? "league tokens" : "credits"} c={c} />
+          {bet.freeBet ? (
+            <Cell label="Stake" value="FREE" hint={`${(bet.freeStake ?? 100).toLocaleString()} free bet`} accent={c.primary} c={c} />
+          ) : (
+            <Cell label="Stake" value={bet.stake.toLocaleString()} hint={walletLabel ? "league tokens" : "credits"} c={c} />
+          )}
           <Cell
             label="Price"
             value={formatOdds(bet.odds, fmt)}
@@ -237,7 +243,7 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen 
           >
             <MaterialCommunityIcons name="undo-variant" size={16} color={c.foreground} />
             <Text style={[styles.cancelText, { color: c.foreground }]}>
-              Cancel and get the stake back
+              {bet.freeBet ? "Cancel and get your free bet back" : "Cancel and get the stake back"}
             </Text>
           </Pressable>
         )}
@@ -320,11 +326,11 @@ const styles = StyleSheet.create({
   teamDot: { width: 10, height: 10, borderRadius: 5 },
   team: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   lockBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
-  lockText: { fontSize: 9, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.4 },
+  lockText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.4 },
   shareBtn: { padding: 4 },
   matchup: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
   pill: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
-  pillText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  pillText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   posPill: { flexDirection: "row", alignItems: "center", gap: 3 },
   coverTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
   coverFill: { height: 6, borderRadius: 3 },
@@ -333,9 +339,9 @@ const styles = StyleSheet.create({
   score: { fontSize: 16, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   divider: { height: 1 },
   cells: { flexDirection: "row" },
-  cellLabel: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  cellLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
   cellValue: { fontSize: 15, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
-  cellHint: { fontSize: 10, fontFamily: "Inter_400Regular" },
+  cellHint: { fontSize: 11, fontFamily: "Inter_400Regular" },
   wallet: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", maxWidth: "100%", gap: 4, marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
   walletText: { flexShrink: 1, fontSize: 11, fontFamily: "Inter_700Bold" },
   cancel: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1.5, borderRadius: 10, paddingVertical: 10, minHeight: 40 },

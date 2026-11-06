@@ -3,8 +3,8 @@ import { Image } from "expo-image";
 import React, { memo, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { usePortrait } from "@/components/avatar/AvatarPortrait";
-import { ITEM_THUMBS } from "@/lib/avatar3d/itemThumbs.generated";
-import { hash, pieceFor } from "@/lib/avatar3d/outfit";
+import { ITEM_THUMBS, ITEM_THUMBS_BY_ID } from "@/lib/avatar3d/itemThumbs.generated";
+import { hash, pieceFor, pieceLook } from "@/lib/avatar3d/outfit";
 import { invalidatePortrait, itemJob } from "@/lib/avatar3d/portraits";
 import { SLOT_ICONS, type CatalogItem } from "@/types/catalog";
 
@@ -27,14 +27,16 @@ function ItemIcon({ item, size = 48 }: { item: CatalogItem; size?: number }) {
   const { job, bundled } = useMemo(() => {
     const piece = pieceFor(item);
     if (!piece) return { job: null, bundled: undefined };
-    const key = hash(`${piece.template ?? piece.url}@${piece.version ?? ""}|${piece.primary}|${piece.secondary ?? ""}`);
-    return { job: itemJob(piece), bundled: ITEM_THUMBS[key] };
+    // Same key the generator writes (pattern and metal included), so patterned items find their icon.
+    return { job: itemJob(piece), bundled: ITEM_THUMBS[hash(pieceLook(piece))] };
   }, [item]);
+  // This item's bundled icon from the build, shown while a changed look renders live.
+  const standIn = ITEM_THUMBS_BY_ID[item.id];
   const [remoteFailed, setRemoteFailed] = useState(false);
   const remote = !bundled && !remoteFailed ? item.thumbnailUrl : null;
   // Only fall back to the offscreen 3D studio when there's nothing ready-made.
   const uri = usePortrait(bundled || remote ? null : job);
-  const source = bundled ?? (remote ? { uri: remote } : uri ? { uri } : null);
+  const source = bundled ?? (remote ? { uri: remote } : uri ? { uri } : standIn ?? null);
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
       {source ? (

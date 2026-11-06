@@ -1,11 +1,15 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useIsFocused } from "expo-router";
+import { trackEvent } from "@/lib/analytics";
+import { router, useIsFocused } from "expo-router";
+import { Pressable } from "@/components/fx/Tap";
 import React, { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { ActionChip, Card } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import * as api from "@/lib/api";
 import { DEMO } from "@/lib/demo";
+import { CONTROL, EXPERIMENTS, useExperiment } from "@/lib/experiments";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { haptic } from "@/lib/motion";
 
 const ICON = { endowed: "check-circle-outline", effort: "run-fast", social: "calendar-check", skill: "target" } as const;
@@ -25,6 +29,7 @@ export default function QuestsCard() {
     if (focused) load();
   }, [focused, load]);
 
+  const seasonPass = useExperiment(EXPERIMENTS.seasonPass, getFirebaseAuth()?.currentUser?.uid) !== CONTROL;
   if (!quests?.length) return null;
   const done = quests.filter((q) => q.progress >= q.target).length;
 
@@ -32,10 +37,15 @@ export default function QuestsCard() {
     <Card style={{ gap: 8 }} accessibilityLabel="Weekly quests">
       <View style={styles.head}>
         <MaterialCommunityIcons name="flag-checkered" size={18} color={c.accent} />
-        <Text style={[styles.title, { color: c.foreground, flex: 1 }]}>This week</Text>
+        <Text style={[styles.title, { color: c.foreground, flex: 1 }]}>This Week</Text>
         <Text style={[styles.sub, { color: c.mutedForeground }]}>
           {done}/{quests.length} done
         </Text>
+        {seasonPass ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Open the season pass" hitSlop={8} onPress={() => router.push("/season" as never)}>
+            <MaterialCommunityIcons name="chevron-right" size={20} color={c.mutedForeground} />
+          </Pressable>
+        ) : null}
       </View>
       {quests.map((q) => {
         const complete = q.progress >= q.target;
@@ -59,6 +69,7 @@ export default function QuestsCard() {
                   setBusy(q.id);
                   try {
                     await api.claimQuest({ questId: q.id });
+                    trackEvent("quest_claimed", { quest_id: q.id });
                     haptic.success();
                     load();
                   } catch {

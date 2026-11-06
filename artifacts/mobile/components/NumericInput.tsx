@@ -12,11 +12,17 @@ import {
 import { Pressable } from "@/components/fx/Tap";
 import { useColors } from "@/hooks/useColors";
 
-/** TextInput for number/decimal pads. iOS pads have no return key, so attach a Done bar. */
-const NumericInput = React.forwardRef<React.ComponentRef<typeof TextInput>, TextInputProps>(function NumericInput(props, ref) {
+/**
+ * TextInput for number/decimal pads. iOS pads have no return key, so attach a
+ * Done bar — unless the screen's own action sits on the keyboard (`doneBar={false}`).
+ */
+const NumericInput = React.forwardRef<React.ComponentRef<typeof TextInput>, TextInputProps & { doneBar?: boolean }>(function NumericInput(
+  { doneBar = true, ...props },
+  ref
+) {
   const c = useColors();
   const accessoryId = `numeric-done-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const ios = Platform.OS === "ios";
+  const ios = Platform.OS === "ios" && doneBar;
 
   return (
     <>

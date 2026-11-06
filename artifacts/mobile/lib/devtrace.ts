@@ -6,7 +6,10 @@ const t0 = Date.now();
 const DEV = typeof __DEV__ !== "undefined" && __DEV__;
 
 export function trace(tag: string, ...args: unknown[]) {
-  if (DEV) console.log(`[${tag}] +${Date.now() - t0}ms`, ...args);
+  // Monitor logs are off. Uncomment to see [boot] / [firestore] / [avatar] / [app] traces in Metro.
+  // if (DEV) console.log(`[${tag}] +${Date.now() - t0}ms`, ...args);
+  void tag;
+  void args;
 }
 
 let watching = false;
@@ -22,11 +25,12 @@ export function startStallWatch() {
   let last = Date.now();
   // Heartbeat for the first minute: if these stop, the JS thread is stuck
   // (a stalled request alone wouldn't stop them).
-  const beat = setInterval(() => {
-    const up = Date.now() - t0;
-    console.log(`[alive] +${up}ms`);
-    if (up > 60_000) clearInterval(beat);
-  }, 3000);
+  // Heartbeat off. Uncomment to log [alive] every 3 s for the first minute.
+  // const beat = setInterval(() => {
+  //   const up = Date.now() - t0;
+  //   console.log(`[alive] +${up}ms`);
+  //   if (up > 60_000) clearInterval(beat);
+  // }, 3000);
   setInterval(() => {
     const now = Date.now();
     const gap = now - last - 500;

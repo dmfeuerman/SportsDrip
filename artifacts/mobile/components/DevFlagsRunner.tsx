@@ -26,16 +26,16 @@ export default function DevFlagsRunner({ uid }: { uid: string }) {
       applied.add(uid);
       if (devFlags.walkthrough) openWalkthrough();
       if (DEMO || Object.keys(flags).length === 0) return;
-      console.log("[dev] applying launch flags", flags);
+      // console.log("[dev] applying launch flags", flags);
       devTools(flags)
         .then((res) => {
-          console.log("[dev] applied:", res.done.join(", "));
-          showRef.current({ id: "dev-flags", kind: "info", icon: "flask-outline", title: "Dev flags applied", body: res.done.join(" · ") || "Nothing to do" });
+          // console.log("[dev] applied:", res.done.join(", "));
+          showRef.current({ id: "dev-flags", kind: "info", icon: "flask-outline", title: "Dev Flags Applied", body: res.done.join(" · ") || "Nothing to do" });
         })
         .catch((e: unknown) => {
           const msg = e instanceof Error ? e.message : String(e);
           console.warn("[dev] launch flags failed:", msg);
-          showRef.current({ id: "dev-flags", kind: "warning", icon: "flask-outline", title: "Dev flags failed", body: msg });
+          showRef.current({ id: "dev-flags", kind: "warning", icon: "flask-outline", title: "Dev Flags Failed", body: msg });
         });
     }, 2500);
     return () => clearTimeout(timer);

@@ -32,6 +32,12 @@ module.exports = ({ config }) => ({
     ...config.ios,
     ...(APP_LINK_DOMAIN ? { associatedDomains: [`applinks:${APP_LINK_DOMAIN}`] } : {}),
     usesAppleSignIn: true,
+    ...(process.env.ENABLE_APPLE_TARGETS === "1"
+      ? {
+          infoPlist: { ...(config.ios?.infoPlist ?? {}), NSSupportsLiveActivities: true },
+          entitlements: { ...(config.ios?.entitlements ?? {}), "com.apple.security.application-groups": ["group.com.dmfeuerman.mobile"] },
+        }
+      : {}),
   },
   plugins: [
     ...(config.plugins ?? []),
@@ -49,6 +55,9 @@ module.exports = ({ config }) => ({
     ],
     ["expo-tracking-transparency", { userTrackingPermission: ATT_COPY }],
     "./plugins/withOptimizedGL",
+    // Live Activities + home-screen widget (targets/widgets). Needs @bacons/apple-targets
+    // installed and a dev build; off by default so other builds are unaffected.
+    ...(process.env.ENABLE_APPLE_TARGETS === "1" ? ["@bacons/apple-targets"] : []),
     "expo-apple-authentication",
     ...(GOOGLE_URL_SCHEME ? [["@react-native-google-signin/google-signin", { iosUrlScheme: GOOGLE_URL_SCHEME }]] : []),
   ],

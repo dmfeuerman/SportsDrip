@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import { collection, getDocs, limit, query, where } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -12,7 +13,8 @@ import {
 import { Switch, TouchableOpacity } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import NumericInput from "@/components/NumericInput";
-import { CloseButton } from "@/components/ui";
+import { ActionChip, CloseButton } from "@/components/ui";
+import { getDb } from "@/lib/firebase";
 import {
   BUY_IN_OPTIONS,
   DEFAULT_DURATION,
@@ -51,8 +53,20 @@ interface Props {
     matchupsEnabled?: boolean,
     matchupCadence?: MatchupCadence,
     stimulusEnabled?: boolean,
+    bracketTemplateId?: string,
+    /** Scheduled start (ms), or null to start now. */
+    startsAt?: number | null,
   ) => Promise<string | null>;
 }
+
+const DAY_MS = 86_400_000;
+/** A scheduled start: `days` out, on the next whole hour, so it's always more than a day away. */
+function scheduledStart(days: number, now = Date.now()): number {
+  const hour = 3_600_000;
+  return Math.ceil((now + days * DAY_MS) / hour) * hour;
+}
+const fmtStart = (ms: number) =>
+  new Date(ms).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 // Must match functions/src/lib/leagueConfig.ts — the server rejects anything else.
 const TOKEN_OPTIONS = TOKEN_START_OPTIONS;
@@ -107,7 +121,7 @@ const TEMPLATES: Template[] = [
     id: "season",
     label: "Full Season",
     icon: "calendar-star",
-    desc: "Runs until the last of your sports crowns a champion (see the end date below). 25K tokens, weekly matchups, and the bank can vote everyone a stimulus if stacks run dry over the long haul.",
+    desc: "Follows one sport until it crowns a champion (see the end date below). 25K tokens, weekly matchups, and the bank can vote everyone a stimulus if stacks run dry over the long haul.",
     mode: "bankroll",
     tokens: 25_000,
     buyIn: 250,
@@ -171,12 +185,34 @@ export default function CreateLeagueModal({
   const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
   const [mode, setMode] = useState<LeagueMode>("bankroll");
+  const [bracketTemplates, setBracketTemplates] = useState<Array<{ id: string; name: string }>>([]);
+  const [bracketTemplateId, setBracketTemplateId] = useState<string | null>(null);
+  useEffect(() => {
+    if (mode !== "bracket") return;
+    const db = getDb();
+    if (!db) return;
+    getDocs(query(collection(db, "bracketTemplates"), where("locksAt", ">", Date.now()), limit(10)))
+      .then((snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, name: (d.get("name") as string) ?? d.id }));
+        setBracketTemplates(list);
+        setBracketTemplateId((cur) => cur ?? list[0]?.id ?? null);
+      })
+      .catch(() => setBracketTemplates([]));
+  }, [mode]);
   const [matchupsEnabled, setMatchupsEnabled] = useState(true);
   const [matchupCadence, setMatchupCadence] = useState<MatchupCadence>("weekly");
   const [stimulusEnabled, setStimulusEnabled] = useState(false);
   const [startingLeagueTokens, setStartingLeagueTokens] = useState(10_000);
   const [duration, setDuration] = useState<LeagueDuration>(DEFAULT_DURATION);
   const [sports, setSports] = useState<Sport[]>([...SPORT_OPTIONS]);
+  const [startNow, setStartNow] = useState(false);
+  const [startDays, setStartDays] = useState(1);
+  const startsAt = startNow ? Date.now() : scheduledStart(startDays);
+  const fullSeason = duration === "Full Season";
+  // A full-season league follows exactly one sport's calendar.
+  useEffect(() => {
+    if (fullSeason && sports.length > 1) setSports((prev) => prev.slice(0, 1));
+  }, [fullSeason, sports.length]);
   const [buyIn, setBuyIn] = useState(0);
   const [selectedPreset, setSelectedPreset] =
     useState<PrizeDistribution["preset"]>("winner-all");
@@ -201,6 +237,7 @@ export default function CreateLeagueModal({
     !submitting &&
     name.trim().length > 0 &&
     sports.length > 0 &&
+    (!fullSeason || sports.length === 1) &&
     buyIn <= yourTokens &&
     (!bankLoanEnabled ||
       (rateNum >= 0.5 && rateNum <= 50));
@@ -230,12 +267,15 @@ export default function CreateLeagueModal({
       t.stimulusEnabled === stimulusEnabled
   );
   const h2hOn = mode === "matchups" || matchupsEnabled;
-  const season = duration === "Full Season" ? fullSeasonPlan(sports, Date.now()) : null;
+  const season = fullSeason ? fullSeasonPlan(sports, startsAt) : null;
 
   function toggleSport(sport: Sport) {
-    setSports((prev) =>
-      prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport],
-    );
+    setSports((prev) => {
+      if (prev.includes(sport)) return fullSeason ? prev : prev.filter((s) => s !== sport);
+      // Full Season: one sport. Tapping a locked one switches to it.
+      if (fullSeason) return [sport];
+      return [...prev, sport];
+    });
   }
 
   async function handleConfirm() {
@@ -257,6 +297,8 @@ export default function CreateLeagueModal({
       mode === "matchups" || matchupsEnabled,
       matchupCadence,
       stimulusEnabled,
+      mode === "bracket" ? bracketTemplateId ?? undefined : undefined,
+      startNow ? null : scheduledStart(startDays),
     );
     setSubmitting(false);
     // Keep the form on failure so nothing the user typed is lost.
@@ -273,6 +315,8 @@ export default function CreateLeagueModal({
     setStartingLeagueTokens(10_000);
     setDuration("1 Month");
     setSports([...SPORT_OPTIONS]);
+    setStartNow(false);
+    setStartDays(1);
     setBuyIn(0);
     setSelectedPreset("winner-all");
     setBankLoanEnabled(true);
@@ -408,6 +452,24 @@ export default function CreateLeagueModal({
               );
             })}
           </View>
+
+          {mode === "bracket" ? (
+            <View style={{ gap: 6, marginBottom: 12 }}>
+              {bracketTemplates.length === 0 ? (
+                <Text style={[styles.presetSplit, { color: colors.mutedForeground }]}>No open tournaments right now.</Text>
+              ) : (
+                bracketTemplates.map((t) => (
+                  <ActionChip
+                    key={t.id}
+                    label={t.name}
+                    chevron={false}
+                    tone={bracketTemplateId === t.id ? "accent" : "neutral"}
+                    onPress={() => setBracketTemplateId(t.id)}
+                  />
+                ))
+              )}
+            </View>
+          ) : null}
 
           {/* Starting league tokens */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
@@ -625,11 +687,12 @@ export default function CreateLeagueModal({
 
           {/* Sports */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
-            ALLOWED SPORTS
+            {fullSeason ? "SPORT (ONE PER SEASON)" : "ALLOWED SPORTS"}
           </Text>
           <View style={styles.sportGrid}>
             {SPORT_OPTIONS.map((sport) => {
               const active = sports.includes(sport);
+              const locked = fullSeason && !active && sports.length > 0;
               return (
                 <TouchableOpacity
                   key={sport}
@@ -640,13 +703,16 @@ export default function CreateLeagueModal({
                         ? colors.primary + "22"
                         : colors.secondary,
                       borderColor: active ? colors.primary : colors.border,
+                      opacity: locked ? 0.45 : 1,
                     },
                   ]}
                   onPress={() => toggleSport(sport)}
+                  accessibilityState={{ selected: active }}
+                  accessibilityHint={locked ? `Switches this season to ${sport}` : undefined}
                   activeOpacity={0.8}
                 >
                   <MaterialCommunityIcons
-                    name={SPORT_ICONS[sport] as any}
+                    name={(locked ? "lock" : SPORT_ICONS[sport]) as any}
                     size={16}
                     color={active ? colors.primary : colors.mutedForeground}
                   />
@@ -664,6 +730,68 @@ export default function CreateLeagueModal({
               );
             })}
           </View>
+
+          {fullSeason ? (
+            <Text style={[styles.durationHint, { color: colors.subtleForeground }]}>
+              {sports.length
+                ? `A full season follows one sport. Tap another sport to switch to it.`
+                : "Pick the one sport this season follows."}
+            </Text>
+          ) : null}
+
+          {/* Start */}
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>
+            LEAGUE START
+          </Text>
+          <View style={styles.optionRow}>
+            {[
+              { on: !startNow, label: "Schedule", icon: "calendar-clock", press: () => setStartNow(false) },
+              { on: startNow, label: "Start Now", icon: "flash", press: () => setStartNow(true) },
+            ].map((o) => (
+              <TouchableOpacity
+                key={o.label}
+                style={[styles.optionChip, styles.startChip, { backgroundColor: o.on ? colors.primary : colors.secondary, borderColor: o.on ? colors.primary : colors.border }]}
+                onPress={o.press}
+                activeOpacity={0.8}
+                accessibilityState={{ selected: o.on }}
+              >
+                <MaterialCommunityIcons name={o.icon as any} size={15} color={o.on ? colors.primaryForeground : colors.mutedForeground} />
+                <Text style={[styles.optionText, { color: o.on ? colors.primaryForeground : colors.mutedForeground }]}>{o.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {startNow ? (
+            <Text style={[styles.durationHint, { color: colors.warning }]}>
+              Starts the moment you create it. Nobody can join once a league has started, so only pick this if you're playing solo — otherwise schedule it and share the code.
+            </Text>
+          ) : (
+            <View style={[styles.startCard, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="One day earlier"
+                disabled={startDays <= 1}
+                onPress={() => setStartDays((d) => Math.max(1, d - 1))}
+                style={[styles.stepBtn, { borderColor: colors.border, opacity: startDays <= 1 ? 0.35 : 1 }]}
+              >
+                <MaterialCommunityIcons name="minus" size={18} color={colors.foreground} />
+              </TouchableOpacity>
+              <View style={{ flex: 1, alignItems: "center" }}>
+                <Text style={[styles.startWhen, { color: colors.foreground }]}>{fmtStart(startsAt)}</Text>
+                <Text style={[styles.durationHint, { color: colors.subtleForeground, marginTop: 2 }]}>
+                  in {startDays} day{startDays > 1 ? "s" : ""} · friends can join until then
+                </Text>
+              </View>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="One day later"
+                disabled={startDays >= 60}
+                onPress={() => setStartDays((d) => Math.min(60, d + 1))}
+                style={[styles.stepBtn, { borderColor: colors.border, opacity: startDays >= 60 ? 0.35 : 1 }]}
+              >
+                <MaterialCommunityIcons name="plus" size={18} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Duration */}
           <Text style={[styles.label, { color: colors.mutedForeground }]}>
@@ -729,15 +857,15 @@ export default function CreateLeagueModal({
                   ))}
                   {season.decidedBy ? (
                     <Text style={[styles.templateDesc, { color: colors.foreground }]}>
-                      The league runs until the last sport finishes — here the {season.decidedBy.sport} {season.decidedBy.finale}.
+                      The league runs until the {season.decidedBy.sport} {season.decidedBy.finale}.
                       {season.seasons.some((x) => !x.current)
-                        ? " Sports whose season is over half done (or not started) count from their next full season, so it can run well into next year."
+                        ? " A season that's over half done (or not started) counts from its next full season, so it can run well into next year."
                         : ""}
                     </Text>
                   ) : null}
                   {season.days > 200 ? (
                     <Text style={[styles.templateDesc, { color: colors.warning }]}>
-                      That's a long season — make sure everyone's in for {Math.round(season.days / 30.4)} months. Drop a sport to end sooner.
+                      That's a long season — make sure everyone's in for {Math.round(season.days / 30.4)} months. Pick a fixed length to end sooner.
                     </Text>
                   ) : null}
                 </>
@@ -746,7 +874,7 @@ export default function CreateLeagueModal({
           ) : (
             <Text style={[styles.durationHint, { color: colors.subtleForeground }]}>
               {DURATION_DAYS[duration as Exclude<LeagueDuration, "Full Season">] / 7} weeks · ends{" "}
-              {fmtDate(Date.now() + DURATION_DAYS[duration as Exclude<LeagueDuration, "Full Season">] * 86_400_000, false)}
+              {fmtDate(startsAt + DURATION_DAYS[duration as Exclude<LeagueDuration, "Full Season">] * 86_400_000, false)}
               . Leagues run at least a month so the table has time to mean something. Pick Full Season to follow your sports' calendars.
             </Text>
           )}
@@ -1104,6 +1232,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   optionText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  startChip: { flexDirection: "row", alignItems: "center", gap: 6 },
+  startCard: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 14, padding: 10, marginTop: 8 },
+  stepBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  startWhen: { fontSize: 15, fontFamily: "Inter_700Bold" },
   durationHint: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 8 },
   templateInfo: { flexDirection: "row", gap: 10, padding: 12, borderRadius: 14, borderWidth: 1, marginTop: 10, alignItems: "flex-start" },
   templateTitle: { fontSize: 13, fontFamily: "Inter_700Bold" },
@@ -1121,7 +1253,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 4,
   },
-  potLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 1 },
+  potLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 1 },
   potNote: { fontSize: 12, fontFamily: "Inter_400Regular" },
   presetList: { gap: 8 },
   presetRow: {

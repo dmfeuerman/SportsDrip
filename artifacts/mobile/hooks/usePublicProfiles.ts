@@ -7,11 +7,11 @@ import { DEMO, demoPublicProfiles } from "@/lib/demo";
 /**
  * Public profile (name, avatar, outfit) for a set of uids, so league standings
  * and activity render members as their actual characters instead of a coloured
- * initial. Cached for the session and refreshed after five minutes, so moving
+ * initial. Cached for the session and refreshed after thirty minutes, so moving
  * between league screens doesn't re-read the same documents.
  */
 const cache = new Map<string, { at: number; user: PublicUser | null }>();
-const TTL = 5 * 60_000;
+const TTL = 30 * 60_000;
 
 export function usePublicProfiles(uids: string[]): Record<string, PublicUser> {
   const key = [...new Set(uids)].sort().join(",");

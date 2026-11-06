@@ -331,6 +331,29 @@ function regionWeights(x, y, z, tau = 0.008) {
   return out;
 }
 
+/**
+ * The point on the body's surface under a garment vertex. Cloth sits up to ~6 cm
+ * off the skin (puffers); weighting it where it floats picks the torso for the
+ * outside of a sleeve, which tears the sleeve away from the arm when it moves.
+ */
+function onBody(x, y, z) {
+  const e = 0.001;
+  let p = [x, y, z];
+  for (let i = 0; i < 6; i++) {
+    const d = C.bodyD(p[0], p[1], p[2]);
+    if (Math.abs(d) < 0.0005) break;
+    const g = [
+      C.bodyD(p[0] + e, p[1], p[2]) - C.bodyD(p[0] - e, p[1], p[2]),
+      C.bodyD(p[0], p[1] + e, p[2]) - C.bodyD(p[0], p[1] - e, p[2]),
+      C.bodyD(p[0], p[1], p[2] + e) - C.bodyD(p[0], p[1], p[2] - e),
+    ];
+    const n = Math.hypot(g[0], g[1], g[2]) || 1;
+    p = p.map((v, k) => v - (g[k] / n) * d);
+  }
+  return p;
+}
+const clothWeights = (x, y, z) => regionWeights(...onBody(x, y, z));
+
 /** Head-skin weights: the neck's blend at the bottom, the Head bone above the jaw. */
 function headWeights(x, y, z) {
   const k = sstep(1.5, 1.545, y);
@@ -1158,7 +1181,7 @@ async function garment(key, t) {
       continue;
     }
     const keep = p.keep ?? (p.kind === "skinned" ? (x, y, z) => C.bodyD(x, y, z) > -0.0015 : null);
-    const m = await fieldMesh(p.field, p.box, p.h, { targetTris: p.tris, keep, error: p.error });
+    const m = await fieldMesh(p.field, p.box, p.h, { targetTris: p.tris, keep, error: p.error, minPiece: p.kind === "skinned" ? 40 : 0 });
     if (!m) {
       console.warn(`  ${key}/${p.material}: empty`);
       continue;
@@ -1218,7 +1241,7 @@ async function garment(key, t) {
     }
     if (p.kind === "skinned") {
       const P = m.positions;
-      md.weights = Array.from({ length: P.length / 3 }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+      md.weights = Array.from({ length: P.length / 3 }, (_, v) => clothWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
       addBuildMorphs(md, { transfer: true });
       // Cloth only grows or shrinks with the build, so its shading barely turns: positions alone (a third of the file).
       for (const k of BUILD_MORPHS) md.morphs[k].dnrm = null;

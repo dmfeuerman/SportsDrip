@@ -1,4 +1,5 @@
 import { haptic as buzz } from "@/lib/motion";
+import { useUnseenCount } from "@/lib/settings";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
@@ -40,6 +41,8 @@ export default function ChallengesScreen() {
   const outV = views(outgoing);
   const liveV = views(live);
   const histV = views(history);
+  const inboxNew = useUnseenCount("challenges.inbox", inV.map((v) => v.ch.id), tab === "inbox");
+  const liveNew = useUnseenCount("challenges.live", liveV.map((v) => v.ch.id), tab === "live");
 
   const record = useMemo(() => {
     const r = { won: 0, lost: 0, net: 0 };
@@ -67,7 +70,7 @@ export default function ChallengesScreen() {
       return;
     }
     if (res.status === "expired") {
-      show({ kind: "warning", icon: "timer-sand", title: "Too late", body: "That game has started, so the challenge expired. Nothing was taken." });
+      show({ kind: "warning", icon: "timer-sand", title: "Too Late", body: "That game has started, so the challenge expired. Nothing was taken." });
       return;
     }
     buzz.success();
@@ -121,16 +124,16 @@ export default function ChallengesScreen() {
         back
         title="Challenges"
         subtitle={`${record.won}W · ${record.lost}L against friends`}
-        right={<IconButton icon="account-multiple-plus-outline" label="Challenge a friend" onPress={findFriends} />}
+        right={<IconButton icon="account-multiple-plus-outline" label="Challenge a Friend" onPress={findFriends} />}
       >
         <View style={styles.stats}>
           <StatTile label="Credits" hint="free to use">
             <Amount value={balance} size="sm" />
           </StatTile>
-          <StatTile label="In pots" hint={`${outV.length + liveV.length} open`}>
+          <StatTile label="In Pots" hint={`${outV.length + liveV.length} open`}>
             <Amount value={escrowed} size="sm" tone="neutral" />
           </StatTile>
-          <StatTile label="Net vs friends" hint="settled">
+          <StatTile label="Net vs Friends" hint="settled">
             <Amount value={record.net} size="sm" signed tone={record.net > 0 ? "positive" : record.net < 0 ? "negative" : "neutral"} />
           </StatTile>
         </View>
@@ -138,8 +141,8 @@ export default function ChallengesScreen() {
           value={tab}
           onChange={setTab}
           options={[
-            { value: "inbox", label: "Inbox", badge: inV.length },
-            { value: "live", label: "Locked in", badge: liveV.length },
+            { value: "inbox", label: "Inbox", badge: inboxNew || undefined },
+            { value: "live", label: "Locked in", badge: liveNew || undefined },
             { value: "history", label: "History" },
           ]}
         />
@@ -152,29 +155,29 @@ export default function ChallengesScreen() {
           inV.length + outV.length === 0 ? (
             <EmptyState
               icon="sword-cross"
-              title="No challenges waiting"
+              title="No Challenges Waiting"
               body="Pick a game, tap a team, and switch the slip to “Challenge a friend”. Pot or your own odds — both stakes are locked in before kickoff."
-              action="Browse games"
+              action="Browse Games"
               onAction={browse}
-              secondary="Pick a friend"
+              secondary="Pick a Friend"
               onSecondary={findFriends}
             />
           ) : (
             <>
-              {inV.length > 0 && <Text style={[styles.section, { color: c.foreground }]}>Waiting on you</Text>}
+              {inV.length > 0 && <Text style={[styles.section, { color: c.foreground }]}>Waiting on You</Text>}
               {inV.map(card)}
-              {outV.length > 0 && <Text style={[styles.section, { color: c.foreground }]}>Waiting on them</Text>}
+              {outV.length > 0 && <Text style={[styles.section, { color: c.foreground }]}>Waiting on Them</Text>}
               {outV.map(card)}
             </>
           )
         ) : tab === "live" ? (
           liveV.length === 0 ? (
-            <EmptyState icon="lock-outline" title="Nothing locked in" body="Accepted challenges sit here until the final whistle. The pot pays out on its own." action="Browse games" onAction={browse} />
+            <EmptyState icon="lock-outline" title="Nothing Locked in" body="Accepted challenges sit here until the final whistle. The pot pays out on its own." action="Browse Games" onAction={browse} />
           ) : (
             liveV.map(card)
           )
         ) : histV.length === 0 ? (
-          <EmptyState icon="history" title="No history yet" body="Settled challenges, and any that were declined or expired, land here." />
+          <EmptyState icon="history" title="No History Yet" body="Settled challenges, and any that were declined or expired, land here." />
         ) : (
           histV.map(card)
         )}

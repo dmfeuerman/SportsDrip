@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import TrophyArt, { trophyLook } from "@/components/TrophyArt";
 import { haptic as buzz } from "@/lib/motion";
 import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
@@ -13,9 +14,11 @@ import WinLossReplyModal from "@/components/chat/WinLossReplyModal";
 import GameQuickView from "@/components/GameQuickView";
 import KeyboardSheet from "@/components/KeyboardSheet";
 import TeamChips from "@/components/TeamChips";
-import { Amount, Button, ConfirmDialog, IconButton, Pill, SegmentedControl, StatTile, TabStrip } from "@/components/ui";
+import { Amount, Button, ChoiceDialog, ConfirmDialog, IconButton, Pill, SegmentedControl, StatTile, TabStrip } from "@/components/ui";
 import { DEFAULT_AVATAR } from "@/constants/avatarOptions";
 import { useApp } from "@/context/AppContext";
+import BetRecordPanel from "@/components/BetRecordPanel";
+import FriendSendSheet, { type SendTab } from "@/components/chat/FriendSendSheet";
 import { useChallenges } from "@/context/ChallengeContext";
 import { useChat } from "@/context/ChatContext";
 import { useLeague } from "@/context/LeagueContext";
@@ -24,7 +27,7 @@ import { useColors } from "@/hooks/useColors";
 import { usePlayerProfile } from "@/hooks/usePlayerProfile";
 import type { FavoriteTeam, ProfileBet, PublicUser } from "@/lib/api";
 import { formatOdds, type OddsFormat } from "@/lib/odds";
-import { useOddsFormat } from "@/lib/settings";
+import { useOddsFormat, useUnseenCount } from "@/lib/settings";
 
 /** What the opener already knows, so the header paints before the fetch lands. */
 export interface ProfileSeed {
@@ -126,10 +129,18 @@ function Body({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [showLeagueSelector, setShowLeagueSelector] = useState(false);
+  const [editMenu, setEditMenu] = useState(false);
+  // Edit actions live on other screens: close the sheet, then go there.
+  const goEdit = (to: () => void) => {
+    setEditMenu(false);
+    onDismiss();
+    setTimeout(to, 250);
+  };
   const [inviteStatus, setInviteStatus] = useState<Record<string, "busy" | "sent" | "error">>({});
   const [quickGame, setQuickGame] = useState<string | null>(null);
   const [breakdown, setBreakdown] = useState<BetBreakdownItem | null>(null);
   const [replyTarget, setReplyTarget] = useState<ReplyQuote | null>(null);
+  const [sendTab, setSendTab] = useState<SendTab | null>(null);
 
   const p = data?.profile;
   const name = p?.displayName ?? seed?.displayName ?? "Player";
@@ -149,6 +160,8 @@ function Body({
   const betCurrency = src === "league" ? "league" : "credits";
   const open = bets.filter((b) => b.status === "pending");
   const settled = bets.filter((b) => b.status !== "pending");
+  const openNew = useUnseenCount(`profile.${uid ?? ""}.open`, open.map((b) => b.id), !!uid && tab === "open");
+  const settledNew = useUnseenCount(`profile.${uid ?? ""}.history`, settled.map((b) => b.id), !!uid && tab === "history");
   const shown = tab === "open" ? open : settled;
 
   const derived = useMemo(() => {
@@ -223,7 +236,9 @@ function Body({
               )}
               {!isSelf ? (
                 <IconButton icon="message-text-outline" label={`Message ${name}`} onPress={handleMessage} />
-              ) : null}
+              ) : (
+                <IconButton icon="pencil-outline" label="Edit my profile" onPress={() => setEditMenu(true)} />
+              )}
             </>
           }
         />
@@ -264,6 +279,14 @@ function Body({
                 style={{ flex: 1 }}
               />
             </View>
+
+            {relation === "friend" ? (
+              <View style={styles.primaryActionsRow}>
+                <Button label="Send Clothes" icon="tshirt-crew-outline" variant="secondary" size="sm" style={{ flex: 1 }} onPress={() => setSendTab("gift")} />
+                <Button label="Credits" icon="cash-fast" variant="secondary" size="sm" style={{ flex: 1 }} onPress={() => setSendTab("credits")} />
+                <Button label="Loan" icon="hand-coin-outline" variant="secondary" size="sm" style={{ flex: 1 }} onPress={() => setSendTab("loan")} />
+              </View>
+            ) : null}
 
             {h2h && h2h.won + h2h.lost + h2h.push > 0 ? (
               <Text style={[styles.meta, { color: c.mutedForeground }]}>
@@ -344,24 +367,46 @@ function Body({
           </View>
         )}
 
+        {(() => {
+          const pinned = p?.featuredTrophy ? trophies.find((t) => t.id === p.featuredTrophy) : null;
+          return pinned ? (
+            <View style={[styles.pinned, { backgroundColor: c.alpha(c.primary, 0.12), borderColor: c.primary }]}>
+              {(() => {
+                const look = trophyLook(pinned);
+                return <TrophyArt design={look.design} metal={look.metal} icon={look.icon} size={60} uid={`pin_${pinned.id}`} />;
+              })()}
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.pinnedKicker, { color: c.primary }]}>FEATURED TROPHY</Text>
+                <Text style={[styles.leagueTitle, { color: c.foreground }]}>{pinned.kind === "achievement" ? pinned.title : pinned.title || pinned.leagueName}</Text>
+                {pinned.kind !== "achievement" && pinned.leagueName && pinned.leagueName !== pinned.title ? (
+                  <Text style={[styles.meta, { color: c.mutedForeground }]}>{pinned.leagueName}</Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null;
+        })()}
         {trophies.length > 0 && (
           <View style={{ gap: 8 }}>
             <Text style={[styles.section, { color: c.foreground }]}>Trophy Shelf ({trophies.length})</Text>
-            <View style={styles.inline}>
-              {trophies.map((t, idx) => (
-                <Pill
-                  key={`${t.leagueId}_${idx}`}
-                  label={t.kind === "achievement" ? `⭐ ${t.title}` : `🏆 ${t.leagueName ?? t.title}`}
-                  tone={t.kind === "achievement" ? "accent" : "money"}
-                />
-              ))}
-            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trophyRow}>
+              {trophies.map((t, idx) => {
+                const look = trophyLook(t);
+                return (
+                  <View key={`${t.id ?? t.leagueId}_${idx}`} style={styles.trophyMini} accessibilityLabel={t.title}>
+                    <TrophyArt design={look.design} metal={look.metal} icon={look.icon} size={44} uid={`shelf_${t.id ?? idx}`} />
+                    <Text style={[styles.trophyMiniText, { color: c.mutedForeground }]} numberOfLines={1}>
+                      {t.kind === "achievement" ? t.title : t.leagueName ?? t.title}
+                    </Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
 
         {/* Favourite teams */}
         <View style={{ gap: 8 }}>
-          <Text style={[styles.section, { color: c.foreground }]}>Favorite teams</Text>
+          <Text style={[styles.section, { color: c.foreground }]}>Favorite Teams</Text>
           {teams.length ? (
             <TeamChips teams={teams} max={5} />
           ) : (
@@ -380,7 +425,7 @@ function Body({
               </Text>
             </View>
             <View style={styles.tiles}>
-              <StatTile label="Net worth" style={styles.tile}>
+              <StatTile label="Net Worth" style={styles.tile}>
                 <Amount value={standing.netWorth} currency="league" size="sm" />
               </StatTile>
               <StatTile label="Tokens" style={styles.tile}>
@@ -405,17 +450,18 @@ function Body({
           <View style={styles.tiles}>
             <StatTile label="Bets" style={styles.tile}>{s?.betsPlaced ?? "—"}</StatTile>
             <StatTile label="Record" style={styles.tile}>{s ? `${s.betsWon}–${s.betsLost}${s.betsPush ? `–${s.betsPush}` : ""}` : "—"}</StatTile>
-            <StatTile label="Hit rate" style={styles.tile}>{hit === null ? "—" : `${hit}%`}</StatTile>
+            <StatTile label="Hit Rate" style={styles.tile}>{hit === null ? "—" : `${hit}%`}</StatTile>
           </View>
           <View style={styles.tiles}>
             <StatTile label="Won" style={styles.tile}>
               {s ? <Amount value={s.creditsWon} size="sm" /> : "—"}
             </StatTile>
             <StatTile label="Streak" style={styles.tile}>{bets.length ? derived.streak : "—"}</StatTile>
-            <StatTile label="Best hit" style={styles.tile}>
+            <StatTile label="Best Hit" style={styles.tile}>
               {derived.best > 0 ? <Amount value={derived.best} currency={betCurrency} size="sm" signed tone="positive" /> : "—"}
             </StatTile>
           </View>
+          <BetRecordPanel bets={settled.map((b) => ({ status: b.status, stake: b.stake, potentialPayout: b.potentialPayout, t: b.settledAt ?? b.placedAt ?? 0 }))} />
         </View>
 
         {/* Bets & Interactive Recent Results */}
@@ -442,8 +488,8 @@ function Body({
                   value={source}
                   onChange={setSource}
                   options={[
-                    { value: "league", label: "This league" },
-                    { value: "all", label: "All bets" },
+                    { value: "league", label: "This League" },
+                    { value: "all", label: "All Bets" },
                   ]}
                 />
               )}
@@ -452,8 +498,8 @@ function Body({
                 value={tab}
                 onChange={setTab}
                 options={[
-                  { value: "open", label: "Active", badge: open.length || undefined },
-                  { value: "history", label: "Recent Results", badge: settled.length || undefined },
+                  { value: "open", label: "Active", badge: openNew || undefined },
+                  { value: "history", label: "Recent Results", badge: settledNew || undefined },
                 ]}
               />
               {shown.length === 0 ? (
@@ -533,6 +579,19 @@ function Body({
           )}
         </View>
 
+        <ChoiceDialog
+          visible={editMenu}
+          title="Edit Your Profile"
+          body="What do you want to change?"
+          actions={[
+            { label: "Character & Outfit", icon: "account-edit-outline", onPress: () => goEdit(() => router.push("/customize")) },
+            { label: "Favorite Teams", icon: "heart-outline", variant: "secondary", onPress: () => goEdit(() => router.navigate({ pathname: "/(tabs)/avatar", params: { editTeams: "1" } })) },
+            { label: "Scene", icon: "image-filter-hdr", variant: "secondary", onPress: () => goEdit(() => router.push({ pathname: "/shop", params: { tab: "backgrounds" } })) },
+            { label: "Featured Trophy", icon: "trophy-outline", variant: "secondary", onPress: () => goEdit(() => router.push("/trophies" as never)) },
+          ]}
+          onCancel={() => setEditMenu(false)}
+        />
+
         {onRemoveFriend && relation === "friend" && !isSelf ? (
           <Pressable
             accessibilityRole="button"
@@ -542,7 +601,7 @@ function Body({
             onPress={() => setConfirmRemove(true)}
             style={({ pressed }) => [styles.removeLink, { opacity: pressed || removing ? 0.6 : 1 }]}
           >
-            <Text style={[styles.removeText, { color: c.negative }]}>Remove friend</Text>
+            <Text style={[styles.removeText, { color: c.negative }]}>Remove Friend</Text>
           </Pressable>
         ) : null}
       </ScrollView>
@@ -566,6 +625,8 @@ function Body({
           }}
         />
       ) : null}
+
+      <FriendSendSheet friend={sendTab ? { uid, name } : null} initialTab={sendTab ?? "gift"} onClose={() => setSendTab(null)} />
 
       <BetBreakdownModal
         item={breakdown}
@@ -643,6 +704,11 @@ function BetRow({ b, currency, fmt, onPress }: { b: ProfileBet; currency: "credi
 }
 
 const styles = StyleSheet.create({
+  trophyRow: { gap: 10, paddingRight: 8 },
+  trophyMini: { width: 64, alignItems: "center", gap: 2 },
+  trophyMiniText: { fontSize: 10, fontFamily: "Inter_600SemiBold", maxWidth: 64 },
+  pinned: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1.5, borderRadius: 14, padding: 10 },
+  pinnedKicker: { fontSize: 10, letterSpacing: 1.2, fontFamily: "Inter_800ExtraBold" },
   body: { paddingHorizontal: 20, paddingBottom: 24, gap: 18 },
   crown: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   name: { fontSize: 28, lineHeight: 32, fontFamily: "Inter_900Black", letterSpacing: -1 },

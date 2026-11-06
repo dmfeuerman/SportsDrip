@@ -1,4 +1,5 @@
 import { BlurView } from "expo-blur";
+import { useUnseenCount } from "@/lib/settings";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs, useSegments } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
@@ -18,18 +19,24 @@ const FRIEND_ACTION = new Set(["friend_request"]);
 /** Unread obligations per tab: league chat + money asks on Leagues, requests + challenges on Friends. */
 function useTabBadges(): Partial<Record<string, number>> {
   const { notifications } = useNotifications();
-  const { unreadLeagueCount } = useChat();
+  const { unreadLeagueTokens } = useChat();
   const { incoming } = useChallenges();
-  return useMemo(() => {
-    let leagues = unreadLeagueCount;
-    let friends = incoming.length;
+  const segments = useSegments() as string[];
+  const current = segments[0] === "(tabs)" ? segments[1] ?? "index" : null;
+  const { leagueIds, friendIds } = useMemo(() => {
+    const leagueIds = unreadLeagueTokens.map((t) => `chat:${t}`);
+    const friendIds = incoming.map((ch) => `challenge:${ch.id}`);
     for (const n of notifications) {
       if (n.read) continue;
-      if (LEAGUE_ACTION.has(n.type)) leagues++;
-      else if (FRIEND_ACTION.has(n.type)) friends++;
+      if (LEAGUE_ACTION.has(n.type)) leagueIds.push(`n:${n.id}`);
+      else if (FRIEND_ACTION.has(n.type)) friendIds.push(`n:${n.id}`);
     }
-    return { leagues, friends };
-  }, [notifications, unreadLeagueCount, incoming.length]);
+    return { leagueIds, friendIds };
+  }, [notifications, unreadLeagueTokens, incoming]);
+  // A tab's badge counts only what's new since you last opened that tab.
+  const leagues = useUnseenCount("tab.leagues", leagueIds, current === "leagues");
+  const friends = useUnseenCount("tab.friends", friendIds, current === "friends");
+  return { leagues, friends };
 }
 
 const badgeText = (n?: number) => (n && n > 0 ? (n > 99 ? "99+" : String(n)) : undefined);
@@ -112,7 +119,7 @@ function ClassicTabLayout() {
             title: t.title,
             tabBarAccessibilityLabel: badges[t.name] ? `${t.title}, ${badges[t.name]} new` : t.title,
             tabBarBadge: badgeText(badges[t.name]),
-            tabBarBadgeStyle: { backgroundColor: colors.accent, fontSize: 10, fontFamily: "Inter_700Bold" },
+            tabBarBadgeStyle: { backgroundColor: colors.accent, fontSize: 11, fontFamily: "Inter_700Bold" },
             tabBarIcon: ({ color }) =>
               isIOS ? (
                 <SymbolView name={t.sf as never} tintColor={color} size={22} />

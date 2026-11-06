@@ -11,7 +11,7 @@ export default function FeedScreen() {
   const items = useCrewFeed(30);
   return (
     <View style={[styles.fill, { backgroundColor: c.background }]}>
-      <ScreenHeader back title="Your crew" subtitle="Wins, rivalries and milestones from your leagues" />
+      <ScreenHeader back title="Your Crew" subtitle="Wins, rivalries and milestones from your leagues" />
       <FlatList
         data={items}
         keyExtractor={(it) => `${it.leagueId}_${it.id}`}

@@ -762,14 +762,6 @@ export const TEMPLATES = {
   },
 
   /* ── accessories ── */
-  acc_chain: {
-    slot: "accessory",
-    socket: "Neck",
-    parts: [
-      built("metal", (b) => chainLinks(b)),
-      rigid("secondary", (x, y, z) => pendantD(x, y, z), [[-0.03, 1.24, 0.07], [0.03, 1.33, 0.16]], { h: 0.0007 }),
-    ],
-  },
   acc_watch: {
     slot: "accessory",
     look: "rubber",
@@ -792,6 +784,34 @@ export const TEMPLATES = {
     ],
   },
 };
+
+/* ── open-front jackets: the same cut worn unzipped, so the top underneath shows ── */
+
+/** Half-width of the open front at height y: a narrow V at the collar, hanging wider at the hem. */
+const openGap = (y) => 0.034 + 0.026 * sstep(1.38, 0.98, y);
+const openFrontD = (x, y, z) => (z < 0.02 ? -1 : openGap(y) - Math.abs(x)); // positive inside the opening
+
+/**
+ * An open variant of a jacket template: every skinned part (body, hem band, collar)
+ * is cut down the front, the fastenings go, and a facing band finishes each edge.
+ * Hides nothing up front: the chest and the top stay visible.
+ */
+function openFront(t, { hem, neck, off = L.outer, facing = "primary_dark", hides = [] }) {
+  const parts = t.parts
+    .filter((p) => p.material !== "metal")
+    .map((p) => (p.kind === "skinned" ? { ...p, field: ((f) => (x, y, z) => smax(f(x, y, z), openFrontD(x, y, z), 0.002))(p.field) } : p));
+  parts.push(
+    cloth(
+      facing,
+      inflate(off + L.trim * 0.6, (x, y, z) => (z < 0.02 ? 1 : Math.max(Math.abs(Math.abs(x) - openGap(y) - 0.008) - 0.008, hem - y, neckOpening(neck, x, y, z)))),
+      [[-0.14, hem - 0.02, 0.02], [0.14, 1.5, 0.22]],
+      { h: 0.0018 }
+    )
+  );
+  return { ...t, hides, parts };
+}
+TEMPLATES.outerwear_bomber_open = openFront(TEMPLATES.outerwear_bomber, { hem: 0.93, neck: JACKET_NECK });
+TEMPLATES.outerwear_varsity_open = openFront(TEMPLATES.outerwear_varsity, { hem: 0.93, neck: JACKET_NECK, hides: ["elbows"] });
 
 /* ── crown ───────────────────────────────────────────────────────────────── */
 
@@ -910,9 +930,11 @@ export function chainPath() {
   ];
   return [...half.map(([x, y, z]) => [-x, y, z]).reverse(), ...half.slice(1)].map((p) => onBody(p, CHAIN_OFF));
 }
-function chainLinks(b) {
+const LINK = { R: 0.0056, Rz: 0.0044, r: 0.0016, step: 0.0105, seg: 5, tubeSeg: 3 };
+const CUBAN = { R: 0.0074, Rz: 0.0052, r: 0.0027, step: 0.0118, seg: 6, tubeSeg: 3, flat: true };
+function chainLinks(b, L = LINK) {
   const pts = chainPath();
-  // Resample by arc length, then a link every 7 mm, alternating orientation.
+  // Resample by arc length, then a link every step, alternating orientation.
   const seg = [];
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
@@ -927,26 +949,202 @@ function chainLinks(b) {
     const a = pts[i], c = pts[i + 1];
     return [[a[0] + (c[0] - a[0]) * t, a[1] + (c[1] - a[1]) * t, a[2] + (c[2] - a[2]) * t], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]];
   };
-  const step = 0.0105;
+  const step = L.step;
   const n = Math.floor(total / step);
   for (let i = 0; i < n; i++) {
     const [mid, dir] = at(i * step + step / 2);
     // Every link back on the offset surface: a straight run between control points cuts into the neck–shoulder hollow.
-    const c = onBody(mid, CHAIN_OFF);
+    const c = onBody(mid, CHAIN_OFF + (L.flat ? 0.0012 : 0));
     const l = Math.hypot(...dir);
     const t = dir.map((v) => v / l);
-    // Rotation taking +X to the tangent; alternate links turn 90° about it.
+    // Rotation taking +X to the tangent; alternate links turn 90° about it (a Cuban's lie flat, twisted a little).
     const yaw = Math.atan2(-t[2], t[0]);
     const pitch = Math.asin(clamp(t[1], -1, 1));
-    torus(b, { c, R: 0.0056, Rz: 0.0044, r: 0.0016, rot: [i % 2 ? Math.PI / 2 : 0, yaw, pitch], seg: 5, tubeSeg: 3 });
+    const roll = L.flat ? Math.PI / 2 + (i % 2 ? 0.35 : -0.35) : i % 2 ? Math.PI / 2 : 0;
+    torus(b, { c, R: L.R, Rz: L.Rz, r: L.r, rot: [roll, yaw, pitch], seg: L.seg, tubeSeg: L.tubeSeg });
   }
 }
-function pendantD(x, y, z) {
-  const c = onBody([0, 1.29, 0.13], CHAIN_OFF + 0.002);
-  let d = sdRoundBox(x - c[0], y - c[1], z - c[2], 0.013, 0.017, 0.0028, 0.004);
-  // A bevelled star-ish emboss.
-  d -= 0.0012 * sstep(0.008, 0.0, Math.hypot(x - c[0], y - c[1])) * sstep(c[2], c[2] + 0.003, z);
-  return d;
+
+/* ── pendants ─────────────────────────────────────────────────────────────
+ * Each is a 2D outline extruded (or a small solid) in the plane of the chest,
+ * centred under the chain's lowest point, with a bail ring to hang from. */
+
+/** Signed distance to a closed 2D polygon (Inigo Quilez). */
+function sdPoly(px, py, V) {
+  let d = (px - V[0][0]) ** 2 + (py - V[0][1]) ** 2;
+  let s = 1;
+  for (let i = 0, j = V.length - 1; i < V.length; j = i, i++) {
+    const ex = V[j][0] - V[i][0], ey = V[j][1] - V[i][1];
+    const wx = px - V[i][0], wy = py - V[i][1];
+    const h = clamp((wx * ex + wy * ey) / (ex * ex + ey * ey), 0, 1);
+    const bx = wx - ex * h, by = wy - ey * h;
+    d = Math.min(d, bx * bx + by * by);
+    const c1 = py >= V[i][1], c2 = py < V[j][1], c3 = ex * wy > ey * wx;
+    if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) s = -s;
+  }
+  return s * Math.sqrt(d);
+}
+/** A 2D distance extruded to half-thickness h along w, with rounded edges. */
+function extrude(d2, w, h, r = 0.0007) {
+  const ax = d2 + r, ay = Math.abs(w) - h + r;
+  return Math.min(Math.max(ax, ay), 0) + Math.hypot(Math.max(ax, 0), Math.max(ay, 0)) - r;
+}
+const circle = (u, v, r) => Math.hypot(u, v) - r;
+function starPts(n, R, r, rot = 0) {
+  const pts = [];
+  for (let i = 0; i < n * 2; i++) {
+    const a = rot + (i * Math.PI) / n;
+    const rr = i % 2 ? r : R;
+    pts.push([Math.sin(a) * rr, Math.cos(a) * rr]);
+  }
+  return pts;
+}
+const STAR = starPts(5, 0.0195, 0.0082);
+const BOLT = [[-0.0035, 0.0195], [0.0095, 0.0195], [0.0025, 0.004], [0.0105, 0.004], [-0.0075, -0.0215], [-0.0012, -0.0025], [-0.0095, -0.0025]];
+const CROWN_P = [[-0.0165, -0.0105], [0.0165, -0.0105], [0.0175, 0.0125], [0.0085, 0.002], [0, 0.0165], [-0.0085, 0.002], [-0.0175, 0.0125]];
+const ONE = [[-0.0028, 0.0185], [0.0042, 0.0185], [0.0042, -0.0125], [0.0095, -0.0125], [0.0095, -0.0185], [-0.0095, -0.0185], [-0.0095, -0.0125], [-0.0035, -0.0125], [-0.0035, 0.0095], [-0.0085, 0.0065], [-0.0085, 0.0125]];
+const GEM = [[0, -0.0195], [0.0145, 0.0035], [0.0095, 0.0115], [-0.0095, 0.0115], [-0.0145, 0.0035]];
+/** Inigo Quilez's 2D heart, scaled. */
+function heart2(u, v, s) {
+  let x = Math.abs(u / s), y = v / s + 0.6;
+  const q = x + y > 1 ? Math.hypot(x - 0.25, y - 0.75) - Math.SQRT2 / 4 : Math.sqrt(Math.min((x) ** 2 + (y - 1) ** 2, (x - 0.5 * Math.max(x + y, 0)) ** 2 + (y - 0.5 * Math.max(x + y, 0)) ** 2)) * Math.sign(x - y);
+  return q * s;
+}
+
+/** Half-thickness of the flat pendants, and the gap from the cloth to their back. */
+const PT = 0.0024;
+/** Where a pendant hangs: its centre, on the tee layer under the chain's lowest point. */
+const PC = onBody([0, 1.295, 0.128], CHAIN_OFF + 0.002);
+
+/** Each pendant's shape in its own frame (u right, v up, w out of the chest) and the top of it, for the bail. */
+const PENDANTS = {
+  medallion: {
+    top: 0.0175,
+    d: (u, v, w) => {
+      const r = Math.hypot(u, v);
+      let d = extrude(circle(u, v, 0.0175), w, PT, 0.0009);
+      // Raised rim, a recessed field and a star struck in the middle.
+      d += 0.0007 * sstep(0.0135, 0.0125, r) * sstep(0, PT, w);
+      d = Math.min(d, extrude(sdPoly(u, v, starPts(5, 0.0095, 0.004)), w - 0.0008, PT, 0.0005));
+      return d;
+    },
+  },
+  star: {
+    top: 0.0195,
+    d: (u, v, w) => {
+      // Bevelled: thickest along the spokes' ridge.
+      const e = sdPoly(u, v, STAR);
+      return extrude(e, w, PT + 0.0012 * clamp(-e / 0.006, 0, 1), 0.0006);
+    },
+  },
+  bolt: { top: 0.0195, d: (u, v, w) => extrude(sdPoly(u, v, BOLT), w, PT, 0.0006) },
+  crown: {
+    top: 0.0185,
+    d: (u, v, w) => {
+      let d = extrude(sdPoly(u, v, CROWN_P), w, PT, 0.0006);
+      // Balls on the three points and a band of jewels.
+      for (const [bu, bv] of [[-0.0175, 0.0135], [0, 0.0175], [0.0175, 0.0135]]) d = Math.min(d, Math.hypot(u - bu, v - bv, w) - 0.0026);
+      for (const bu of [-0.009, 0, 0.009]) d = Math.min(d, Math.hypot(u - bu, v + 0.0055, w - PT) - 0.0021);
+      return d;
+    },
+  },
+  heart: {
+    top: 0.016,
+    d: (u, v, w) => {
+      const e = heart2(u, v + 0.002, 0.021);
+      return extrude(e, w, PT + 0.001 * clamp(-e / 0.005, 0, 1), 0.0008);
+    },
+  },
+  ball: {
+    top: 0.015,
+    d: (u, v, w) => {
+      const R = 0.015;
+      const ww = w - 0.0055;
+      let d = Math.hypot(u, v, ww) - R;
+      // Basketball seams: a cross and two curves, grooved.
+      const seam = Math.min(Math.abs(u), Math.abs(v), Math.abs(Math.hypot(u - 0.019, v) - 0.0135), Math.abs(Math.hypot(u + 0.019, v) - 0.0135));
+      d += 0.0007 * sstep(0.0009, 0.0002, seam);
+      return Math.max(d, -(w + PT)); // flat back against the chest
+    },
+  },
+  football: {
+    top: 0.012,
+    d: (u, v, w) => {
+      const ww = w - 0.004;
+      let d = sdEllipsoid(u, v, ww, 0.0205, 0.0122, 0.0105);
+      // Laces along the top, and stripes near the tips.
+      const lace = Math.max(Math.abs(v) - 0.0012, Math.abs(u) - 0.0075, -(ww - 0.0085));
+      const rung = Math.max(Math.abs(((u + 0.0075) % 0.0037) - 0.0018) - 0.0006, Math.abs(v) - 0.0034, Math.abs(u) - 0.0075, -(ww - 0.0082));
+      d = Math.min(d, Math.max(Math.min(lace, rung), ww - 0.0115));
+      d += 0.0006 * sstep(0.0009, 0.0003, Math.abs(Math.abs(u) - 0.0145));
+      return Math.max(d, -(w + PT));
+    },
+  },
+  trophy: {
+    top: 0.0195,
+    d: (u, v, w) => {
+      const ww = w - 0.002;
+      // Cup: a bowl over a flat rim, two handles, a stem and a stepped base.
+      let d = Math.max(sdEllipsoid(u, v - 0.0095, ww, 0.0105, 0.0115, 0.0055), v - 0.019);
+      d = Math.min(d, Math.max(Math.abs(Math.hypot(Math.abs(u) - 0.0105, v - 0.012) - 0.0042) - 0.0012, Math.abs(ww) - 0.0016, 0.0085 - Math.abs(u)));
+      d = Math.min(d, sdRoundBox(u, v + 0.0035, ww, 0.0018, 0.0055, 0.0018, 0.0006));
+      d = Math.min(d, sdRoundBox(u, v + 0.0115, ww, 0.0065, 0.0028, 0.0028, 0.0008));
+      d = Math.min(d, sdRoundBox(u, v + 0.0168, ww, 0.0095, 0.0028, 0.0032, 0.0008));
+      return d;
+    },
+  },
+  number: {
+    top: 0.0185,
+    d: (u, v, w) => extrude(sdPoly(u, v, ONE), w, PT + 0.0004, 0.0006),
+  },
+  diamond: {
+    top: 0.0115,
+    d: (u, v, w) => {
+      // A faceted gem: the outline, a flat back and a pointed crown.
+      const e = sdPoly(u, v, GEM);
+      const crown = w - (0.0055 - 0.24 * Math.abs(u) - 0.16 * Math.abs(v - 0.003));
+      const table = w - 0.0042;
+      return Math.max(e, crown, table, -(w + PT));
+    },
+  },
+  dogtag: {
+    top: 0.0195,
+    d: (u, v, w) => {
+      let d = extrude(sdRoundBox(u, v, 0, 0.0105, 0.0175, 1, 0.005), w, 0.0011, 0.0004);
+      // Stamped lines and a raised rim.
+      const r = sdRoundBox(u, v, 0, 0.0105, 0.0175, 1, 0.005);
+      d -= 0.0005 * sstep(-0.0016, -0.0008, r) * sstep(0, 0.001, w);
+      for (const lv of [0.006, 0.0015, -0.003, -0.0075]) d += 0.0004 * sstep(0.0007, 0.0002, Math.abs(v - lv)) * sstep(0.0072, 0.0068, Math.abs(u)) * sstep(0, 0.001, w);
+      // The hole for the ring.
+      return Math.max(d, -(Math.hypot(u, v - 0.0135) - 0.0015));
+    },
+  },
+};
+
+function pendantField(shape) {
+  const P = PENDANTS[shape];
+  return (x, y, z) => {
+    const u = x - PC[0], v = y - PC[1], w = z - PC[2] - PT;
+    const body = P.d(u, v, w);
+    // Bail: a ring at the top, in the plane facing sideways, that the chain runs through.
+    const by = P.top + 0.0028;
+    const ring = Math.hypot(Math.hypot(v - by, w) - 0.0031, u) - 0.0011;
+    return Math.min(body, ring);
+  };
+}
+const PENDANT_BOX = [[PC[0] - 0.03, PC[1] - 0.03, PC[2] - 0.012], [PC[0] + 0.03, PC[1] + 0.03, PC[2] + 0.03]];
+
+function chainTemplate(shape) {
+  return {
+    slot: "accessory",
+    socket: "Neck",
+    // The links take ~2.1k; the pendant needs the rest to keep its outline.
+    tris: 2850,
+    parts: [
+      built("metal", (b) => chainLinks(b)),
+      rigid("secondary", pendantField(shape), PENDANT_BOX, { h: 0.00045, tris: 700, error: 0.00015 }),
+    ],
+  };
 }
 
 /* ── watch ───────────────────────────────────────────────────────────────── */
@@ -1007,3 +1205,26 @@ function onCloth(p, off) {
 }
 
 void [lerp, gauss, coverage, hatInnerD, EYE, headD, sstep, legBand];
+
+/* Chains are added last: their pendants are defined above, after TEMPLATES. */
+Object.assign(TEMPLATES, {
+  // One chain, a different pendant each: the catalog picks the template.
+  acc_chain: chainTemplate("medallion"),
+  acc_chain_star: chainTemplate("star"),
+  acc_chain_bolt: chainTemplate("bolt"),
+  acc_chain_crown: chainTemplate("crown"),
+  acc_chain_heart: chainTemplate("heart"),
+  acc_chain_ball: chainTemplate("ball"),
+  acc_chain_football: chainTemplate("football"),
+  acc_chain_trophy: chainTemplate("trophy"),
+  acc_chain_number: chainTemplate("number"),
+  acc_chain_diamond: chainTemplate("diamond"),
+  acc_chain_dogtag: chainTemplate("dogtag"),
+  // No pendant: heavy flat links.
+  acc_chain_cuban: {
+    slot: "accessory",
+    socket: "Neck",
+    tris: 2800,
+    parts: [built("metal", (b) => chainLinks(b, CUBAN))],
+  },
+});

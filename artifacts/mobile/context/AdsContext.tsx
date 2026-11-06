@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { canPrompt, markPromptResult, markPromptShown, promptGateReady } from "@/lib/promptGate";
 import { AppState } from "react-native";
 import { AD_POLICY, AD_REWARD_DISPLAY } from "@/constants/ads";
 import sdk, { requestTrackingIfNeeded } from "@/lib/ads/sdk";
@@ -52,7 +53,16 @@ async function initialise(): Promise<boolean> {
     info = await sdk.AdsConsent.getConsentInfo().catch(() => null);
   }
   if (!info?.canRequestAds) return false;
-  await requestTrackingIfNeeded();
+  // ATT waits for session 2 and the one-prompt-per-session gate; ads still serve
+  // non-personalised until then.
+  await promptGateReady();
+  if (canPrompt("att")) {
+    const att = await requestTrackingIfNeeded();
+    if (att.asked) {
+      markPromptShown("att");
+      markPromptResult("att", att.granted);
+    }
+  }
   await sdk.default().setRequestConfiguration({ maxAdContentRating: sdk.MaxAdContentRating.T });
   await sdk.default().initialize();
   return true;

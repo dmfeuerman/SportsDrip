@@ -12,31 +12,28 @@ const CAPS: Array<number | null> = [null, 5, 10, 20];
 /** Optional limits: a daily pick cap and "take a break". Enforced on the server. */
 export default function PlayLimitsCard() {
   const c = useColors();
-  const { profile } = useApp();
+  const { profile, writeProfile } = useApp();
   const cap = profile?.limits?.dailyPicks ?? null;
   const breakUntil = profile?.limits?.breakUntil ?? 0;
   const onBreak = breakUntil > Date.now();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const run = async (args: Parameters<typeof api.setPlayLimits>[0]) => {
-    setBusy(true);
+  // Instant: the chip flips now, the server saves it after (and undoes it with a toast if it refuses).
+  const run = (args: Parameters<typeof api.setPlayLimits>[0]) => {
     setErr(null);
-    try {
-      await api.setPlayLimits(args);
-      haptic.success();
-    } catch (e) {
-      setErr(api.friendlyError(e));
-    } finally {
-      setBusy(false);
-    }
+    const limits = { ...(profile?.limits ?? {}) };
+    if ("dailyPicks" in args) limits.dailyPicks = args.dailyPicks ?? null;
+    if (args.breakDays) limits.breakUntil = Date.now() + args.breakDays * 86_400_000;
+    writeProfile({ limits }, () => api.setPlayLimits(args));
+    haptic.success();
   };
 
   return (
     <Card style={{ gap: 10 }} accessibilityLabel="Play limits">
       <View style={styles.head}>
         <MaterialCommunityIcons name="timer-sand" size={18} color={c.accent} />
-        <Text style={[styles.title, { color: c.foreground }]}>Alerts & limits</Text>
+        <Text style={[styles.title, { color: c.foreground }]}>Alerts & Limits</Text>
       </View>
       <Text style={[styles.sub, { color: c.mutedForeground }]}>
         {onBreak ? `On a break until ${new Date(breakUntil).toLocaleDateString()}.` : `Daily pick limit: ${cap ?? "none"}.`}
@@ -67,16 +64,32 @@ export default function PlayLimitsCard() {
           chevron={false}
           tone={profile?.sweatAlerts ? "accent" : "neutral"}
           disabled={busy}
-          onPress={async () => {
-            setBusy(true);
-            try {
-              await api.setAlertPrefs({ sweat: !profile?.sweatAlerts });
-              haptic.tick();
-            } catch (e) {
-              setErr(api.friendlyError(e));
-            } finally {
-              setBusy(false);
-            }
+          onPress={() => {
+            writeProfile({ sweatAlerts: !profile?.sweatAlerts }, () => api.setAlertPrefs({ sweat: !profile?.sweatAlerts }));
+            haptic.tick();
+          }}
+        />
+        <ActionChip
+          label={profile?.quietHours === false ? "Quiet hours: off" : "Quiet hours: 11pm–8am"}
+          icon="weather-night"
+          chevron={false}
+          tone={profile?.quietHours === false ? "neutral" : "accent"}
+          disabled={busy}
+          accessibilityLabel={profile?.quietHours === false ? "Turn quiet hours on" : "Turn quiet hours off"}
+          onPress={() => {
+            writeProfile({ quietHours: profile?.quietHours === false }, () => api.setAlertPrefs({ quietHours: profile?.quietHours === false }));
+            haptic.tick();
+          }}
+        />
+        <ActionChip
+          label={profile?.muteTaunts ? "Taunts: muted" : "Taunts: on"}
+          icon="human-handsup"
+          chevron={false}
+          tone={profile?.muteTaunts ? "neutral" : "accent"}
+          disabled={busy}
+          onPress={() => {
+            writeProfile({ muteTaunts: !profile?.muteTaunts }, () => api.setMuteTaunts({ mute: !profile?.muteTaunts }));
+            haptic.tick();
           }}
         />
       </View>

@@ -1,4 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { markPromptResult } from "@/lib/promptGate";
+import { doc, getDoc } from "firebase/firestore";
+import { getDb } from "@/lib/firebase";
+import { liveActivitySupported, startActivity } from "@/modules/live-activity";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { AccessibilityInfo, StyleSheet, Text, View } from "react-native";
@@ -25,6 +29,7 @@ import { markPushPrimerShown, pushPrimerDue } from "@/lib/settings";
 import type { BetLockedInput } from "@/context/ToastContext";
 import { Amount } from "@/components/ui";
 import { useToast, type Toast, type ToastKind } from "@/context/ToastContext";
+import { useOverlayBusy } from "@/lib/overlayTurns";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { haptic, SPRING } from "@/lib/motion";
 
@@ -50,6 +55,7 @@ const OFF = -180;
  */
 export default function ToastHost() {
   const { current, queued, dismiss, locked, clearLocked, show } = useToast();
+  const overlayBusy = useOverlayBusy();
   const { pushStatus, enablePush } = useNotifications();
   const { sendMessage } = useLeague();
   const [primer, setPrimer] = useState(false);
@@ -61,6 +67,8 @@ export default function ToastHost() {
   const onLockedDone = useCallback(
     (bet: BetLockedInput) => {
       clearLocked();
+      // Live Activity for this game: the bet confirm is the user action ActivityKit requires.
+      if (bet.gameId && liveActivitySupported()) void startGameActivity(bet.gameId, bet.teamAbbr);
       if (pushStatus === "undetermined" && pushPrimerDue()) {
         markPushPrimerShown();
         setPrimer(true);
@@ -99,18 +107,23 @@ export default function ToastHost() {
 
   return (
     <>
-      {current ? <ToastCard key={current.id} toast={current} queued={queued} onGone={() => dismiss(current.id)} /> : null}
+      {/* Banners wait while a popup is up (it would cover them), then carry on one by one. */}
+      {current && !overlayBusy ? <ToastCard key={current.id} toast={current} queued={queued} onGone={() => dismiss(current.id)} /> : null}
       {locked ? <BetLockedOverlay key={locked.key} bet={locked} onDone={() => onLockedDone(locked)} /> : null}
       {primer ? (
         <PushPrimer
           onAccept={() => {
             setPrimer(false);
             void enablePush().then((s) => {
+              markPromptResult("push", s === "granted");
               // The primer promised "when the game swings": opt into sweat alerts with it.
               if (s === "granted") api.setAlertPrefs({ sweat: true }).catch(() => {});
             });
           }}
-          onDecline={() => setPrimer(false)}
+          onDecline={() => {
+            markPromptResult("push", false);
+            setPrimer(false);
+          }}
         />
       ) : null}
     </>
@@ -275,3 +288,19 @@ const styles = StyleSheet.create({
   // A sliver of the next banner peeking out under this one.
   stack: { position: "absolute", left: 14, right: 14, bottom: -5, height: 8, borderBottomLeftRadius: 12, borderBottomRightRadius: 12, borderWidth: 1, borderTopWidth: 0, zIndex: -1 },
 });
+
+async function startGameActivity(gameId: string, teamAbbr: string): Promise<void> {
+  const db = getDb();
+  if (!db) return;
+  try {
+    const g = await getDoc(doc(db, "games", gameId));
+    if (!g.exists()) return;
+    const home = g.get("homeTeam.abbreviation") as string;
+    const away = g.get("awayTeam.abbreviation") as string;
+    await startActivity(
+      gameId,
+      { homeAbbr: home, awayAbbr: away, yourSide: teamAbbr === away ? "away" : "home" },
+      { homeScore: (g.get("homeScore") as number) ?? 0, awayScore: (g.get("awayScore") as number) ?? 0, clock: "", status: "live" }
+    );
+  } catch {}
+}

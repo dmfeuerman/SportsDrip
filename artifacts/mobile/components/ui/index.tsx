@@ -22,6 +22,9 @@ import PressableScale from "@/components/fx/PressableScale";
 import RollingNumber from "@/components/fx/RollingNumber";
 import Shimmer from "@/components/fx/Shimmer";
 import { useColors, type Colors } from "@/hooks/useColors";
+import { titleCase } from "@/lib/titleCase";
+
+export { titleCase };
 
 /**
  * SportDrip UI kit.
@@ -141,8 +144,13 @@ export function Button({
       ) : (
         <>
           {icon && <MaterialCommunityIcons name={icon} size={font + 2} color={p.fg} />}
-          <Text style={[styles.btnText, { color: p.fg, fontSize: font, letterSpacing: variant === "primary" ? -0.1 : 0 }]} numberOfLines={1}>
-            {label}
+          <Text
+            style={[styles.btnText, { color: p.fg, fontSize: font, letterSpacing: variant === "primary" ? -0.1 : 0, flexShrink: 1 }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
+          >
+            {titleCase(label)}
           </Text>
         </>
       )}
@@ -348,12 +356,15 @@ export function ScreenHeader({
   subtitle,
   right,
   back,
+  leading,
   children,
 }: {
   title: string;
   subtitle?: string;
   right?: React.ReactNode;
   back?: boolean;
+  /** Rendered before the title (e.g. a contextual back pill). */
+  leading?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const c = useColors();
@@ -372,9 +383,10 @@ export function ScreenHeader({
             <MaterialCommunityIcons name="chevron-left" size={28} color={c.foreground} />
           </Pressable>
         )}
+        {leading}
         <View style={{ flex: 1 }}>
           <Text accessibilityRole="header" style={[styles.title, { color: c.foreground }]} numberOfLines={1}>
-            {title}
+            {titleCase(title)}
           </Text>
           {subtitle ? (
             <Text style={[styles.subtitle, { color: c.mutedForeground }]} numberOfLines={1}>
@@ -449,7 +461,7 @@ export function ActionChip({
     >
       {icon && <MaterialCommunityIcons name={icon} size={16} color={t.fg} />}
       <Text style={[styles.chipText, { color: t.fg }]} numberOfLines={1}>
-        {label}
+        {titleCase(label)}
       </Text>
       {chevron && <MaterialCommunityIcons name="chevron-right" size={16} color={t.fg} />}
     </Pressable>
@@ -497,7 +509,7 @@ export function SectionHeader({
               { backgroundColor: c.primary, borderColor: c.primary, opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
             ]}
           >
-            <Text style={[styles.sectionPillText, { color: c.primaryForeground }]}>{action}</Text>
+            <Text style={[styles.sectionPillText, { color: c.primaryForeground }]}>{titleCase(action)}</Text>
             <MaterialCommunityIcons name="chevron-right" size={18} color={c.primaryForeground} />
           </Pressable>
         ) : (
@@ -509,12 +521,16 @@ export function SectionHeader({
               onAction();
             }}
             hitSlop={12}
-            style={({ pressed }) => [styles.sectionLink, { opacity: pressed ? 0.6 : 1 }]}
+            style={({ pressed }) => [
+              styles.sectionLink,
+              { backgroundColor: c.alpha(c.accent, 0.12), borderColor: c.alpha(c.accent, 0.55), opacity: pressed ? 0.7 : 1 },
+            ]}
           >
             {actionIcon ? <MaterialCommunityIcons name={actionIcon} size={15} color={c.accent} /> : null}
             <Text style={[styles.sectionLinkText, { color: c.accent }]} numberOfLines={1}>
-              {action}
+              {titleCase(action)}
             </Text>
+            <MaterialCommunityIcons name="chevron-right" size={16} color={c.accent} />
           </Pressable>
         )
       ) : null}
@@ -550,7 +566,7 @@ export function SegmentedControl<T extends string>({
             style={[styles.segmentItem, on && { backgroundColor: c.foreground }]}
           >
             <Text style={[styles.segmentText, { color: on ? c.background : c.mutedForeground }]} numberOfLines={1}>
-              {o.label}
+              {titleCase(o.label)}
             </Text>
             {o.badge ? (
               <View style={[styles.segmentBadge, { backgroundColor: on ? c.alpha(c.background, 0.16) : c.alpha(c.foreground, 0.1) }]}>
@@ -616,7 +632,7 @@ export function TabStrip<T extends string>({
   const bar = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }], width: w.value }));
 
   const row = (
-    <View accessibilityRole="tablist" style={[styles.tabRow, !scroll && { flex: 1 }]}>
+    <View accessibilityRole="tablist" style={styles.tabRow}>
       {options.map((o) => {
         const on = o.value === value;
         return (
@@ -703,7 +719,7 @@ export function FilterPills<T extends string>({
             key={o.value}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
-            accessibilityLabel={o.label}
+            accessibilityLabel={titleCase(o.label)}
             haptic="tick"
             onPress={() => onChange(o.value)}
             style={({ pressed }) => [
@@ -722,7 +738,7 @@ export function FilterPills<T extends string>({
               </View>
             ) : null}
             <Text style={[styles.filterText, { color: fg }]} numberOfLines={1}>
-              {o.label}
+              {titleCase(o.label)}
             </Text>
             {o.badge ? <View style={[styles.dot, { backgroundColor: c.negative }]} /> : null}
           </Pressable>
@@ -779,7 +795,7 @@ export function EmptyState({
       <View style={[styles.emptyIcon, { backgroundColor: c.secondary }]}>
         <MaterialCommunityIcons name={icon} size={28} color={c.mutedForeground} />
       </View>
-      <Text style={[styles.emptyTitle, { color: c.foreground }]}>{title}</Text>
+      <Text style={[styles.emptyTitle, { color: c.foreground }]}>{titleCase(title)}</Text>
       {body ? <Text style={[styles.emptyBody, { color: c.mutedForeground }]}>{body}</Text> : null}
       {(action || secondary) && (
         <View style={styles.emptyActions}>
@@ -927,15 +943,15 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   closeBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
-  badgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_800ExtraBold" },
+  badgeText: { color: "#fff", fontSize: 11, fontFamily: "Inter_800ExtraBold" },
   card: { borderRadius: 14, borderWidth: 1, padding: 14 },
   pill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" },
-  pillText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
+  pillText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   amountRow: { flexDirection: "row", alignItems: "center", gap: 3 },
   stat: { flex: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 10, gap: 2, minWidth: 0, alignItems: "center" },
-  statLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.9, marginTop: 2 },
+  statLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.9, marginTop: 2 },
   statValue: { fontSize: 20, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
-  statHint: { fontSize: 10, fontFamily: "Inter_400Regular", textAlign: "center" },
+  statHint: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center" },
   header: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingBottom: 12, gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 40 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -945,8 +961,8 @@ const styles = StyleSheet.create({
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, marginBottom: 8 },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
   section: { fontSize: 14, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.7, flexShrink: 1 },
-  sectionLink: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },
-  sectionLinkText: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  sectionLink: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32, paddingLeft: 12, paddingRight: 8, borderRadius: 999, borderWidth: 1.5 },
+  sectionLinkText: { fontSize: 13, fontFamily: "Inter_800ExtraBold" },
   chip: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 34, paddingLeft: 12, paddingRight: 8, borderRadius: 999, borderWidth: 1.5 },
   chipText: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.1 },
   sectionPill: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 36, paddingLeft: 14, paddingRight: 8, borderRadius: 999, borderWidth: 1 },
@@ -955,7 +971,7 @@ const styles = StyleSheet.create({
   segmentItem: { flex: 1, flexDirection: "row", gap: 6, paddingVertical: 8, borderRadius: 999, alignItems: "center", justifyContent: "center" },
   segmentText: { fontSize: 13, fontFamily: "Inter_700Bold", flexShrink: 1 },
   segmentBadge: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
-  segmentBadgeText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
+  segmentBadgeText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
   tabStrip: { borderBottomWidth: StyleSheet.hairlineWidth },
   tabBleed: { marginHorizontal: -16, marginBottom: -12, borderBottomWidth: 0 },
   tabRow: { flexDirection: "row" },
@@ -964,7 +980,7 @@ const styles = StyleSheet.create({
   tabLabel: { flexDirection: "row", alignItems: "center", gap: 5 },
   tabText: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   tabBadge: { minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" },
-  tabBadgeText: { color: "#fff", fontSize: 9, fontFamily: "Inter_800ExtraBold" },
+  tabBadgeText: { color: "#fff", fontSize: 11, fontFamily: "Inter_800ExtraBold" },
   tabBar: { position: "absolute", left: 0, bottom: 0, height: 3, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
   pillsRow: { gap: 8, alignItems: "center" },
   filterPill: { flexDirection: "row", alignItems: "center", gap: 7, minHeight: 36, paddingLeft: 6, paddingRight: 14, borderRadius: 999, borderWidth: 1 },

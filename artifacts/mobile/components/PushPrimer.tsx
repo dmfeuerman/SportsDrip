@@ -24,8 +24,8 @@ export default function PushPrimer({ onAccept, onDecline }: { onAccept: () => vo
           <Text style={[styles.body, { color: c.mutedForeground }]}>
             Get told when your pick wins, when the game swings, and when friends challenge you.
           </Text>
-          <Button label="Turn on notifications" size="lg" onPress={onAccept} style={{ alignSelf: "stretch" }} />
-          <Button label="Not now" variant="secondary" onPress={onDecline} style={{ alignSelf: "stretch" }} />
+          <Button label="Turn on Notifications" size="lg" onPress={onAccept} style={{ alignSelf: "stretch" }} />
+          <Button label="Not Now" variant="secondary" onPress={onDecline} style={{ alignSelf: "stretch" }} />
         </Animated.View>
       </View>
     </Modal>

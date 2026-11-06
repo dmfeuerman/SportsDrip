@@ -209,7 +209,7 @@ export default function ColorWheelSheet({
           />
         </View>
         <Button
-          label="Use colour"
+          label="Use Colour"
           onPress={() => {
             onPick(hex);
             onClose();

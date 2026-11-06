@@ -20,12 +20,24 @@ export function openSocialNotification(n: AppNotification) {
     router.navigate({ pathname: "/league/[id]", params: { id: n.leagueId, tab: "bets" } });
   } else if (n.type === "bet_refunded") {
     router.navigate(n.leagueId ? { pathname: "/league/[id]", params: { id: n.leagueId, tab: "bets" } } : "/bets");
+  } else if (n.type === "achievement") {
+    router.navigate("/trophies" as never);
+  } else if (n.type === "gift_received") {
+    router.navigate("/(tabs)/avatar");
+  } else if (n.leagueId) {
+    router.navigate({ pathname: "/league/[id]", params: { id: n.leagueId } });
+  } else if (n.type.startsWith("loan_") || n.type.startsWith("stimulus_")) {
+    router.navigate("/(tabs)/leagues");
+  } else {
+    // Nothing more specific: the full notification list.
+    router.navigate("/activity");
   }
 }
 
 /** A server notification as a banner: colour, icon and call to action by type. */
 function toToast(n: AppNotification): ToastInput {
-  const base = { id: `n_${n.id}`, title: n.title, body: n.body };
+  // Every banner is tappable (openSocialNotification always has somewhere to go), so every one says so.
+  const base = { id: `n_${n.id}`, title: n.title, body: n.body, cta: "View" };
   switch (n.type) {
     case "league_invite":
       return { ...base, kind: "league", icon: "trophy-outline", cta: "View", durationMs: 8000 };
@@ -33,15 +45,19 @@ function toToast(n: AppNotification): ToastInput {
       return { ...base, kind: "social", icon: "account-plus", cta: "Respond", durationMs: 8000 };
     case "friend_accepted":
       return { ...base, kind: "social", icon: "account-check", cta: "See" };
+    case "gift_received":
+      return { ...base, kind: "win", icon: "gift-outline", cta: "Wear it", durationMs: 8000 };
     case "referral_bonus":
       return { ...base, kind: "win", icon: "account-heart", cta: "See", durationMs: 8000, amount: n.delta ? { value: n.delta, currency: "credits" } : undefined };
     case "loan_request":
       return { ...base, kind: "loan", icon: "hand-coin-outline", cta: "Lend?", durationMs: 8000 };
     case "loan_countered":
       return { ...base, kind: "loan", icon: "swap-horizontal", cta: "Review", durationMs: 8000 };
+    case "credits_received":
+      return { ...base, kind: "win", icon: "cash-fast", cta: "Say thanks", durationMs: 8000, amount: n.delta ? { value: n.delta, currency: "credits" } : undefined };
     case "loan_funded":
     case "loan_repaid":
-      return { ...base, kind: "win", icon: n.type === "loan_funded" ? "handshake-outline" : "cash-check", amount: n.delta ? { value: n.delta, currency: "league" } : undefined };
+      return { ...base, kind: "win", icon: n.type === "loan_funded" ? "handshake-outline" : "cash-check", amount: n.delta ? { value: n.delta, currency: n.wallet === "league" ? "league" : "credits" } : undefined };
     case "challenge_received":
       return { ...base, kind: "social", icon: "sword-cross", cta: "Answer", durationMs: 9000 };
     case "challenge_accepted":

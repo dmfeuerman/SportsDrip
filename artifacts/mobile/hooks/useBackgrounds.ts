@@ -1,4 +1,4 @@
-import { collection, onSnapshot } from "firebase/firestore";
+import { subscribeBundle } from "@/lib/bundles";
 import { useEffect, useMemo, useState } from "react";
 import { BACKGROUND_LIBRARY, isFreeBackground, type BackgroundInfo, type BackgroundRarity } from "@/constants/backgrounds";
 import { getDb } from "@/lib/firebase";
@@ -33,9 +33,10 @@ export function useBackgrounds() {
   useEffect(() => {
     const db = DEMO ? null : getDb();
     if (!db) return;
-    return onSnapshot(
-      collection(db, "backgrounds"),
-      (snap) => setDocs(new Map(snap.docs.map((d) => [d.id, d.data() as BackgroundDoc]))),
+    return subscribeBundle(
+      db,
+      "backgrounds",
+      (items) => setDocs(new Map(items.map(({ id, ...d }) => [id, d as unknown as BackgroundDoc]))),
       () => {}
     );
   }, []);
@@ -47,16 +48,17 @@ export function useBackgrounds() {
       const d = docs?.get(b.id);
       const listed = docs ? !!d && d.available !== false && !(d.releaseAt && d.releaseAt > now) : true;
       const levelReward = d ? (d.levelReward ?? null) : b.levelReward;
+      const price = free ? 0 : typeof d?.price === "number" ? d.price : b.price;
       return {
         ...b,
         name: d?.name ?? b.name,
         description: d?.description ?? b.description,
         rarity: d?.rarity ?? b.rarity,
-        price: free ? 0 : typeof d?.price === "number" ? d.price : b.price,
+        price,
         levelRequired: d ? (d.levelRequired ?? null) : b.levelRequired,
         levelReward,
         free,
-        forSale: !free && listed && !levelReward,
+        forSale: !free && listed && price > 0,
       };
     });
   }, [docs]);

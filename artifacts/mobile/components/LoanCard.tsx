@@ -66,7 +66,7 @@ export default function LoanCard({
             {loan.ratePct}% flat · repays {snap.totalRepayable.toLocaleString()} total
           </Text>
         </View>
-        {repaid ? <Pill label="Paid off" tone="positive" icon="check" /> : null}
+        {repaid ? <Pill label="Paid Off" tone="positive" icon="check" /> : null}
       </View>
 
       <View style={styles.owedRow}>
@@ -83,10 +83,10 @@ export default function LoanCard({
       </View>
 
       <View style={[styles.grid, { borderTopColor: c.border }]}>
-        <Cell label="Original principal" value={snap.principal} />
-        <Cell label="Principal left" value={snap.principalOutstanding} />
+        <Cell label="Original Principal" value={snap.principal} />
+        <Cell label="Principal Left" value={snap.principalOutstanding} />
         <Cell label={`Interest (${loan.ratePct}%)`} value={snap.interestCharged} />
-        <Cell label="Interest paid" value={snap.interestPaid} />
+        <Cell label="Interest Paid" value={snap.interestPaid} />
       </View>
 
       {viewer === "borrower" && !repaid && onRepay && (
@@ -110,9 +110,9 @@ export default function LoanCard({
               </View>
               <View style={styles.quick}>
                 {snap.interestOutstanding > 0 && (
-                  <Button size="sm" variant="secondary" label="Interest only" onPress={() => setAmount(String(Math.min(snap.interestOutstanding, tokens)))} />
+                  <Button size="sm" variant="secondary" label="Interest Only" onPress={() => setAmount(String(Math.min(snap.interestOutstanding, tokens)))} />
                 )}
-                <Button size="sm" variant="secondary" label="Pay it off" onPress={() => setAmount(String(Math.min(snap.totalOwed, tokens)))} />
+                <Button size="sm" variant="secondary" label="Pay It Off" onPress={() => setAmount(String(Math.min(snap.totalOwed, tokens)))} />
               </View>
               {preview && (
                 <Text style={[styles.sub, { color: c.mutedForeground }]}>
@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 15, fontFamily: "Inter_700Bold" },
   sub: { fontSize: 12, lineHeight: 17, fontFamily: "Inter_400Regular" },
   owedRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
-  k: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  k: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   v: { fontSize: 15, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   grid: { flexDirection: "row", flexWrap: "wrap", borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, rowGap: 10 },
   cell: { width: "50%", gap: 2 },

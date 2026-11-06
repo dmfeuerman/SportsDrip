@@ -7,7 +7,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import type { AvatarConfig } from "../../types/avatar";
 import type { OutfitPiece, ResolvedOutfit } from "./outfit";
-import { hash, lookKey } from "./outfit";
+import { hash, lookKey, pieceLook } from "./outfit";
 import type { Framing } from "./spec";
 import { withTimeout } from "../devtrace";
 
@@ -28,7 +28,7 @@ export const avatarJob = (avatar: AvatarConfig, outfit: ResolvedOutfit, framing:
 
 export const itemJob = (piece: OutfitPiece): PortraitJob => ({
   kind: "item",
-  key: `v${RENDER_VERSION}:item#${hash(`${piece.template ?? piece.url}@${piece.version ?? ""}|${piece.primary}|${piece.secondary ?? ""}`)}`,
+  key: `v${RENDER_VERSION}:item#${hash(pieceLook(piece))}`,
   piece,
 });
 

@@ -1,8 +1,8 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
-import { router, useIsFocused } from "expo-router";
-import React, { useMemo, useState } from "react";
+import { router, useIsFocused, useLocalSearchParams } from "expo-router";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import AvatarHero from "@/components/avatar/AvatarHero";
@@ -11,13 +11,20 @@ import LevelBar from "@/components/LevelBar";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket from "@/components/BetTicket";
 import DailyPickCard from "@/components/DailyPickCard";
+import { betNet } from "@/components/BetRecordPanel";
+import FirstWeekChecklist from "@/components/FirstWeekChecklist";
+import LadderPromotionHost from "@/components/LadderPromotionHost";
 import QuestsCard from "@/components/QuestsCard";
+import RewardsCard from "@/components/RewardsCard";
+import WinBackCard from "@/components/WinBackCard";
+import NextActionCard from "@/components/NextActionCard";
+import LiveSweatCard, { type SweatBet } from "@/components/LiveSweatCard";
+import WeeklyRecapCard from "@/components/WeeklyRecapCard";
 import CrewFeedModule from "@/components/CrewFeed";
 import GameQuickView from "@/components/GameQuickView";
 import SponsoredCard from "@/components/ads/SponsoredCard";
 import { Amount, Button, Card, EmptyState, IconButton, Pill, SectionHeader, useBottomPad, useTopPad } from "@/components/ui";
 import { DEFAULT_AVATAR } from "@/constants/avatarOptions";
-import { BOX_TIERS } from "@/constants/prizeTypes";
 import { useApp } from "@/context/AppContext";
 import { useChallenges } from "@/context/ChallengeContext";
 import { useLeague, useLeagueSummaries } from "@/context/LeagueContext";
@@ -29,9 +36,8 @@ import { useGames } from "@/hooks/useGames";
 import { useLevelRewards } from "@/hooks/useLevelRewards";
 import { useNow } from "@/hooks/useNow";
 import { untilKickoff } from "@/lib/odds";
-import { openWalkthrough } from "@/lib/settings";
-
-const COMPACT_HERO = 300;
+import { openTourMenu } from "@/lib/tour/store";
+import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
 
 /**
  * Home: "where do I stand?" answered in one screen. Order follows "now":
@@ -43,7 +49,7 @@ export default function HomeScreen() {
   const bottom = useBottomPad();
   const now = useNow(30_000);
 
-  const { profile, balance, bets, prizeBoxes, totalWon, progress, background } = useApp();
+  const { profile, balance, bets, totalWon, progress, background } = useApp();
   const { nextAfter } = useLevelRewards();
   const onScene = isSceneBackdrop(background);
   const { myLeagueBets, leagues } = useLeague();
@@ -65,25 +71,21 @@ export default function HomeScreen() {
   const results = notifications.filter((n) => n.bet).slice(0, 4);
   const settled = bets.filter((b) => b.status === "won" || b.status === "lost");
   const wins = settled.filter((b) => b.status === "won").length;
-  // Net, not just gross winnings: payouts back minus every settled stake.
-  const net = settled.reduce((s, b) => s + (b.status === "won" ? b.potentialPayout : 0) - b.stake, 0);
-
-  const readyBoxes = BOX_TIERS.filter((t) => {
-    const b = prizeBoxes[t];
-    return b.state === "ready" || (b.state === "waiting" && (b.readyAt ?? Infinity) <= now);
-  });
-  const idleBoxes = BOX_TIERS.filter((t) => prizeBoxes[t].state === "idle");
-  const nextBox = BOX_TIERS.map((t) => prizeBoxes[t])
-    .filter((b) => b.state === "waiting" && (b.readyAt ?? 0) > now)
-    .sort((a, b) => (a.readyAt ?? 0) - (b.readyAt ?? 0))[0];
+  // Net, not just gross winnings: payouts back minus every settled stake. Pushes count as 0.
+  const net = settled.reduce((s, b) => s + betNet(b), 0);
 
   const name = profile?.displayName?.trim() || profile?.username || "there";
   const focused = useIsFocused();
   const [avatarGesture, setAvatarGesture] = useState(false);
   const [quickGame, setQuickGame] = useState<string | null>(null);
   const [breakdown, setBreakdown] = useState<BetBreakdownItem | null>(null);
-  // Live stakes go above the fold; the full-height stage is one tap away.
-  const [heroExpanded, setHeroExpanded] = useState(false);
+  // "Run It Back" from a result popup lands here with the game to open.
+  const params = useLocalSearchParams<{ game?: string }>();
+  useEffect(() => {
+    if (!params.game) return;
+    setQuickGame(params.game);
+    router.setParams({ game: undefined } as never);
+  }, [params.game]);
 
   // A favorite team on today's board (live first, then the next kickoff within 18h).
   const teamTonight = useMemo(() => {
@@ -101,14 +103,36 @@ export default function HomeScreen() {
     return null;
   }, [profile?.favoriteTeams, games, now]);
 
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const tourScroll = useTourScroll(scrollRef);
+  const sectionY = useRef<{ prizes: number; daily: number }>({ prizes: 0, daily: 0 });
+  const scrollTo = (section: "prizes" | "daily") =>
+    scrollRef.current?.scrollTo({ y: Math.max(0, sectionY.current[section] - 12), animated: true });
+  const openGameIds = useMemo(
+    () => new Set([...openCredit.map((b) => b.gameId), ...openLeague.map(({ b }) => b.gameId)]),
+    [openCredit, openLeague]
+  );
+  const sweat: SweatBet[] = [
+    ...openCredit.map((b) => ({ ...b, key: b.id, wallet: null })),
+    ...openLeague.map(({ b, league }) => ({ ...b, key: `lg_${b.id}`, wallet: league })),
+  ];
+  const bestLeague = summaries
+    .filter((s) => s.me?.rank)
+    .sort((a, b) => (a.me!.rank ?? 99) - (b.me!.rank ?? 99))[0];
+
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
       <ScrollView
+        ref={scrollRef}
+        onScroll={tourScroll.onScroll}
+        scrollEventThrottle={tourScroll.scrollEventThrottle}
         scrollEnabled={!avatarGesture}
         contentContainerStyle={[styles.content, { paddingTop: top + 12, paddingBottom: bottom }]}
         showsVerticalScrollIndicator={false}
       >
+        <tourScroll.Provider>
         {/* Your character, live and head to toe, first thing on screen. Tap it for a celebration. */}
+        <TourTarget id="home.hero">
         <AvatarHero
           avatar={profile?.avatar ?? DEFAULT_AVATAR}
           equipped={profile?.equipped ?? {}}
@@ -118,34 +142,82 @@ export default function HomeScreen() {
           active={focused}
           onGesture={setAvatarGesture}
           background={background}
-          style={heroExpanded ? undefined : { height: COMPACT_HERO }}
-          footer={<LevelBar progress={progress} nextReward={nextAfter(progress.level)} onPress={() => router.push("/levels" as never)} />}
+          footer={<TourTarget id="home.level"><LevelBar progress={progress} nextReward={nextAfter(progress.level)} onPress={() => router.push("/levels" as never)} /></TourTarget>}
           header={
             <>
               <Text accessibilityRole="header" style={[styles.h1, { color: onScene ? "#FFFFFF" : c.foreground, flex: 1 }, onScene && styles.onScene]} numberOfLines={1}>
                 Hello {name}
               </Text>
-              <IconButton
-                icon={heroExpanded ? "arrow-collapse-vertical" : "arrow-expand-vertical"}
-                label={heroExpanded ? "Shrink avatar" : "Expand avatar"}
-                onPress={() => setHeroExpanded((v) => !v)}
-              />
-              <IconButton icon="help-circle-outline" label="How it works" onPress={openWalkthrough} />
-              <IconButton icon="chat-processing-outline" label="Chat" badge={unreadChatCount} onPress={() => router.push("/messages" as never)} />
-              <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
+              <TourTarget id="home.help"><IconButton icon="help-circle-outline" label="Tutorials" onPress={openTourMenu} /></TourTarget>
+              <TourTarget id="home.chat"><IconButton icon="chat-processing-outline" label="Chat" badge={unreadChatCount} onPress={() => router.push("/messages" as never)} /></TourTarget>
+              <TourTarget id="home.activity"><IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} /></TourTarget>
             </>
           }
         />
 
-        {/* Open bets */}
-        <SectionHeader
-          title="Riding now"
-          action={openTotal > 0 ? `All ${openTotal}` : undefined}
-          onAction={() => router.push("/bets")}
-          prominent
+        </TourTarget>
+
+        {/* The one thing worth doing right now */}
+        <TourTarget id="home.next">
+        <NextActionCard
+          now={now}
+          games={games}
+          openGameIds={openGameIds}
+          teamTonight={teamTonight}
+          onOpenGame={setQuickGame}
+          onScrollTo={scrollTo}
         />
+        </TourTarget>
+
+        <WeeklyRecapCard
+          bets={bets}
+          now={now}
+          leagueLine={bestLeague ? `#${bestLeague.me!.rank} of ${bestLeague.memberCount} in ${bestLeague.league.name}` : null}
+        />
+
+        {/* Wallet */}
+        <SectionHeader title="Wallet" icon="wallet-outline" />
+        <TourTarget id="home.wallet">
+        <Card style={[styles.wallet, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.28) }]}>
+          <LinearGradient
+            pointerEvents="none"
+            colors={[c.alpha(c.primary, c.isDark ? 0.2 : 0.12), c.alpha(c.accent, 0.05), "transparent"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.9, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <Text style={[styles.label, { color: c.mutedForeground }]}>CREDITS</Text>
+          <Amount value={balance} size="xl" animate />
+          <View style={styles.walletStats}>
+            <WalletStat
+              label="In Play"
+              value={atRisk.toLocaleString()}
+              hint={escrowed > 0 ? `${openCredit.length} bets · ${escrowed.toLocaleString()} in pots` : `${openCredit.length} open`}
+            />
+            <WalletStat label="Could Return" value={couldReturn.toLocaleString()} color={c.positive} />
+            <WalletStat
+              label="League Debt"
+              value={totalDebt.toLocaleString()}
+              color={totalDebt > 0 ? c.debt : undefined}
+              hint={totalDebt > 0 ? "flat interest" : "none"}
+            />
+          </View>
+        </Card>
+        </TourTarget>
+
+        {/* Live games you have money on */}
+        <LiveSweatCard bets={sweat} gameById={gameById} onOpen={setQuickGame} />
+
+        {/* Open bets */}
+        <TourTarget id="home.bets">
+        <SectionHeader
+          title="My Bets"
+          action={openTotal > 0 ? "See All" : undefined}
+          onAction={() => router.push("/bets")}
+        />
+        </TourTarget>
         {openTotal === 0 ? (
-          <EmptyState icon="ticket-outline" title="Nothing riding" body="Back a team on the board — results pop up here the moment the game's final." action="Browse games" onAction={() => router.navigate("/(tabs)/games")} />
+          <EmptyState icon="ticket-outline" title="Nothing Riding" body="Back a team on the board — results pop up here the moment the game's final." action="Browse Games" onAction={() => router.navigate("/(tabs)/games")} />
         ) : (
           <>
             {openCredit.slice(0, 3).map((b) => (
@@ -167,8 +239,19 @@ export default function HomeScreen() {
         )}
 
 
+        {/* Prize boxes: start, open and reset right here */}
+        <View onLayout={(e) => (sectionY.current.prizes = e.nativeEvent.layout.y)} style={{ gap: 12 }}>
+          <TourTarget id="home.prizes" style={{ gap: 12 }}>
+            <SectionHeader title="Prizes" icon="gift-outline" />
+            <WinBackCard />
+            <RewardsCard />
+          </TourTarget>
+        </View>
+
         {/* Friend challenges: anything waiting on an answer, or riding on a game */}
         {challengeInbox.length + challengesLive.length + challengesSent.length > 0 ? (
+          <>
+          <SectionHeader title="Challenges" icon="sword-cross" action="See All" onAction={() => router.push("/challenges")} />
           <Card
             tone={challengeInbox.length ? "accent" : undefined}
             onPress={() => router.push("/challenges")}
@@ -192,9 +275,17 @@ export default function HomeScreen() {
             </View>
             <MaterialCommunityIcons name="chevron-right" size={20} color={c.mutedForeground} />
           </Card>
+          </>
         ) : null}
 
-        <DailyPickCard />
+        <SectionHeader title="Today" icon="calendar-today" action="See All" onAction={() => router.push("/bets")} />
+        <FirstWeekChecklist />
+        <LadderPromotionHost />
+        <View onLayout={(e) => (sectionY.current.daily = e.nativeEvent.layout.y)}>
+          <TourTarget id="home.daily">
+            <DailyPickCard />
+          </TourTarget>
+        </View>
         <QuestsCard />
 
         {/* Your team plays today */}
@@ -214,15 +305,17 @@ export default function HomeScreen() {
         ) : null}
 
         {/* Leagues */}
-        <SectionHeader title="Your leagues" action={leagues.length ? "All leagues" : undefined} onAction={() => router.navigate("/(tabs)/leagues")} />
+        <TourTarget id="home.leagues">
+        <SectionHeader title="Your Leagues" action={leagues.length ? "See All" : undefined} onAction={() => router.navigate("/(tabs)/leagues")} />
+        </TourTarget>
         {summaries.length === 0 ? (
           <EmptyState
             icon="trophy-outline"
-            title="Compete with friends"
+            title="Compete With Friends"
             body="A league gives everyone the same stack of tokens for a season. Best net worth at the end takes the pot."
-            action="Start a league"
+            action="Start a League"
             onAction={() => router.navigate({ pathname: "/(tabs)/leagues", params: { create: "1" } })}
-            secondary="Join with a code"
+            secondary="Join With a Code"
             onSecondary={() => router.navigate({ pathname: "/(tabs)/leagues", params: { join: "1" } })}
           />
         ) : (
@@ -254,62 +347,10 @@ export default function HomeScreen() {
 
         <CrewFeedModule />
 
-        {/* Wallet */}
-        <Card style={[styles.wallet, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.28) }]}>
-          <LinearGradient
-            pointerEvents="none"
-            colors={[c.alpha(c.primary, c.isDark ? 0.2 : 0.12), c.alpha(c.accent, 0.05), "transparent"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <Text style={[styles.label, { color: c.mutedForeground }]}>CREDITS</Text>
-          <Amount value={balance} size="xl" animate />
-          <View style={styles.walletStats}>
-            <WalletStat
-              label="In play"
-              value={atRisk.toLocaleString()}
-              hint={escrowed > 0 ? `${openCredit.length} bets · ${escrowed.toLocaleString()} in pots` : `${openCredit.length} open`}
-            />
-            <WalletStat label="Could return" value={couldReturn.toLocaleString()} color={c.positive} />
-            <WalletStat
-              label="League debt"
-              value={totalDebt.toLocaleString()}
-              color={totalDebt > 0 ? c.debt : undefined}
-              hint={totalDebt > 0 ? "flat interest" : "none"}
-            />
-          </View>
-          <View style={styles.actions}>
-            <Button label="Games" icon="scoreboard-outline" style={{ flex: 1 }} onPress={() => router.navigate("/(tabs)/games")} />
-            <Button label="My bets" variant="secondary" style={{ flex: 1 }} onPress={() => router.push("/bets")} />
-          </View>
-        </Card>
-
-        {/* Prize boxes — informational, never a countdown nag */}
-        {readyBoxes.length > 0 || idleBoxes.length > 0 ? (
-          <Card tone="money" onPress={() => router.push("/prizes")} style={styles.rowCard} accessibilityLabel="Prize boxes">
-            <MaterialCommunityIcons name="gift-open-outline" size={22} color={c.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowTitle, { color: c.foreground }]}>
-                {readyBoxes.length > 0 ? `${readyBoxes.length} prize box${readyBoxes.length > 1 ? "s" : ""} ready` : "Start a prize box timer"}
-              </Text>
-              <Text style={[styles.rowSub, { color: c.mutedForeground }]}>Free credits on a cooldown</Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={20} color={c.mutedForeground} />
-          </Card>
-        ) : nextBox ? (
-          <Card onPress={() => router.push("/prizes")} style={styles.rowCard} accessibilityLabel="Prize boxes">
-            <MaterialCommunityIcons name="gift-outline" size={22} color={c.mutedForeground} />
-            <Text style={[styles.rowSub, { color: c.mutedForeground, flex: 1 }]}>
-              Next free box {untilKickoff(nextBox.readyAt ?? now, now)}
-            </Text>
-          </Card>
-        ) : null}
-
         {/* Interactive Recent Results */}
         {results.length > 0 && (
           <>
-            <SectionHeader title="Recent results" action="Activity" onAction={() => router.push("/activity")} />
+            <SectionHeader title="Recent Results" action="See All" onAction={() => router.push("/activity")} />
             <Card style={{ padding: 0, overflow: "hidden" }}>
               {results.map((n, i) => (
                 <ResultRow
@@ -354,12 +395,28 @@ export default function HomeScreen() {
 
         {settled.length > 0 && (
           <View style={styles.record}>
-            <Pill label={`${wins}–${settled.length - wins} record`} icon="chart-line" />
-            <Pill label={`${Math.round((wins / settled.length) * 100)}% hit rate`} tone="accent" />
-            <Pill label={`${net >= 0 ? "+" : ""}${net.toLocaleString()} net`} tone={net > 0 ? "positive" : net < 0 ? "negative" : "neutral"} />
-            <Pill label={`${totalWon.toLocaleString()} won gross`} tone="neutral" />
+            {[
+              <Pill key="rec" label={`${wins}–${settled.length - wins} record`} icon="chart-line" />,
+              <Pill key="hit" label={`${Math.round((wins / settled.length) * 100)}% hit rate`} tone="accent" />,
+              <Pill key="net" label={`${net >= 0 ? "+" : ""}${net.toLocaleString()} net`} tone={net > 0 ? "positive" : net < 0 ? "negative" : "neutral"} />,
+              <Pill key="gross" label={`${totalWon.toLocaleString()} won gross`} tone="neutral" />,
+            ].map((pill) => (
+              <Pressable
+                key={pill.key}
+                accessibilityRole="button"
+                accessibilityLabel={`Open your profile stats. ${pill.props.label}`}
+                onPress={() => {
+                  buzz.tick();
+                  router.navigate({ pathname: "/(tabs)/avatar", params: { profile: "1" } });
+                }}
+                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] })}
+              >
+                {pill}
+              </Pressable>
+            ))}
           </View>
         )}
+        </tourScroll.Provider>
       </ScrollView>
       <BetBreakdownModal
         item={breakdown}
@@ -430,7 +487,7 @@ const styles = StyleSheet.create({
   h1: { fontSize: 28, lineHeight: 32, fontFamily: "Inter_900Black", letterSpacing: -1 },
   onScene: { textShadowColor: "rgba(0,0,0,0.55)", textShadowRadius: 8, textShadowOffset: { width: 0, height: 1 } },
   wallet: { gap: 8, padding: 18, borderRadius: 22, overflow: "hidden" },
-  label: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.2 },
+  label: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.2 },
   walletStats: { flexDirection: "row", gap: 8, marginTop: 4 },
   walletValue: { fontSize: 16, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   actions: { flexDirection: "row", gap: 10, marginTop: 8 },

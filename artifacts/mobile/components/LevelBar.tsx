@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   track: { height: 9, borderRadius: 5, backgroundColor: "rgba(255,255,255,0.14)", overflow: "hidden" },
   fill: { height: "100%", borderRadius: 5, overflow: "hidden" },
   sheen: { position: "absolute", left: 0, right: 0, top: 0, height: 3, backgroundColor: "rgba(255,255,255,0.35)" },
-  next: { color: "rgba(255,255,255,0.6)", fontSize: 10.5, fontFamily: "Inter_600SemiBold" },
+  next: { color: "rgba(255,255,255,0.6)", fontSize: 11, fontFamily: "Inter_600SemiBold" },
   gain: { position: "absolute", right: 30, top: -14, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   gainText: { fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 0.3 },
 });

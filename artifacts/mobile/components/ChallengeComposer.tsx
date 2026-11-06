@@ -81,7 +81,7 @@ export function ChallengeSetup({
             <View style={[styles.noFriends, { backgroundColor: c.secondary, borderColor: c.border }]}>
               <MaterialCommunityIcons name="account-multiple-plus-outline" size={20} color={c.mutedForeground} />
               <Text style={[styles.noFriendsText, { color: c.mutedForeground }]}>Add a friend to challenge them head to head.</Text>
-              <Button size="sm" variant="secondary" label="Find friends" onPress={onFindFriends} />
+              <Button size="sm" variant="secondary" label="Find Friends" onPress={onFindFriends} />
             </View>
           )
         ) : (
@@ -125,7 +125,7 @@ export function ChallengeSetup({
           <FormatCard
             on={format === "pot"}
             icon="treasure-chest"
-            title="Winner takes the pot"
+            title="Winner Takes the Pot"
             body="You both put in the same"
             onPress={() => onFormat("pot")}
             disabled={disabled}
@@ -133,7 +133,7 @@ export function ChallengeSetup({
           <FormatCard
             on={format === "odds"}
             icon="scale-balance"
-            title="Set the odds"
+            title="Set the Odds"
             body="Your price, they cover it"
             onPress={() => onFormat("odds")}
             disabled={disabled}
@@ -285,7 +285,7 @@ export function clampOdds(x: number): number {
 }
 
 const styles = StyleSheet.create({
-  label: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  label: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   noFriends: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, padding: 10 },
   noFriendsText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
   friend: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1.5, borderRadius: 12, paddingLeft: 6, paddingRight: 12, paddingVertical: 6, maxWidth: 190 },
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
   summary: { gap: 6, borderWidth: 1, borderRadius: 14, padding: 12 },
   potHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
   potSide: { flex: 1, gap: 2 },
-  potWho: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
+  potWho: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
   potStake: { fontSize: 18, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
   potCenter: { alignItems: "center", borderWidth: 1.5, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6, minWidth: 86 },
   potTotal: { fontSize: 20, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"] },

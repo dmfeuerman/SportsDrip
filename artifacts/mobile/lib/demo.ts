@@ -109,7 +109,7 @@ export const demoCatalog: CatalogItem[] = [
   item("outerwear_letterman", "Letterman Jacket", "outerwear", "outerwear_varsity", 16000, "epic", "#4A148C", "#FFD700"),
   item("outerwear_ice_puffer", "Ice Puffer", "outerwear", "outerwear_puffer", 18000, "epic", "#E3F2FD", "#90CAF9"),
   item("eyewear_shades_black", "Blackout Shades", "eyewear", "eyewear_shades", 3000, "uncommon", "#0A0A0A"),
-  item("accessory_gold_chain", "Gold Chain", "accessory", "acc_chain", 40000, "legendary", "#FFD700", "#FFC107"),
+  { ...item("accessory_gold_chain", "Gold Cuban Link", "accessory", "acc_chain_cuban", 40000, "legendary", "#FFD700", "#FFC107"), metalColor: "#E2B43F" },
   item("accessory_sport_watch", "Sport Watch", "accessory", "acc_watch", 3800, "uncommon", "#212121", "#9E9E9E"),
   item("accessory_studio_headphones", "Studio Headphones", "accessory", "acc_headphones", 9000, "rare", "#FAFAFA", "#212121"),
   { ...item("hat_rookie_cap", "Rookie Cap", "hat", "hat_cap", 0, "uncommon", "#2FE38A", "#0E0F11"), description: "Earned, not bought. Reach level 3.", levelReward: 3 },

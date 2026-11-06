@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Image } from "expo-image";
+import PlayerSilhouette from "@/components/PlayerSilhouette";
+import TeamCrest from "@/components/TeamCrest";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
@@ -68,22 +69,7 @@ export function Block({
 }
 
 export function TeamMark({ team, size = 20 }: { team: TeamSide; size?: number }) {
-  const c = useColors();
-  if (team.logoUrl) {
-    return <Image source={{ uri: team.logoUrl }} style={{ width: size, height: size }} contentFit="contain" transition={100} />;
-  }
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: c.alpha(team.color, 0.25),
-        borderWidth: 1,
-        borderColor: team.color,
-      }}
-    />
-  );
+  return <TeamCrest abbr={size < 22 ? "" : team.abbreviation} color={team.color} altColor={team.altColor} size={size} />;
 }
 
 export function FormStrip({ results, size = 18 }: { results: Array<"W" | "L" | "D" | null>; size?: number }) {
@@ -177,7 +163,7 @@ export function Linescore({ game, insights }: { game: Game; insights: GameInsigh
   const total = (side: Side) => (side === "home" ? game.homeScore : game.awayScore) ?? ls[side].reduce<number>((s, v) => s + (v ?? 0), 0);
 
   return (
-    <Block title="By period" caption={live ? "Updates as the game goes" : null}>
+    <Block title="By Period" caption={live ? "Updates as the game goes" : null}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 8 }}>
         <View>
           <View style={styles.lsRow}>
@@ -274,7 +260,7 @@ export function WinProbability({ game, insights }: { game: Game; insights: GameI
   const wp = insights?.winProbability;
   if (!wp || game.status !== "live") return null;
   return (
-    <Block title="Win probability" caption="ESPN's live model, updated each play">
+    <Block title="Win Probability" caption="ESPN's live model, updated each play">
       <View style={{ paddingVertical: 10 }}>
         <SplitBar game={game} away={Math.max(0, 1 - wp.home - wp.tie)} home={wp.home} label="right now" />
       </View>
@@ -380,7 +366,7 @@ export function RecentFormBlock({ game, insights }: { game: Game; insights: Game
   if (!data.away.length && !data.home.length) return null;
 
   return (
-    <Block title="Recent form" caption="Last five, newest first. Tap a team for results.">
+    <Block title="Recent Form" caption="Last five, newest first. Tap a team for results.">
       {SIDES.map((side, idx) => {
         const t = teamOf(game, side);
         const list = data[side];
@@ -434,7 +420,7 @@ export function HeadToHeadBlock({ game, insights }: { game: Game; insights: Game
   if (!h2h || (!h2h.games.length && !h2h.summary)) return null;
   const tally = h2hTally(game, h2h.games);
   return (
-    <Block title="Head to head" caption={h2h.summary ?? (h2h.games.length ? `Last ${h2h.games.length} meetings` : null)}>
+    <Block title="Head to Head" caption={h2h.summary ?? (h2h.games.length ? `Last ${h2h.games.length} meetings` : null)}>
       {h2h.games.length ? (
         <View style={[styles.tally, { borderBottomColor: c.border }]}>
           <Tally team={game.awayTeam} wins={tally.away} c={c} />
@@ -470,7 +456,7 @@ export function KeyPlayersBlock({ game, insights }: { game: Game; insights: Game
   const l = insights?.leaders;
   if (!l || (!l.home.length && !l.away.length)) return null;
   return (
-    <Block title="Key players" caption={l.scope === "season" ? "Season leaders" : "Leading this game"}>
+    <Block title="Key Players" caption={l.scope === "season" ? "Season leaders" : "Leading this game"}>
       {SIDES.map((side, idx) =>
         l[side].length ? (
           <View key={side} style={[{ paddingVertical: 8, gap: 8 }, idx > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }]}>
@@ -479,7 +465,7 @@ export function KeyPlayersBlock({ game, insights }: { game: Game; insights: Game
               <Text style={[styles.sideHeadText, { color: c.mutedForeground }]}>{teamOf(game, side).name}</Text>
             </View>
             {l[side].map((p, i) => (
-              <Leader key={i} p={p} color={teamOf(game, side).color} c={c} />
+              <Leader key={i} p={p} team={teamOf(game, side)} c={c} />
             ))}
           </View>
         ) : null
@@ -488,23 +474,10 @@ export function KeyPlayersBlock({ game, insights }: { game: Game; insights: Game
   );
 }
 
-function Leader({ p, color, c }: { p: PlayerLeader; color: string; c: Colors }) {
-  const initials = p.athlete
-    .split(/\s+/)
-    .map((w) => w[0])
-    .join("")
-    .replace(/[^A-Za-z]/g, "")
-    .slice(0, 2)
-    .toUpperCase();
+function Leader({ p, team, c }: { p: PlayerLeader; team: TeamSide; c: Colors }) {
   return (
     <View style={styles.leader}>
-      {p.headshot ? (
-        <Image source={{ uri: p.headshot }} style={[styles.headshot, { backgroundColor: c.secondary }]} contentFit="cover" transition={120} />
-      ) : (
-        <View style={[styles.headshot, { backgroundColor: c.alpha(color, 0.2), alignItems: "center", justifyContent: "center" }]}>
-          <Text style={[styles.initials, { color: c.foreground }]}>{initials}</Text>
-        </View>
-      )}
+      <PlayerSilhouette size={36} ring={team.color} />
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowStrong, { color: c.foreground }]} numberOfLines={1}>
           {p.athlete}
@@ -539,7 +512,7 @@ export function TeamStatsBlock({ game, insights, limit = 10 }: { game: Game; ins
   if (!rows.length) return null;
 
   return (
-    <Block title="Team stats" caption={game.status === "upcoming" ? "Season to date" : "Season record, then this game's numbers"}>
+    <Block title="Team Stats" caption={game.status === "upcoming" ? "Season to date" : "Season record, then this game's numbers"}>
       <View style={[styles.statHead, { borderBottomColor: c.border }]}>
         <Text style={[styles.rowStrong, { color: c.foreground }]}>{game.awayTeam.abbreviation}</Text>
         <Text style={[styles.rowStrong, { color: c.foreground }]}>{game.homeTeam.abbreviation}</Text>
@@ -585,7 +558,7 @@ export function InjuriesBlock({ game, insights }: { game: Game; insights: GameIn
   const inj = insights?.injuries;
   if (!inj || (!inj.home.length && !inj.away.length)) return null;
   return (
-    <Block title="Injury report">
+    <Block title="Injury Report">
       {SIDES.map((side, idx) =>
         inj[side].length ? (
           <View key={side} style={[{ paddingVertical: 8, gap: 6 }, idx > 0 && inj.away.length ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border } : null]}>
@@ -695,13 +668,13 @@ const styles = StyleSheet.create({
   sitStrong: { fontSize: 14, fontFamily: "Inter_700Bold", flexShrink: 1 },
   sitText: { fontSize: 13, fontFamily: "Inter_500Medium", lineHeight: 18 },
   tag: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  tagText: { fontSize: 9, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.4 },
+  tagText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.4 },
   diamond: { width: 28, height: 20 },
   base: { position: "absolute", width: 9, height: 9, borderWidth: 1.5, transform: [{ rotate: "45deg" }] },
 
   event: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },
   eventBar: { width: 3, alignSelf: "stretch", borderRadius: 2 },
-  eventMeta: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.2 },
+  eventMeta: { fontSize: 11, fontFamily: "Inter_600SemiBold", letterSpacing: 0.2 },
   eventText: { fontSize: 13, fontFamily: "Inter_500Medium", lineHeight: 18 },
   eventScore: { fontSize: 15, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
 
@@ -718,7 +691,6 @@ const styles = StyleSheet.create({
   sideHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   sideHeadText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.3 },
   leader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  headshot: { width: 34, height: 34, borderRadius: 17, overflow: "hidden" },
   initials: { fontSize: 11, fontFamily: "Inter_700Bold" },
 
   statHead: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },

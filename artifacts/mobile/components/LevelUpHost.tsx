@@ -1,7 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { celebrate } from "@/lib/celebrate";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { OVERLAY, useOverlayTurn } from "@/lib/overlayTurns";
 import { Modal, StyleSheet, Text, View } from "react-native";
 import Animated, {
   Easing,
@@ -92,7 +94,8 @@ export default function LevelUpHost() {
     setShow(null);
   }, [uid, show, seen]);
 
-  if (!show) return null;
+  const myTurn = useOverlayTurn("levelUp", !!show, OVERLAY.levelUp);
+  if (!show || !myTurn) return null;
   return <LevelUpCelebration from={show.from} to={show.to} onClose={close} />;
 }
 
@@ -124,15 +127,18 @@ export function LevelUpCelebration({ from, to, onClose }: { from: number; to: nu
 
   const confetti = useMemo(() => [tier.glow, c.primary, c.accent, "#FFFFFF", "#FFC23D", "#FF4D63"], [tier.glow, c.primary, c.accent]);
   const gained = to - from;
+  const fx = celebrate("level_up");
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.scrim}>
         <View style={[StyleSheet.absoluteFill, { backgroundColor: tier.glow, opacity: 0.07 }]} />
-        <View style={styles.beams} pointerEvents="none">
-          <LightBeams color={tier.glow} size={520} beams={16} opacity={0.5} />
-        </View>
-        <Burst colors={confetti} count={56} power={1.25} duration={1800} originY={0.3} />
+        {fx.beams ? (
+          <View style={styles.beams} pointerEvents="none">
+            <LightBeams color={tier.glow} size={520} beams={16} opacity={0.5} />
+          </View>
+        ) : null}
+        {fx.burst ? <Burst colors={confetti} count={fx.burst.count} power={fx.burst.power} duration={fx.burst.duration} originY={0.3} /> : null}
 
         <View style={styles.content}>
           <Animated.Text entering={FadeInDown.delay(60).duration(380)} style={[styles.kicker, { color: tier.glow }]}>
@@ -188,7 +194,7 @@ export function LevelUpCelebration({ from, to, onClose }: { from: number; to: nu
           <Animated.View entering={FadeInDown.delay(760).duration(380)} style={styles.actions}>
             <Button label="Let's go" icon="arrow-right" onPress={onClose} style={{ flex: 1 }} />
             <Button
-              label="All levels"
+              label="All Levels"
               variant="secondary"
               onPress={() => {
                 onClose();
@@ -236,12 +242,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(255,255,255,0.14)",
   },
-  cardLabel: { color: "rgba(255,255,255,0.5)", fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.6 },
+  cardLabel: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.6 },
   rewardRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   thumb: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   rewardName: { flex: 1, color: "#FFFFFF", fontSize: 15, fontFamily: "Inter_700Bold" },
-  rewardSub: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8, marginTop: 2 },
-  tag: { fontSize: 10, fontFamily: "Inter_900Black", letterSpacing: 0.8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, overflow: "hidden" },
+  rewardSub: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8, marginTop: 2 },
+  tag: { fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 0.8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, overflow: "hidden" },
   more: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontFamily: "Inter_600SemiBold", textAlign: "center" },
   actions: { flexDirection: "row", gap: 10, alignSelf: "stretch", marginTop: 12 },
 });

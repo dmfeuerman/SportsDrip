@@ -93,7 +93,7 @@ export default function WinLossReplyModal({
                   {replies.length} {replies.length === 1 ? "reply" : "replies"} to {target.authorName}'s result
                 </Text>
               </View>
-              <CloseButton onPress={onClose} label="Close replies" />
+              <CloseButton onPress={onClose} label="Close Replies" />
             </View>
 
             {/* Quoted Parent Item at Top */}
@@ -255,7 +255,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 14,
   },
-  avatarText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  avatarText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   sender: { fontSize: 11, fontFamily: "Inter_600SemiBold", marginLeft: 4 },
   bubble: {
     borderRadius: 16,

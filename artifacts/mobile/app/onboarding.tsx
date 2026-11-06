@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { markPromptResult } from "@/lib/promptGate";
 import { haptic as buzz } from "@/lib/motion";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
@@ -12,32 +13,20 @@ import {
 } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AvatarDisplay from "@/components/AvatarDisplay";
+import CharacterDesigner from "@/components/avatar/CharacterDesigner";
 import FavoriteTeamsSheet from "@/components/FavoriteTeamsSheet";
+import DobPickerModal from "@/components/DobPickerModal";
 import DailyPickCard from "@/components/DailyPickCard";
 import InviteFriendsCard from "@/components/InviteFriendsCard";
 import PushPrimer from "@/components/PushPrimer";
 import { useNotifications } from "@/context/NotificationContext";
-import { Chips as EditChips, Stops, Swatches as EditSwatches } from "@/components/avatar/EditorControls";
-import { Button, SegmentedControl } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { useCatalog } from "@/hooks/useCatalog";
 import { DEMO } from "@/lib/demo";
 import { extractPhoneDigits, formatPhoneMask } from "@/app/login";
 import { markPushPrimerShown, markWalkthroughSeen, pushPrimerDue, setPendingSignupMeta, usePendingSignupMeta } from "@/lib/settings";
 
-import {
-  EYE_COLORS,
-  EYE_SHAPES,
-  EYEBROWS,
-  FACE_SHAPES,
-  FACIAL_HAIR,
-  HAIR_COLORS,
-  HAIR_STYLES,
-  MOUTH_SHAPES,
-  NOSE_SHAPES,
-  SKIN_TONES,
-  SIGNUP_AVATAR,
-} from "@/constants/avatarOptions";
+import { SIGNUP_AVATAR } from "@/constants/avatarOptions";
 import { doc, getDoc } from "firebase/firestore";
 import { useLeague } from "@/context/LeagueContext";
 import { trackEvent } from "@/lib/analytics";
@@ -49,9 +38,6 @@ import { REFERRAL } from "@/constants/progression";
 import type { AvatarConfig } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
 
-/** Nothing is worn at signup (createProfile equips nothing; the starter kit goes to the inventory). */
-const NO_OUTFIT = {} as const;
-
 /**
  * Order follows time-to-value: who you are → a quick character → your teams →
  * your crew → a first (free) pick → the push primer → done. Anything skipped
@@ -59,7 +45,6 @@ const NO_OUTFIT = {} as const;
  */
 type Step = "identity" | "appearance" | "teams" | "crew" | "pick" | "welcome";
 const STEP_ORDER: Step[] = ["identity", "appearance", "teams", "crew", "pick", "welcome"];
-type EditTab = "body" | "face" | "hair";
 
 export default function OnboardingScreen() {
   const colors = useColors();
@@ -68,7 +53,6 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState<Step>("identity");
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [teamsSet, setTeamsSet] = useState(false);
-  const [moreLooks, setMoreLooks] = useState(false);
   const [primer, setPrimer] = useState(false);
   const { pushStatus, enablePush } = useNotifications();
   // Email sign-up already collected birth date / age and phone: never ask twice.
@@ -77,10 +61,11 @@ export default function OnboardingScreen() {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [ageText, setAgeText] = useState(pendingMeta?.age ? String(pendingMeta.age) : "");
+  const [birthDate, setBirthDate] = useState<string | null>(pendingMeta?.birthDate ?? null);
+  const [dobOpen, setDobOpen] = useState(false);
   const [phone, setPhone] = useState(pendingMeta?.phoneNumber ?? "");
   // Everyone starts from the same plain base (bald, nothing worn) and builds from there.
   const [avatar, setAvatar] = useState<AvatarConfig>(SIGNUP_AVATAR);
-  const [tab, setTab] = useState<EditTab>("body");
   const [cheer, setCheer] = useState(0);
 
   // A friend's invite code: pre-filled from a sportdrip://ref link, checked as you type.
@@ -145,7 +130,7 @@ export default function OnboardingScreen() {
   const normalized = username.trim().toLowerCase();
   const usernameValid = /^[a-z0-9_]{3,20}$/.test(normalized);
   const parsedAge = Number.parseInt(ageText, 10);
-  const ageValid = ageFromSignup || (Number.isFinite(parsedAge) && parsedAge >= 18 && parsedAge <= 120);
+  const ageValid = ageFromSignup || (!!birthDate && Number.isFinite(parsedAge) && parsedAge >= 18 && parsedAge <= 120);
   const phoneDigits = extractPhoneDigits(phone);
   const phoneValid = phoneFromSignup || phoneDigits.length === 10;
 
@@ -192,7 +177,7 @@ export default function OnboardingScreen() {
           displayName: displayName.trim(),
           avatar,
           ...(Number.isFinite(parsedAge) ? { age: parsedAge } : pendingMeta?.age ? { age: pendingMeta.age } : {}),
-          birthDate: pendingMeta?.birthDate,
+          birthDate: pendingMeta?.birthDate ?? birthDate ?? undefined,
           phoneNumber: phone,
           ...(refCode && refCheck.state === "valid" ? { referralCode: refCode } : {}),
         });
@@ -212,7 +197,7 @@ export default function OnboardingScreen() {
       setSubmitting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [normalized, displayName, avatar, parsedAge, pendingMeta?.birthDate, phone, setStep, refCode, refCheck]);
+  }, [normalized, displayName, avatar, parsedAge, pendingMeta?.birthDate, birthDate, phone, setStep, refCode, refCheck]);
 
   async function joinFromInvite(code: string) {
     setInvite({ code, name: null, state: "joining" });
@@ -260,7 +245,7 @@ export default function OnboardingScreen() {
 
       {step === "identity" && (
         <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
-          <Text style={[s.title, { color: colors.foreground }]}>Pick your name</Text>
+          <Text style={[s.title, { color: colors.foreground }]}>Pick Your Name</Text>
           <Text style={[s.sub, { color: colors.mutedForeground }]}>
             Your username is how friends find you. Complete your profile details below.
           </Text>
@@ -297,7 +282,7 @@ export default function OnboardingScreen() {
             <Hint colors={colors} tone="error">That username is taken.</Hint>
           )}
 
-          <Field label="Display name" colors={colors}>
+          <Field label="Display Name" colors={colors}>
             <TextInput
               style={[s.input, { color: colors.foreground }]}
               value={displayName}
@@ -309,30 +294,31 @@ export default function OnboardingScreen() {
           </Field>
 
           {!ageFromSignup && (<>
-          <Field label="Age (18+)" colors={colors}>
-            <View style={s.inputRow}>
-              <MaterialCommunityIcons name="calendar-account-outline" size={18} color={colors.mutedForeground} />
-              <TextInput
-                style={[s.input, { color: colors.foreground }]}
-                value={ageText}
-                onChangeText={(v) => setAgeText(v.replace(/\D/g, "").slice(0, 3))}
-                placeholder="21"
-                placeholderTextColor={colors.mutedForeground}
-                keyboardType="number-pad"
-                maxLength={3}
-              />
+          <Field label="Date of Birth (18+)" colors={colors}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Pick date of birth" onPress={() => setDobOpen(true)} style={s.inputRow}>
+              <MaterialCommunityIcons name="calendar-month-outline" size={18} color={colors.mutedForeground} />
+              <Text style={[s.input, { color: birthDate ? colors.foreground : colors.mutedForeground }]}>{birthDate ?? "Pick your date of birth"}</Text>
               {ageValid && (
                 <MaterialCommunityIcons name="check-circle" size={18} color={colors.primary} />
               )}
-            </View>
+            </Pressable>
           </Field>
-          {ageText.length > 0 && !ageValid && (
+          {birthDate && !ageValid && (
             <Hint colors={colors} tone="error">You must be 18 or older to play.</Hint>
           )}
+          <DobPickerModal
+            visible={dobOpen}
+            onClose={() => setDobOpen(false)}
+            onConfirm={(dob) => {
+              setAgeText(String(Math.max(0, dob.age)));
+              setBirthDate(dob.label);
+              setDobOpen(false);
+            }}
+          />
           </>)}
 
           {!phoneFromSignup && (<>
-          <Field label="Phone number" colors={colors}>
+          <Field label="Phone Number" colors={colors}>
             <View style={s.inputRow}>
               <MaterialCommunityIcons name="phone-outline" size={18} color={colors.mutedForeground} />
               <TextInput
@@ -392,81 +378,17 @@ export default function OnboardingScreen() {
       )}
 
       {step === "appearance" && (
-        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false} stickyHeaderIndices={[1]}>
-          <Text style={[s.title, { color: colors.foreground }]}>Make it yours</Text>
-
-          {/* Live preview — every control below updates it immediately (§8). Sticks while you scroll. */}
-          <View style={{ backgroundColor: colors.background, paddingBottom: 12 }}>
-            <View style={[s.preview, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-              <AvatarDisplay
-                avatar={avatar}
-                equipped={NO_OUTFIT}
-                catalog={catalog}
-                size="lg"
-                focus={tab === "body" ? "full" : "head"}
-                cheerSignal={cheer}
-              />
-            </View>
-            {moreLooks ? (
-            <SegmentedControl<EditTab>
-              style={{ marginTop: 12 }}
-              options={[
-                { value: "body", label: "Body" },
-                { value: "face", label: "Face" },
-                { value: "hair", label: "Hair" },
-              ]}
-              value={tab}
-              onChange={setTab}
-            />
-            ) : null}
-          </View>
-
-          {!moreLooks && (
-            <>
-              <EditSwatches label="Skin tone" options={SKIN_TONES} value={avatar.skinTone} onChange={(skinTone) => setAvatar((a) => ({ ...a, skinTone }))} />
-              <EditChips label="Hair" options={HAIR_STYLES} value={avatar.hairStyle} onChange={(hairStyle) => setAvatar((a) => ({ ...a, hairStyle }))} />
-              <EditSwatches label="Hair colour" options={HAIR_COLORS} value={avatar.hairColor} onChange={(hairColor) => setAvatar((a) => ({ ...a, hairColor }))} />
-              <Button label="More options" icon="tune-variant" variant="ghost" onPress={() => setMoreLooks(true)} />
-              <Hint colors={colors} tone="muted">You can finish your look in the Locker anytime.</Hint>
-            </>
-          )}
-
-          {moreLooks && tab === "body" && (
-            <>
-              <EditSwatches label="Skin tone" options={SKIN_TONES} value={avatar.skinTone} onChange={(skinTone) => setAvatar((a) => ({ ...a, skinTone }))} />
-              <Stops label="Height" value={avatar.height} onChange={(height) => setAvatar((a) => ({ ...a, height }))} ends={["Shorter", "Taller"]} />
-              <Stops label="Build" value={avatar.bodyType} onChange={(bodyType) => setAvatar((a) => ({ ...a, bodyType }))} ends={["Slim", "Broad"]} />
-            </>
-          )}
-          {moreLooks && tab === "face" && (
-            <>
-              <EditChips label="Face shape" options={FACE_SHAPES} value={avatar.faceShape ?? "oval"} onChange={(faceShape) => setAvatar((a) => ({ ...a, faceShape }))} />
-              <EditChips label="Eye shape" options={EYE_SHAPES} value={avatar.eyeShape ?? "round"} onChange={(eyeShape) => setAvatar((a) => ({ ...a, eyeShape }))} />
-              <EditSwatches label="Eyes" options={EYE_COLORS} value={avatar.eyeColor ?? EYE_COLORS[0]!} onChange={(eyeColor) => setAvatar((a) => ({ ...a, eyeColor }))} />
-              <EditChips label="Brows" options={EYEBROWS} value={avatar.eyebrows ?? "soft"} onChange={(eyebrows) => setAvatar((a) => ({ ...a, eyebrows }))} />
-              <EditChips label="Nose" options={NOSE_SHAPES} value={avatar.noseShape ?? "button"} onChange={(noseShape) => setAvatar((a) => ({ ...a, noseShape }))} />
-              <EditChips label="Mouth" options={MOUTH_SHAPES} value={avatar.mouthShape ?? "neutral"} onChange={(mouthShape) => setAvatar((a) => ({ ...a, mouthShape }))} />
-              <EditChips label="Facial hair" options={FACIAL_HAIR} value={avatar.facialHair ?? "none"} onChange={(facialHair) => setAvatar((a) => ({ ...a, facialHair }))} />
-            </>
-          )}
-          {moreLooks && tab === "hair" && (
-            <>
-              <EditChips label="Style" options={HAIR_STYLES} value={avatar.hairStyle} onChange={(hairStyle) => setAvatar((a) => ({ ...a, hairStyle }))} />
-              <EditSwatches label="Colour" options={HAIR_COLORS} value={avatar.hairColor} onChange={(hairColor) => setAvatar((a) => ({ ...a, hairColor }))} />
-            </>
-          )}
-
-          {error && <Hint colors={colors} tone="error">{error}</Hint>}
-
-          <PrimaryButton
-            label={submitting ? "" : "Looks good — next"}
-            loading={submitting}
-            disabled={submitting}
-            onPress={handleCreate}
-            colors={colors}
-          />
-          <Button label="Back" icon="arrow-left" variant="ghost" onPress={() => setStep("identity")} />
-        </ScrollView>
+        <CharacterDesigner
+          avatar={avatar}
+          onChange={setAvatar}
+          catalog={catalog}
+          displayName={displayName.trim()}
+          onExit={() => setStep("identity")}
+          onDone={handleCreate}
+          submitting={submitting}
+          error={error}
+          cheerSignal={cheer}
+        />
       )}
 
       {step === "teams" && (
@@ -480,7 +402,7 @@ export default function OnboardingScreen() {
             onPress={() => (teamsSet ? setStep("crew") : setTeamsOpen(true))}
             colors={colors}
           />
-          {!teamsSet ? <Button label="Skip for now" variant="ghost" onPress={() => setStep("crew")} /> : null}
+          {!teamsSet ? <Button label="Skip for Now" variant="ghost" onPress={() => setStep("crew")} /> : null}
           <FavoriteTeamsSheet
             visible={teamsOpen}
             initial={[]}
@@ -497,7 +419,7 @@ export default function OnboardingScreen() {
 
       {step === "crew" && (
         <ScrollView contentContainerStyle={s.body}>
-          <Text style={[s.title, { color: colors.foreground }]}>Bring your crew</Text>
+          <Text style={[s.title, { color: colors.foreground }]}>Bring Your Crew</Text>
           <Text style={[s.sub, { color: colors.mutedForeground }]}>
             SportDrip is better with friends: leagues, head-to-heads and trash talk.
           </Text>
@@ -517,7 +439,7 @@ export default function OnboardingScreen() {
 
       {step === "pick" && (
         <ScrollView contentContainerStyle={s.body}>
-          <Text style={[s.title, { color: colors.foreground }]}>Make your first call</Text>
+          <Text style={[s.title, { color: colors.foreground }]}>Make Your First Call</Text>
           <Text style={[s.sub, { color: colors.mutedForeground }]}>
             Today's Daily Pick is free — no credits at risk. Call it and start your streak.
           </Text>
@@ -531,11 +453,13 @@ export default function OnboardingScreen() {
           onAccept={() => {
             setPrimer(false);
             void enablePush().then((st) => {
+              markPromptResult("push", st === "granted");
               if (st === "granted") api.setAlertPrefs({ sweat: true }).catch(() => {});
             });
             setStep("welcome");
           }}
           onDecline={() => {
+            markPromptResult("push", false);
             setPrimer(false);
             setStep("welcome");
           }}
@@ -558,7 +482,7 @@ export default function OnboardingScreen() {
                     icon: "account-heart",
                     text: `You start with ${(1000 + REFERRAL.newUserCredits).toLocaleString()} credits — ${REFERRAL.newUserCredits.toLocaleString()} of them from ${referred}'s invite — and you're already friends.`,
                   }
-                : { icon: "lightning-bolt", text: "You start with 1,000 credits and a basic fit." },
+                : { icon: "lightning-bolt", text: "You start with 1,000 credits — and a free starter kit waiting in the Drip Shop." },
               { icon: "star-circle-outline", text: "Win, buy and invite friends to level up. Every level pays credits and unlocks gear." },
               { icon: "sportscourt", text: "Call games right and your credits grow. Results settle automatically." },
               { icon: "gift-outline", text: "Prize boxes hand out free credits on a timer." },
@@ -609,7 +533,7 @@ export default function OnboardingScreen() {
             colors={colors}
           />
           {invite?.state === "failed" ? (
-            <Button label="Skip for now" variant="ghost" onPress={() => router.replace("/(tabs)")} />
+            <Button label="Skip for Now" variant="ghost" onPress={() => router.replace("/(tabs)")} />
           ) : null}
         </View>
       )}
@@ -725,7 +649,6 @@ const s = StyleSheet.create({
   at: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   input: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
   hint: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: -10 },
-  preview: { height: 290, borderRadius: 20, borderWidth: 1, overflow: "hidden" },
   primaryBtn: { paddingVertical: 15, borderRadius: 14, alignItems: "center", marginTop: 8 },
   primaryBtnText: { fontSize: 16, fontFamily: "Inter_700Bold" },
   welcome: { flex: 1, justifyContent: "center", alignItems: "stretch", gap: 20 },

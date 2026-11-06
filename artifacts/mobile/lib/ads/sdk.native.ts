@@ -21,15 +21,17 @@ const sdk = load();
 export default sdk;
 
 /** iOS App Tracking Transparency, asked once, after the UMP consent form. */
-export async function requestTrackingIfNeeded(): Promise<void> {
-  if (Platform.OS !== "ios") return;
+export async function requestTrackingIfNeeded(): Promise<{ asked: boolean; granted: boolean }> {
+  if (Platform.OS !== "ios") return { asked: false, granted: false };
   try {
     const att = require("expo-tracking-transparency") as typeof import("expo-tracking-transparency");
     const current = await att.getTrackingPermissionsAsync();
     if (current.status === "undetermined" && current.canAskAgain) {
-      await att.requestTrackingPermissionsAsync();
+      const res = await att.requestTrackingPermissionsAsync();
+      return { asked: true, granted: res.status === "granted" };
     }
   } catch {
     // Not linked in this build; ads still serve, just non-personalised on iOS.
   }
+  return { asked: false, granted: false };
 }

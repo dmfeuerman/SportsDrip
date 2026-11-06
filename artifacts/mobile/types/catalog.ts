@@ -2,6 +2,7 @@ import { RARITY_RAMP } from "@/constants/colors";
 import type { AttachSpec } from "@/lib/avatar3d/attach";
 import type { BodyRegion, HairMode } from "@/lib/avatar3d/avatarRules";
 import type { Slot } from "@/types/avatar";
+import type { PatternSpec } from "@/lib/avatar3d/patternSpec";
 
 export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
 
@@ -45,6 +46,16 @@ export interface CatalogItem {
   attach?: AttachSpec | null;
   available: boolean;
   releaseAt: number | null;
+  /** Sold from this time (epoch ms). Enforced server-side. */
+  availableFrom?: number | null;
+  /** Leaves the shop at this time (epoch ms). Enforced server-side. */
+  availableUntil?: number | null;
+  /** Pinned to the Featured section while on sale. */
+  featured?: boolean | null;
+  /** Live-ops rotation item (functions/src/scheduled/liveOps.ts); static for shop_rotation_v1 control. */
+  rotation?: boolean | null;
+  /** Drop that last put it on sale: a week key or "event:<id>". */
+  dropId?: string | null;
   /** Only buyable at or above this player level (purchaseItem enforces it). */
   levelRequired?: number | null;
   /** Never sold: granted free on reaching this level. */
@@ -55,6 +66,13 @@ export interface CatalogItem {
    * The 3D garments already read this — it was just missing from the type.
    */
   shape?: string | null;
+  /**
+   * Procedural print on the garment's main fabric — camo, plaid, tie-dye,
+   * flames… (lib/avatar3d/patterns.ts). Same template, different design.
+   */
+  pattern?: PatternSpec | null;
+  /** Colour of the template's metal parts (chain links, watch case, crown). Default silver. */
+  metalColor?: string | null;
 }
 
 export const RARITY_COLORS: Record<Rarity, string> = { ...RARITY_RAMP };

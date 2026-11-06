@@ -1,13 +1,14 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { ONLINE_MS, setWatchingGame, usePresence } from "@/lib/presence";
+import { useFriends } from "@/hooks/useFriends";
 import { haptic as buzz } from "@/lib/motion";
-import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
 import type { TicketBet } from "@/components/BetTicket";
-import GameThread from "@/components/GameThread";
+import ScrollHint, { useScrollHint } from "@/components/ScrollHint";
 import {
   InsightsSkeleton,
   KeyPlayersBlock,
@@ -51,6 +52,16 @@ export default function GameCenterScreen() {
   const now = useNow(live ? 5_000 : 60_000);
 
   const [tab, setTab] = useState<Tab>(params.tab === "matchup" ? "matchup" : "live");
+  // Who else is on this game right now (friends with the game open).
+  const { profile } = useApp();
+  const { friends } = useFriends(profile?.uid ?? null);
+  const presence = usePresence(friends.map((f) => f.uid));
+  const watching = friends.filter((f) => presence[f.uid]?.gameId === gameId && (presence[f.uid]?.at ?? 0) > now - ONLINE_MS);
+  useEffect(() => {
+    if (!gameId) return;
+    setWatchingGame(gameId);
+    return () => setWatchingGame(null);
+  }, [gameId]);
   const challenges = useChallenges();
   const duels: ChallengeView[] = useMemo(() => {
     const me = challenges.uid;
@@ -60,6 +71,7 @@ export default function GameCenterScreen() {
       .map((ch) => viewOf(ch, me));
   }, [challenges.challenges, challenges.uid, gameId]);
   const [refreshing, setRefreshing] = useState(false);
+  const hint = useScrollHint();
 
   const positions: Position[] = useMemo(() => {
     const out: Position[] = [];
@@ -91,7 +103,10 @@ export default function GameCenterScreen() {
   };
 
   const title = game ? `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}` : "Game";
-  const subtitle = game ? [game.sport, game.seasonLabel].filter(Boolean).join(" · ") : undefined;
+  const watchingText = watching.length
+    ? `👀 ${watching.slice(0, 2).map((f) => f.displayName).join(", ")}${watching.length > 2 ? ` +${watching.length - 2}` : ""} watching`
+    : null;
+  const subtitle = game ? [game.sport, game.seasonLabel, watchingText].filter(Boolean).join(" · ") : undefined;
 
   if (!game) {
     const settled = positions.find((p) => p.bet.finalHomeScore !== undefined && p.bet.finalAwayScore !== undefined);
@@ -110,7 +125,7 @@ export default function GameCenterScreen() {
                   ? `Final: ${settled.bet.teamAbbr} ${settled.bet.side === "home" ? settled.bet.finalHomeScore : settled.bet.finalAwayScore}, ${settled.bet.opponentAbbr} ${settled.bet.side === "home" ? settled.bet.finalAwayScore : settled.bet.finalHomeScore}. Your bet history keeps the result.`
                   : "Finished games drop off the board after two days. Your bet history keeps the result."
               }
-              action="My bets"
+              action="My Bets"
               onAction={() => router.replace("/bets")}
             />
           )}
@@ -127,7 +142,7 @@ export default function GameCenterScreen() {
         back
         title={title}
         subtitle={subtitle}
-        right={<IconButton icon="refresh" label="Refresh stats" onPress={() => void onRefresh()} />}
+        right={<IconButton icon="refresh" label="Refresh Stats" onPress={() => void onRefresh()} />}
       >
         {started ? (
           <TabStrip
@@ -141,9 +156,11 @@ export default function GameCenterScreen() {
         ) : null}
       </ScreenHeader>
 
+      <View style={{ flex: 1 }}>
       <ScrollView
+        {...hint.scrollProps}
         contentContainerStyle={[styles.body, { paddingBottom: bottom }]}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.primary} />}
       >
         <Scoreboard game={game} now={now} c={c} fmt={fmt} />
@@ -151,7 +168,6 @@ export default function GameCenterScreen() {
         {positions.length > 0 && <Positions game={game} positions={positions} c={c} fmt={fmt} />}
         {duels.length > 0 && <Duels game={game} duels={duels} c={c} fmt={fmt} />}
         {leagueSweats.length > 0 && <LeagueSweat game={game} sweats={leagueSweats} uid={uid} c={c} fmt={fmt} />}
-        {gameId ? <GameThread gameId={gameId} /> : null}
 
         {shown === "live" ? (
           <Animated.View key="live" entering={FadeIn.duration(200)} style={styles.stack}>
@@ -182,6 +198,8 @@ export default function GameCenterScreen() {
             .join("\n")}
         </Text>
       </ScrollView>
+      <ScrollHint visible={hint.visible} bg={c.background} label="Scroll For Full Matchup" />
+      </View>
     </View>
   );
 }
@@ -214,13 +232,9 @@ function Scoreboard({ game, now, c, fmt }: { game: Game; now: number; c: Colors;
 function HeroTeam({ team, score, dim, c, fmt }: { team: TeamSide; score: number | null; dim: boolean; c: Colors; fmt: OddsFormat }) {
   return (
     <View style={styles.heroTeam}>
-      {team.logoUrl ? (
-        <Image source={{ uri: team.logoUrl }} style={styles.heroLogo} contentFit="contain" transition={120} />
-      ) : (
-        <View style={[styles.heroLogo, styles.heroFallback, { backgroundColor: c.alpha(team.color, 0.2), borderColor: team.color }]}>
-          <Text style={[styles.heroAbbr, { color: c.foreground }]}>{team.abbreviation}</Text>
-        </View>
-      )}
+      <View style={[styles.heroLogo, styles.heroFallback, { backgroundColor: c.alpha(team.color, 0.2), borderColor: team.color }]}>
+        <Text style={[styles.heroAbbr, { color: c.foreground }]}>{team.abbreviation}</Text>
+      </View>
       <Text style={[styles.heroName, { color: c.foreground }]} numberOfLines={1}>
         {team.location && team.name.startsWith(team.location) ? team.name.slice(team.location.length).trim() || team.name : team.name}
       </Text>
@@ -348,7 +362,7 @@ function LeagueSweat({
                   {game.awayTeam.abbreviation} / OVER ({awayBets.length})
                 </Text>
                 {awayBets.length === 0 ? (
-                  <Text style={[styles.posMeta, { color: c.subtleForeground }]}>No action</Text>
+                  <Text style={[styles.posMeta, { color: c.subtleForeground }]}>No Action</Text>
                 ) : (
                   awayBets.map((b) => {
                     const pos = livePosition(game, { side: b.side ?? "away", market: b.market, selection: b.selection, line: b.line });
@@ -371,7 +385,7 @@ function LeagueSweat({
                   {game.homeTeam.abbreviation} / UNDER ({homeBets.length})
                 </Text>
                 {homeBets.length === 0 ? (
-                  <Text style={[styles.posMeta, { color: c.subtleForeground }]}>No action</Text>
+                  <Text style={[styles.posMeta, { color: c.subtleForeground }]}>No Action</Text>
                 ) : (
                   homeBets.map((b) => {
                     const pos = livePosition(game, { side: b.side ?? "home", market: b.market, selection: b.selection, line: b.line });
@@ -435,7 +449,7 @@ function Duels({ game, duels, c, fmt }: { game: Game; duels: ChallengeView[]; c:
               </Text>
               <View style={styles.wallet}>
                 <MaterialCommunityIcons name="sword-cross" size={11} color={c.accent} />
-                <Text style={[styles.walletText, { color: c.accent }]}>Head to head</Text>
+                <Text style={[styles.walletText, { color: c.accent }]}>Head to Head</Text>
               </View>
             </View>
             <View style={{ alignItems: "flex-end", gap: 4 }}>
@@ -471,7 +485,7 @@ const styles = StyleSheet.create({
   heroMid: { width: 96, alignItems: "center", gap: 6, paddingTop: 16 },
   heroClock: { fontSize: 14, fontFamily: "Inter_700Bold", textAlign: "center" },
   livePill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  livePillText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.6 },
+  livePillText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.6 },
 
   position: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 14, borderWidth: 1, borderLeftWidth: 4 },
   posTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },

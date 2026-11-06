@@ -1,11 +1,11 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
-import AvatarBackdrop from "@/components/avatar/AvatarBackdrop";
+import { useBackdropCam, ZoomingBackdrop } from "@/components/avatar/AvatarBackdrop";
 import { Pill } from "@/components/ui";
 import { loadoutOf, MOVES_BY_ID } from "@/constants/moves";
 import { useColors } from "@/hooks/useColors";
@@ -64,6 +64,13 @@ export default function AvatarHero({
     setPicking(false);
     setMove((m) => ({ id, n: (m?.n ?? 0) + 1 }));
   }, []);
+  // Tapping the character cycles through the loadout, one move per tap.
+  const nextMove = useRef(0);
+  const onTapCharacter = useCallback(() => {
+    if (!loadout.length) return;
+    play(loadout[nextMove.current++ % loadout.length]!);
+  }, [loadout, play]);
+  const cam = useBackdropCam();
   const onDance = useCallback(() => {
     if (loadout.length === 1 && !onEditMoves) return play(loadout[0]!);
     buzz.tick();
@@ -79,7 +86,7 @@ export default function AvatarHero({
 
   return (
     <View style={[styles.hero, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.22) }, style]}>
-      <AvatarBackdrop id={background} />
+      <ZoomingBackdrop id={background} cam={cam} />
       <View style={[styles.avatar, footer ? { bottom: 70 } : null]}>
         {avatar ? (
           <AvatarDisplay
@@ -92,6 +99,8 @@ export default function AvatarHero({
             focus="hero"
             move={move}
             active={active}
+            backdropCam={cam}
+            onTap={onTapCharacter}
           />
         ) : (
           <View style={styles.loading}>
@@ -116,7 +125,7 @@ export default function AvatarHero({
                   style={({ pressed }) => [styles.moveChip, { backgroundColor: c.alpha(c.elevated, 0.94), borderColor: c.border, opacity: pressed ? 0.8 : 1 }]}
                 >
                   <MaterialCommunityIcons name="pencil-outline" size={16} color={c.mutedForeground} />
-                  <Text style={[styles.moveText, { color: c.mutedForeground }]}>Edit moves</Text>
+                  <Text style={[styles.moveText, { color: c.mutedForeground }]}>Edit Moves</Text>
                 </Pressable>
               </Animated.View>
             ) : null}
@@ -168,7 +177,7 @@ export default function AvatarHero({
       <View style={styles.bottom} pointerEvents="box-none">
         {footer ?? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.wearing} contentContainerStyle={styles.wearingRow}>
-            {wearing.length ? wearing.map((i) => <Pill key={i.id} label={i.name} icon={SLOT_ICONS[i.slot] as never} />) : <Pill label="Nothing equipped yet" />}
+            {wearing.length ? wearing.map((i) => <Pill key={i.id} label={i.name} icon={SLOT_ICONS[i.slot] as never} />) : <Pill label="Nothing Equipped Yet" />}
           </ScrollView>
         )}
       </View>

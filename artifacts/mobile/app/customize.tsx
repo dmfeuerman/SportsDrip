@@ -20,7 +20,7 @@ import { Chips, Field, Stops, Swatches } from "@/components/avatar/EditorControl
 import ItemIcon from "@/components/avatar/ItemIcon";
 import CartButton from "@/components/CartButton";
 import CartExitDialog from "@/components/CartExitDialog";
-import { Button, ConfirmDialog, ErrorBanner } from "@/components/ui";
+import { Button, ChoiceDialog, ConfirmDialog, ErrorBanner } from "@/components/ui";
 import {
   EYE_COLORS,
   EYE_SHAPES,
@@ -205,10 +205,41 @@ export default function CustomizeScreen() {
     touched.current = false;
   };
 
-  const save = async () => {
-    if (!dirty || unowned.length) return;
+  // Save with unbought items on: ask whether to buy them (saving everything
+  // after checkout) or save just the character and the owned pieces.
+  const [saveAsk, setSaveAsk] = useState(false);
+  const ownedOnly = (): Equipped => {
+    const out: Equipped = {};
+    for (const [slot, id] of Object.entries(equipped) as [keyof Equipped, string | undefined][]) {
+      if (!id) continue;
+      if (owned.has(id)) out[slot] = id;
+      else {
+        const back = saved.equipped[slot];
+        if (back && owned.has(back)) out[slot] = back;
+      }
+    }
+    return canon(out);
+  };
+  const buyAndSave = () => {
+    setSaveAsk(false);
+    // Checkout saves this whole look (character changes included) once the items are bought.
+    cart.setDraft({ avatar, equipped: canon(equipped) });
+    checkout();
+  };
+  const saveCharacterOnly = () => {
+    setSaveAsk(false);
+    void save(ownedOnly());
+  };
+
+  const save = async (look?: Equipped) => {
+    if (!dirty) return;
+    if (!look && unowned.length) {
+      buzz.tick();
+      setSaveAsk(true);
+      return;
+    }
     setSaving(true);
-    const ok = await saveLook(avatar, canon(equipped));
+    const ok = await saveLook(avatar, look ?? canon(equipped));
     setSaving(false);
     if (!ok) return;
     buzz.success();
@@ -300,10 +331,10 @@ export default function CustomizeScreen() {
         <Button
           label={saving ? "Saving" : dirty ? "Save" : "Saved"}
           size="sm"
-          onPress={save}
+          onPress={() => void save()}
           loading={saving}
-          disabled={!dirty || unowned.length > 0 || saving}
-          accessibilityHint={unowned.length ? "Check out the items in your cart first" : undefined}
+          disabled={!dirty || saving}
+          accessibilityHint={unowned.length ? "Asks whether to buy the new items or save just your character" : undefined}
         />
         <CartButton from="customize" />
       </View>
@@ -370,7 +401,7 @@ export default function CustomizeScreen() {
       <ScrollView style={styles.fill} contentContainerStyle={[styles.panel, { paddingBottom: insets.bottom + (unowned.length ? 96 : 28) }]} showsVerticalScrollIndicator={false}>
         {cat === "body" && (
           <>
-            <Swatches label="Skin tone" options={SKIN_TONES} value={avatar.skinTone} onChange={(skinTone) => edit({ skinTone })} />
+            <Swatches label="Skin Tone" options={SKIN_TONES} value={avatar.skinTone} onChange={(skinTone) => edit({ skinTone })} />
             <Stops label="Height" value={avatar.height} onChange={(height) => edit({ height })} ends={["Shorter", "Taller"]} />
             <Stops label="Build" value={avatar.bodyType} onChange={(bodyType) => edit({ bodyType })} ends={["Slim", "Broad"]} />
           </>
@@ -378,13 +409,13 @@ export default function CustomizeScreen() {
 
         {cat === "face" && (
           <>
-            <Chips label="Face shape" options={FACE_SHAPES} value={avatar.faceShape ?? "oval"} onChange={(faceShape) => edit({ faceShape })} />
-            <Chips label="Eye shape" options={EYE_SHAPES} value={avatar.eyeShape ?? "round"} onChange={(eyeShape) => edit({ eyeShape })} />
+            <Chips label="Face Shape" options={FACE_SHAPES} value={avatar.faceShape ?? "oval"} onChange={(faceShape) => edit({ faceShape })} />
+            <Chips label="Eye Shape" options={EYE_SHAPES} value={avatar.eyeShape ?? "round"} onChange={(eyeShape) => edit({ eyeShape })} />
             <Swatches label="Eyes" options={EYE_COLORS} value={avatar.eyeColor ?? EYE_COLORS[0]!} onChange={(eyeColor) => edit({ eyeColor })} />
             <Chips label="Brows" options={EYEBROWS} value={avatar.eyebrows ?? "soft"} onChange={(eyebrows) => edit({ eyebrows })} />
             <Chips label="Nose" options={NOSE_SHAPES} value={avatar.noseShape ?? "button"} onChange={(noseShape) => edit({ noseShape })} />
             <Chips label="Mouth" options={MOUTH_SHAPES} value={avatar.mouthShape ?? "neutral"} onChange={(mouthShape) => edit({ mouthShape })} />
-            <Chips label="Facial hair" options={FACIAL_HAIR} value={avatar.facialHair ?? "none"} onChange={(facialHair) => edit({ facialHair })} />
+            <Chips label="Facial Hair" options={FACIAL_HAIR} value={avatar.facialHair ?? "none"} onChange={(facialHair) => edit({ facialHair })} />
           </>
         )}
 
@@ -435,6 +466,17 @@ export default function CustomizeScreen() {
           pendingNav.current = null;
           setConfirm(false);
         }}
+      />
+
+      <ChoiceDialog
+        visible={saveAsk}
+        title="Save your look?"
+        body={`You're wearing ${unowned.length} item${unowned.length === 1 ? "" : "s"} you don't own yet. Buy ${unowned.length === 1 ? "it" : "them"} and save everything, or save just your character changes (the new ${unowned.length === 1 ? "item stays" : "items stay"} in your cart).`}
+        actions={[
+          { label: `Buy ${unowned.length === 1 ? "Item" : `${unowned.length} Items`} & Save`, icon: "cart-check", onPress: buyAndSave },
+          { label: "Save Character Changes", icon: "account-check-outline", variant: "secondary", onPress: saveCharacterOnly },
+        ]}
+        onCancel={() => setSaveAsk(false)}
       />
 
       <ConfirmDialog
@@ -586,7 +628,7 @@ const styles = StyleSheet.create({
   rarity: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
   badge: { position: "absolute", top: 7, right: 7, width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   price: { position: "absolute", top: 7, right: 6, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
-  priceText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  priceText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   cartBar: {
     position: "absolute",
     left: 12,

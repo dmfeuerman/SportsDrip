@@ -29,6 +29,8 @@ import { firebaseConfigured, getDb } from "@/lib/firebase";
 import { chatText } from "@/lib/chatText";
 import { markChatSeen, useAllChatSeen } from "@/lib/settings";
 
+const BET_BANNER_GAP_MS = 60 * 60 * 1000;
+
 export interface DirectMessage {
   id: string;
   threadId: string;
@@ -36,9 +38,19 @@ export interface DirectMessage {
   senderName: string;
   recipientUid: string;
   recipientName: string;
-  kind: "text";
+  kind: "text" | "taunt" | "gift" | "money" | "loan";
   text: string;
   at: number;
+  moveId?: string;
+  /** gift: the catalog item sent. */
+  itemId?: string;
+  itemName?: string;
+  /** money / loan: credits involved. */
+  amount?: number;
+  /** loan: friendLoans/{loanId}. */
+  loanId?: string;
+  avatar?: import("@/types/avatar").AvatarConfig | null;
+  equipped?: import("@/types/avatar").Equipped | null;
   replyTo?: ReplyQuote | null;
   /** uid -> emoji. One reaction per participant. */
   reactors?: Record<string, string>;
@@ -86,6 +98,8 @@ interface ChatContextType {
   unreadLeagueCount: number;
   /** DMs + league chat: the chat icon's badge. */
   unreadChatCount: number;
+  /** One token per unread league message ("leagueId:at"), for seen-based badges. */
+  unreadLeagueTokens: string[];
   /** Unread count for a specific DM friend. */
   unreadForFriend: (friendUid: string) => number;
   /** Mark a DM thread or league chat as seen. */
@@ -256,6 +270,7 @@ function buildInitialDemoComments(myUid: string): Record<string, BetComment[]> {
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { profile } = useApp();
   const { leagues, sendMessage: sendLeagueMessage } = useLeague();
+  const { reportSyncFailure } = useApp();
   const { show } = useToast();
   const chatSeen = useAllChatSeen();
 
@@ -285,6 +300,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // Track seen message IDs so we only trigger real-chat notifications on newly arrived texts
   const bootTimeRef = useRef(Date.now());
   const notifiedMsgIds = useRef<Set<string>>(new Set());
+  const lastBetBannerAt = useRef<Record<string, number>>({});
 
   // Hydrate persisted DMs, bet comments, and reply quotes from AsyncStorage
   useEffect(() => {
@@ -359,27 +375,34 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               text?: string;
               at?: number;
             };
-            // STRICT FILTER: Only real chat messages (kind === "text"), never bet/system events
-            if (data.kind !== "text") continue;
+            // Text and other members' bet cards banner; system rows never do.
+            if (data.kind !== "text" && data.kind !== "bet") continue;
             if (!data.uid || data.uid === uid) continue;
+            const isBet = data.kind === "bet";
             const at = typeof data.at === "number" ? data.at : 0;
-            incoming.push(at);
+            if (!isBet) incoming.push(at);
             if (activeChatRef.current === leagueId) markChatSeen(leagueId, at);
             if (at < bootTimeRef.current) continue;
             const notifyKey = `lchat_${leagueId}_${d.id}`;
             if (notifiedMsgIds.current.has(notifyKey)) continue;
             notifiedMsgIds.current.add(notifyKey);
             if (activeChatRef.current === leagueId) continue;
+            // At most one bet banner per league per hour, so a busy slate doesn't spam.
+            if (isBet) {
+              const last = lastBetBannerAt.current[leagueId] ?? 0;
+              if (at - last < BET_BANNER_GAP_MS) continue;
+              lastBetBannerAt.current[leagueId] = at;
+            }
 
             const leagueName = leaguesRef.current.find((l) => l.id === leagueId)?.name ?? "League Chat";
             show({
               id: notifyKey,
               kind: "social",
-              icon: "message-text-outline",
+              icon: isBet ? "ticket-confirmation-outline" : "message-text-outline",
               title: `${data.name ?? "League-mate"} in ${leagueName}`,
               body: chatText(data.text),
               href: { pathname: "/messages" as never, params: { leagueId } },
-              cta: "Reply",
+              cta: isBet ? "View" : "Reply",
             });
           }
           setLeagueIncoming((prev) => ({ ...prev, [leagueId]: incoming }));
@@ -552,15 +575,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (firebaseConfigured && !DEMO) {
         const db = getDb();
         if (db) {
-          try {
-            await setDoc(doc(db, "betComments", betId, "comments", cmtId), {
-              ...entry,
-              createdAt: serverTimestamp(),
-            });
-          } catch {
+          // Shown already (persistLocal); the write runs behind it and is taken back if it fails.
+          setDoc(doc(db, "betComments", betId, "comments", cmtId), {
+            ...entry,
+            createdAt: serverTimestamp(),
+          }).catch(() => {
             persistLocal((list) => list.filter((x) => x.id !== cmtId));
-            return "Couldn't send your reply. Check your connection and try again.";
-          }
+            reportSyncFailure("Couldn't send your reply.", "Check your connection and try again.");
+          });
         }
       }
 
@@ -571,7 +593,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
       return null;
     },
-    [uid, myName, sendLeagueMessage]
+    [uid, myName, sendLeagueMessage, reportSyncFailure]
   );
 
   const watchBetComments = useCallback(
@@ -625,9 +647,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     return total;
   }, [leagueIncoming, leagueIdsKey, chatSeen]);
   const unreadChatCount = unreadDmCount + unreadLeagueCount;
+  const unreadLeagueTokens = useMemo(() => {
+    const out: string[] = [];
+    const ids = leagueIdsKey.split(",");
+    for (const [leagueId, ats] of Object.entries(leagueIncoming)) {
+      if (!ids.includes(leagueId)) continue;
+      const seen = chatSeen[leagueId] ?? 0;
+      for (const at of ats) if (at > seen) out.push(`${leagueId}:${at}`);
+    }
+    return out;
+  }, [leagueIncoming, leagueIdsKey, chatSeen]);
 
+  const latestRef = useRef({ dm: dmMessagesByThread, league: leagueIncoming });
+  latestRef.current = { dm: dmMessagesByThread, league: leagueIncoming };
   const markThreadRead = useCallback((threadOrLeagueId: string) => {
-    markChatSeen(threadOrLeagueId, Date.now());
+    // Up to the newest message, even when the sender's clock runs ahead of ours.
+    const { dm, league } = latestRef.current;
+    const newest = Math.max(0, ...(dm[threadOrLeagueId] ?? []).map((m) => m.at), ...(league[threadOrLeagueId] ?? []));
+    markChatSeen(threadOrLeagueId, Math.max(Date.now(), newest));
   }, []);
 
   const value = useMemo<ChatContextType>(
@@ -643,6 +680,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       unreadDmCount,
       unreadLeagueCount,
       unreadChatCount,
+      unreadLeagueTokens,
       unreadForFriend,
       markThreadRead,
       activeChatId,
@@ -660,6 +698,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       unreadDmCount,
       unreadLeagueCount,
       unreadChatCount,
+      unreadLeagueTokens,
       unreadForFriend,
       markThreadRead,
       activeChatId,

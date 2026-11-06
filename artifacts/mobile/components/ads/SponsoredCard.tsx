@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 10, overflow: "hidden" },
   top: { flexDirection: "row", alignItems: "center", gap: 8, paddingRight: 24 },
   badge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, borderWidth: 1 },
-  badgeText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
+  badgeText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   advertiser: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
   icon: { width: 44, height: 44, borderRadius: 10 },

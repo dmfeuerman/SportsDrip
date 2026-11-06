@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useRef, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
+import { TourTarget } from "@/components/tour/TourTarget";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ItemIcon from "@/components/avatar/ItemIcon";
 import AvatarDisplay from "@/components/AvatarDisplay";
@@ -73,7 +74,7 @@ export default function CheckoutScreen() {
     // One at a time: each purchase is its own atomic, idempotent server call,
     // and the balance check for the next one depends on the last.
     for (const item of items) {
-      if (await purchaseItem(item.id)) ok.push(item);
+      if (await purchaseItem(item.id, item.price)) ok.push(item);
       else bad.push(item.id);
     }
     setBought(ok);
@@ -164,7 +165,7 @@ export default function CheckoutScreen() {
           {lookSaved ? (
             <>
               <Button
-                label="Show the league"
+                label="Show the League"
                 icon="share-variant"
                 onPress={() =>
                   void shareViewOrText({
@@ -185,7 +186,7 @@ export default function CheckoutScreen() {
           <View style={[styles.emptyIcon, { backgroundColor: c.secondary }]}>
             <MaterialCommunityIcons name="cart-outline" size={34} color={c.mutedForeground} />
           </View>
-          <Text style={[styles.doneTitle, { color: c.foreground }]}>Your cart is empty</Text>
+          <Text style={[styles.doneTitle, { color: c.foreground }]}>Your Cart Is Empty</Text>
           <Text style={[styles.doneText, { color: c.mutedForeground }]}>
             Add items in the Drip Shop, or try one on in Customize. They land here, ready to buy.
           </Text>
@@ -218,19 +219,19 @@ export default function CheckoutScreen() {
                 style={({ pressed }) => [styles.remove, { borderColor: c.alpha(c.negative, 0.5), opacity: phase === "paying" ? 0.4 : pressed ? 0.6 : 1 }]}
               >
                 <MaterialCommunityIcons name="cart-remove" size={15} color={c.negative} />
-                <Text style={[styles.removeText, { color: c.negative }]}>Clear cart</Text>
+                <Text style={[styles.removeText, { color: c.negative }]}>Clear Cart</Text>
               </Pressable>
             </View>
 
             {/* order summary */}
             <View style={[styles.summary, { backgroundColor: c.card, borderColor: c.border }]}>
-              <Text style={[styles.summaryTitle, { color: c.foreground }]}>Order summary</Text>
+              <Text style={[styles.summaryTitle, { color: c.foreground }]}>Order Summary</Text>
               <Line label={`Subtotal (${items.length} ${items.length === 1 ? "item" : "items"})`} value={credits(total)} />
               <Line label="Fees" value="Free" />
               <View style={[styles.divider, { backgroundColor: c.border }]} />
               <Line label="Total" value={`${credits(total)} credits`} strong />
-              <Line label="Your balance" value={credits(balance)} />
-              <Line label="Balance after" value={credits(after)} tone={short ? c.negative : c.positive} />
+              <Line label="Your Balance" value={credits(balance)} />
+              <Line label="Balance After" value={credits(after)} tone={short ? c.negative : c.positive} />
               {short ? (
                 <Text style={[styles.note, { color: c.negative }]}>
                   You're {credits(Math.abs(after))} credits short. Remove something or win a few bets first.
@@ -253,6 +254,7 @@ export default function CheckoutScreen() {
                 <Text style={[styles.footValue, { color: c.foreground }]}>{credits(total)}</Text>
               </View>
             </View>
+            <TourTarget id="checkout.pay">
             <Button
               label={phase === "paying" ? "Paying…" : "Checkout"}
               icon="lock-outline"
@@ -262,6 +264,7 @@ export default function CheckoutScreen() {
               disabled={short || phase === "paying"}
               style={{ minWidth: 170 }}
             />
+            </TourTarget>
           </View>
         </>
       )}
@@ -269,7 +272,7 @@ export default function CheckoutScreen() {
         visible={clearAsk}
         title="Clear your cart?"
         body={`Removes ${items.length === 1 ? "the 1 item" : `all ${items.length} items`} from your cart. Anything you were trying on in Customize comes off too.`}
-        confirmLabel="Clear cart"
+        confirmLabel="Clear Cart"
         destructive
         onConfirm={clearCart}
         onCancel={() => setClearAsk(false)}
@@ -347,7 +350,7 @@ const styles = StyleSheet.create({
   card: { flexDirection: "row", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1 },
   image: { width: 96, height: 108, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   rarityTag: { position: "absolute", left: 0, right: 0, bottom: 0, paddingVertical: 2, alignItems: "center" },
-  rarityText: { color: "#fff", fontSize: 8, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
+  rarityText: { color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
   cardBody: { flex: 1, gap: 3 },
   name: { fontSize: 15, fontFamily: "Inter_700Bold" },
   meta: { fontSize: 12, fontFamily: "Inter_500Medium" },

@@ -7,6 +7,7 @@ import KeyboardSheet from "@/components/KeyboardSheet";
 import { Button } from "@/components/ui";
 import { MAX_FAVORITE_TEAMS, onColor, teamKey, TEAMS } from "@/constants/teams";
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
 import { invalidatePlayerProfile } from "@/hooks/usePlayerProfile";
 import * as api from "@/lib/api";
 import type { FavoriteTeam } from "@/lib/api";
@@ -34,6 +35,7 @@ export default function FavoriteTeamsSheet({
   saveLabel?: string;
 }) {
   const c = useColors();
+  const { profile, writeProfile } = useApp();
   const [picked, setPicked] = useState<FavoriteTeam[]>(initial);
   const [sport, setSport] = useState<Sport | "All">("All");
   const [q, setQ] = useState("");
@@ -182,7 +184,7 @@ export default function FavoriteTeamsSheet({
         style={styles.remindRow}
       >
         <MaterialCommunityIcons name={reminders ? "bell-ring" : "bell-outline"} size={20} color={reminders ? c.primary : c.mutedForeground} />
-        <Text style={[styles.sub, { color: c.foreground, flex: 1 }]}>Remind me before my teams play</Text>
+        <Text style={[styles.sub, { color: c.foreground, flex: 1 }]}>Remind Me Before My Teams Play</Text>
         <MaterialCommunityIcons name={reminders ? "toggle-switch" : "toggle-switch-off-outline"} size={34} color={reminders ? c.primary : c.subtleForeground} />
       </Pressable>
 
@@ -193,8 +195,20 @@ export default function FavoriteTeamsSheet({
         loading={busy}
         onPress={async () => {
           if (!dirty && reminders === initialReminders) return onClose();
-          setBusy(true);
           setErr(null);
+          if (profile) {
+            // Instant: saved in the app now, on the server right after.
+            writeProfile({ favoriteTeams: picked, teamReminders: reminders }, async () => {
+              await api.updateFavoriteTeams({ teams: picked, reminders });
+              if (uid) invalidatePlayerProfile(uid);
+            });
+            buzz.success();
+            onSaved?.();
+            onClose();
+            return;
+          }
+          // No profile yet (onboarding): wait for the server so an error can show here.
+          setBusy(true);
           try {
             await api.updateFavoriteTeams({ teams: picked, reminders });
             if (uid) invalidatePlayerProfile(uid);

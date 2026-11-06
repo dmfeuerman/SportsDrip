@@ -29,9 +29,13 @@ interface Props {
   busy: boolean;
   /** The box is rattling open (the claim is in flight). */
   charging?: boolean;
+  /** Another box is opening: this one can't be pressed until it's done. */
+  locked?: boolean;
   onOpen: () => void;
   onClaim: () => void;
   onReset: () => void;
+  /** Streak bonus credits this box adds on top right now. */
+  bonus?: number;
 }
 
 function countdown(ms: number): string {
@@ -56,7 +60,7 @@ function countdown(ms: number): string {
  *    ticks while the claim is committed server-side, then hands over to the
  *    wheel
  */
-export default function PrizeBox({ display, state, now, busy, charging = false, onOpen, onClaim, onReset }: Props) {
+export default function PrizeBox({ display, state, now, busy, charging = false, locked = false, onOpen, onClaim, onReset, bonus = 0 }: Props) {
   const colors = useColors();
   const reduced = useReducedMotion();
 
@@ -118,7 +122,7 @@ export default function PrizeBox({ display, state, now, busy, charging = false, 
   }));
 
   function press() {
-    if (busy || charging) return;
+    if (busy || charging || locked) return;
     haptic.medium();
     if (idle) onOpen();
     else if (ready) onClaim();
@@ -156,6 +160,11 @@ export default function PrizeBox({ display, state, now, busy, charging = false, 
         {min.toLocaleString()}–{max.toLocaleString()} credits
       </Text>
       <Text style={[styles.wait, { color: colors.mutedForeground }]}>{display.waitHours}h wait</Text>
+      {bonus > 0 ? (
+        <View style={styles.bonus}>
+          <Text style={styles.bonusText}>🔥 +{bonus} streak</Text>
+        </View>
+      ) : null}
 
       {waiting && (
         <View style={[styles.timer, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
@@ -185,7 +194,7 @@ export default function PrizeBox({ display, state, now, busy, charging = false, 
         ]}
         scaleTo={0.94}
         onPress={press}
-        disabled={waiting || busy || charging}
+        disabled={waiting || busy || charging || locked}
       >
         {ready && !charging ? <Shimmer intensity={0.5} every={1800} /> : null}
         {busy && !charging ? (
@@ -216,7 +225,9 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 32 },
   tier: { fontSize: 13, fontFamily: "Inter_700Bold" },
   range: { fontSize: 11, fontFamily: "Inter_500Medium", textAlign: "center" },
-  wait: { fontSize: 10, fontFamily: "Inter_400Regular" },
+  wait: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  bonus: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: "rgba(255,122,26,0.18)", borderWidth: 1, borderColor: "#FF7A1A" },
+  bonusText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", color: "#FF7A1A" },
   timer: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
   timerText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   action: { width: "100%", paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, alignItems: "center", marginTop: "auto", overflow: "hidden" },

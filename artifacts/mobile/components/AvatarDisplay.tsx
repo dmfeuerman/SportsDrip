@@ -3,6 +3,8 @@ import { StyleSheet, Text, View } from "react-native";
 import AvatarPortrait from "@/components/avatar/AvatarPortrait";
 import AvatarSilhouette from "@/components/avatar/AvatarSilhouette";
 import AvatarStage, { type AvatarStageHandle } from "@/components/avatar/AvatarStage";
+import type { SharedValue } from "react-native-reanimated";
+import type { BackdropCam } from "@/components/avatar/AvatarBackdrop";
 import { normalizeAvatar } from "@/constants/avatarOptions";
 import type { ReactionKind } from "@/lib/avatar3d/reactions";
 import type { Focus } from "@/lib/avatar3d/spec";
@@ -37,6 +39,10 @@ interface Props {
   move?: { id: string; n: number } | null;
   /** lg only. False while the screen is hidden, so it stops drawing. */
   active?: boolean;
+  /** lg only. Drives a ZoomingBackdrop with the camera. */
+  backdropCam?: SharedValue<BackdropCam>;
+  /** lg only. Tap on the character. */
+  onTap?: () => void;
 }
 
 /**
@@ -45,7 +51,7 @@ interface Props {
  * falls back to a flat silhouette rather than taking the screen down.
  */
 const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDisplay(
-  { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, move, active },
+  { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, move, active, backdropCam, onTap },
   ref
 ) {
   const look = useMemo(() => normalizeAvatar(avatar), [avatar]);
@@ -72,6 +78,8 @@ const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDispla
           reaction={reaction}
           move={move}
           active={active}
+          backdropCam={backdropCam}
+          onTap={onTap}
         />
       </View>
     </GLBoundary>

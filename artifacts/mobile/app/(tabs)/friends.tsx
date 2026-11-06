@@ -1,3 +1,8 @@
+import BackToLevels from "@/components/BackToLevels";
+import { TourTarget } from "@/components/tour/TourTarget";
+import { lastSeenLabel, ONLINE_MS, usePresence } from "@/lib/presence";
+import { useNow } from "@/hooks/useNow";
+import { useUnseenCount } from "@/lib/settings";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams } from "expo-router";
@@ -55,10 +60,13 @@ export default function FriendsScreen() {
   const [results, setResults] = useState<PublicUser[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
+  const presence = usePresence(friends.map((f) => f.uid));
+  const clock = useNow(60_000);
   const params = useLocalSearchParams<{ open?: string }>();
   const [busy, setBusy] = useState<string | null>(null);
   const { unreadCount } = useNotifications();
   const { incoming: challengeInbox, live: challengesLive, headToHead } = useChallenges();
+  const challengesNew = useUnseenCount("challenges.inbox", challengeInbox.map((ch) => ch.id), false);
   const { unreadChatCount, unreadForFriend } = useChat();
 
   const topPad = Platform.OS === "web" ? 24 : insets.top;
@@ -123,7 +131,7 @@ export default function FriendsScreen() {
       return (
         <View style={styles.actionRow}>
           <Button
-            label="Accept request"
+            label="Accept Request"
             icon="account-check"
             style={{ flex: 1 }}
             loading={busy === `req:${uid}`}
@@ -158,23 +166,29 @@ export default function FriendsScreen() {
         ]}
       >
         <View style={styles.titleRow}>
-          <Text style={[styles.title, { color: colors.foreground }]}>Friends</Text>
+          <BackToLevels />
+          <Text style={[styles.title, { color: colors.foreground, flex: 1 }]}>Friends</Text>
           <View style={styles.actionRow}>
+            <TourTarget id="friends.chat">
             <IconButton
               icon="chat-processing-outline"
               label="Chat"
               badge={unreadChatCount || undefined}
               onPress={() => router.push("/messages" as never)}
             />
+            </TourTarget>
+            <TourTarget id="friends.challenges">
             <IconButton
               icon="sword-cross"
               label="Challenges"
-              badge={challengeInbox.length || undefined}
+              badge={challengesNew || undefined}
               onPress={() => router.push("/challenges")}
             />
+            </TourTarget>
             <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
           </View>
         </View>
+        <TourTarget id="friends.search">
         <View style={[styles.searchBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
           <MaterialCommunityIcons name="magnify" size={18} color={colors.mutedForeground} />
           <TextInput
@@ -193,6 +207,7 @@ export default function FriendsScreen() {
             </Pressable>
           )}
         </View>
+        </TourTarget>
       </View>
 
       {error && (
@@ -229,7 +244,7 @@ export default function FriendsScreen() {
         ListHeaderComponent={
           searching_ui ? undefined : (
             <>
-              <InviteFriendsCard />
+              <TourTarget id="friends.invite"><InviteFriendsCard /></TourTarget>
               {incoming.length > 0 && (
                 <View style={styles.section}>
                   <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
@@ -306,15 +321,30 @@ export default function FriendsScreen() {
                 onPress={() => setSelectedUid(item.uid)}
                 accessibilityLabel={`View ${item.displayName}'s profile`}
               >
-                <View style={[styles.thumb, { backgroundColor: colors.secondary }]}>
-                  <AvatarDisplay avatar={item.avatar} equipped={item.equipped} catalog={byId} size="xs" />
+                <View>
+                  <View style={[styles.thumb, { backgroundColor: colors.secondary }]}>
+                    <AvatarDisplay avatar={item.avatar} equipped={item.equipped} catalog={byId} size="xs" />
+                  </View>
+                  {isFriend && (presence[item.uid]?.at ?? 0) > clock - ONLINE_MS ? (
+                    <View accessibilityLabel="Online now" style={[styles.onlineDot, { backgroundColor: colors.positive, borderColor: colors.card }]} />
+                  ) : null}
                 </View>
                 <View style={styles.userInfo}>
                   <Text style={[styles.userName, { color: colors.foreground }]} numberOfLines={1}>
                     {item.displayName}
+                    {isFriend && (item.friendStreak?.count ?? 0) > 0 ? (
+                      <Text accessibilityLabel={`${item.friendStreak!.count}-day friend streak`} style={{ color: colors.warning }}>
+                        {`  🔥 ${item.friendStreak!.count}`}
+                      </Text>
+                    ) : null}
                   </Text>
                   <Text style={[styles.userHandle, { color: colors.mutedForeground }]} numberOfLines={1}>
                     @{item.username}
+                    {isFriend && lastSeenLabel(presence[item.uid]?.at, clock) ? (
+                      <Text style={{ color: (presence[item.uid]?.at ?? 0) > clock - ONLINE_MS ? colors.positive : colors.subtleForeground }}>
+                        {`  ·  ${lastSeenLabel(presence[item.uid]?.at, clock)}`}
+                      </Text>
+                    ) : null}
                   </Text>
                   {isFriend && item.stats && (
                     <Text style={[styles.userRecord, { color: colors.mutedForeground }]}>
@@ -442,6 +472,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 10,
   },
+  onlineDot: { position: "absolute", right: -3, bottom: -3, width: 14, height: 14, borderRadius: 7, borderWidth: 2.5 },
   thumb: { width: 54, height: 64, borderRadius: 12, alignItems: "center", justifyContent: "flex-start", paddingTop: 4, overflow: "hidden" },
   userInfo: { flex: 1, gap: 1 },
   userName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },

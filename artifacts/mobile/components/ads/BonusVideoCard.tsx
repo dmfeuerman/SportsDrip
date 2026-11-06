@@ -67,13 +67,13 @@ function BonusVideo() {
 
   const done = left === 0 && crediting === null;
   const button = done
-    ? { label: "Back tomorrow", disabled: true, loading: false, onPress: undefined }
+    ? { label: "Back Tomorrow", disabled: true, loading: false, onPress: undefined }
     : crediting !== null
       ? { label: "Adding credits…", disabled: true, loading: true, onPress: undefined }
       : rewardedStatus === "ready"
         ? { label: `Watch · +${AD_REWARD_DISPLAY.credits}`, disabled: false, loading: false, onPress: watch }
         : rewardedStatus === "unavailable"
-          ? { label: "Try again", disabled: false, loading: false, onPress: loadRewarded }
+          ? { label: "Try Again", disabled: false, loading: false, onPress: loadRewarded }
           : { label: "Loading video…", disabled: true, loading: rewardedStatus !== "showing", onPress: undefined };
 
   return (
@@ -83,7 +83,7 @@ function BonusVideo() {
           <MaterialCommunityIcons name="play-circle-outline" size={22} color={c.primary} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.title, { color: c.foreground }]}>Bonus credits</Text>
+          <Text style={[styles.title, { color: c.foreground }]}>Bonus Credits</Text>
           <Text style={[styles.sub, { color: c.mutedForeground }]}>
             {done
               ? "You've watched today's bonus videos."

@@ -15,6 +15,7 @@ import {
 import { Pressable } from "@/components/fx/Tap";
 import * as THREE from "three";
 import AvatarSilhouette from "@/components/avatar/AvatarSilhouette";
+import AvatarPortrait from "@/components/avatar/AvatarPortrait";
 import { addStudioLights, AvatarRig, contactShadow, fitDepthRange, type AppearanceParts, type GarmentSource } from "@/lib/avatar3d/avatarRig";
 import { Canvas } from "@/lib/avatar3d/canvas";
 import type { ResolvedOutfit } from "@/lib/avatar3d/outfit";
@@ -25,6 +26,8 @@ import { quietPixelStore } from "@/lib/avatar3d/nativeIO";
 import { trace } from "@/lib/devtrace";
 import { takeGlTurn, type GlTurn } from "@/lib/avatar3d/glGate";
 import { useAvatarAssets } from "@/lib/avatar3d/useAvatarAssets";
+import type { SharedValue } from "react-native-reanimated";
+import type { BackdropCam } from "@/components/avatar/AvatarBackdrop";
 import type { AvatarConfig } from "@/types/avatar";
 
 /** Pixels of the stage covered by overlays (toolbar, bottom sheet). Read every frame — no re-render needed. */
@@ -60,6 +63,10 @@ export interface AvatarStageProps {
   reaction?: { kind: ReactionKind; id: number } | null;
   /** A move from the loadout (constants/moves.ts): plays once per new `n`. */
   move?: { id: string; n: number } | null;
+  /** Receives the camera's zoom and pan each frame, so a 2D backdrop can move with it (see AvatarBackdrop). */
+  backdropCam?: SharedValue<BackdropCam>;
+  /** A tap on the character (not a drag or pinch). */
+  onTap?: () => void;
   /** Keeps the character centred and fully visible in the uncovered part of the stage. */
   insets?: React.MutableRefObject<StageInsets>;
   style?: ViewStyle;
@@ -113,7 +120,7 @@ const touchMid = (e: GestureResponderEvent): [number, number] => {
  * AvatarPortrait, which is rendered from the same rig offscreen.
  */
 const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function AvatarStage(
-  { avatar, outfit, focus = "full", interactive = true, controls, onGesture, autoRotate = false, cheerSignal = 0, reaction = null, move = null, active = true, insets, style },
+  { avatar, outfit, focus = "full", interactive = true, controls, onGesture, autoRotate = false, cheerSignal = 0, reaction = null, move = null, active = true, insets, style, backdropCam, onTap },
   ref
 ) {
   const assets = useAvatarAssets(avatar, outfit);
@@ -210,6 +217,31 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
     [interactive]
   );
 
+  // Tap detection without claiming the touch: a short, still, one-finger touch that no turn or pinch took.
+  const tapRef = useRef(onTap);
+  tapRef.current = onTap;
+  const touch = useRef<{ x: number; y: number; t: number; multi: boolean } | null>(null);
+  const tapHandlers = onTap
+    ? {
+        onTouchStart: (e: GestureResponderEvent) => {
+          const multi = (e.nativeEvent.touches?.length ?? 1) > 1;
+          if (touch.current && multi) touch.current.multi = true;
+          else touch.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, t: Date.now(), multi };
+        },
+        onTouchEnd: (e: GestureResponderEvent) => {
+          const s = touch.current;
+          if (!s || (e.nativeEvent.touches?.length ?? 0) > 0) return;
+          touch.current = null;
+          const moved = Math.hypot(e.nativeEvent.pageX - s.x, e.nativeEvent.pageY - s.y);
+          if (!s.multi && moved < 10 && Date.now() - s.t < 350 && !view.current.pinch) tapRef.current?.();
+        },
+      }
+    : null;
+
+  // The stand-in still stays up until the live character has actually drawn.
+  const [drawn, setDrawn] = useState(false);
+  const onFirstFrame = useRef(() => setDrawn(true)).current;
+
   const topColor = outfit.pieces.find((p) => p.slot === "outerwear" || p.slot === "top")?.primary;
   const bottomColor = outfit.pieces.find((p) => p.slot === "bottom")?.primary;
   const overlayInsets = insets ? { top: insets.current.top, bottom: insets.current.bottom } : null;
@@ -222,13 +254,13 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
       {...(interactive ? pan.panHandlers : {})}
       accessibilityLabel="Your avatar. Drag to turn, pinch to zoom."
     >
-      {assets.status !== "ready" || !assets.base || !glReady.ready ? (
+      {!drawn ? (
         <View style={[StyleSheet.absoluteFill, overlayInsets]} pointerEvents="none">
-          <AvatarSilhouette skin={avatar.skinTone} top={topColor} bottom={bottomColor} />
+          {/* The last still of this exact look (cached across launches) stands in until the live
+              character's first frame, so the player sees themselves at once rather than a silhouette. */}
+          <AvatarPortrait avatar={avatar} outfit={outfit} framing="hero" />
           <View style={[StyleSheet.absoluteFill, styles.centre]}>
-            {assets.status !== "error" ? (
-              <ActivityIndicator />
-            ) : (
+            {assets.status !== "error" ? null : (
               <>
                 <Text style={styles.failText}>Couldn't load the 3D character</Text>
                 {__DEV__ && lastLoadError ? (
@@ -242,6 +274,7 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
         </View>
       ) : null}
       {assets.base && glReady.ready ? (
+        <View style={styles.fill} {...(tapHandlers ?? {})}>
         <Canvas
           style={styles.fill}
           frameloop={active ? "always" : "never"}
@@ -271,13 +304,17 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
             reaction={reaction}
             move={move}
             zoomBy={zoomBy}
+            backdropCam={backdropCam}
+            onFirstFrame={onFirstFrame}
           />
         </Canvas>
+        </View>
       ) : null}
       {showControls ? (
         <View style={styles.zoom} pointerEvents="box-none">
+          <StageHelp />
           <ZoomButton icon="plus" label="Zoom in" onPress={() => zoomBy(1, true)} />
-          <ZoomButton icon="minus" label="Zoom out" onPress={() => zoomBy(-1, true)} />
+          <ZoomButton icon="minus" label="Zoom Out" onPress={() => zoomBy(-1, true)} />
         </View>
       ) : null}
     </View>
@@ -352,7 +389,33 @@ function useSettledLayout() {
 }
 
 
-export function ZoomButton({ icon, label, onPress }: { icon: "plus" | "minus" | "fit-to-screen-outline"; label: string; onPress: () => void }) {
+/** "?" above the zoom buttons: shows how to handle the character for 3 seconds. */
+function StageHelp() {
+  const [shown, setShown] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  const show = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setShown(true);
+    timer.current = setTimeout(() => setShown(false), 3000);
+  };
+  return (
+    <View>
+      {shown ? (
+        <View style={styles.tip} pointerEvents="none" accessibilityLiveRegion="polite">
+          <Text style={styles.tipText} numberOfLines={1}>
+            Drag to Turn · Zoom to Inspect
+          </Text>
+        </View>
+      ) : null}
+      <ZoomButton icon="help" label="How to move your character" onPress={show} />
+    </View>
+  );
+}
+
+export function ZoomButton({ icon, label, onPress }: { icon: "plus" | "minus" | "fit-to-screen-outline" | "help"; label: string; onPress: () => void }) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -380,6 +443,8 @@ function StageScene({
   reaction,
   move,
   zoomBy,
+  backdropCam,
+  onFirstFrame,
 }: {
   base: NonNullable<ReturnType<typeof useAvatarAssets>["base"]>;
   parts: AppearanceParts;
@@ -394,6 +459,8 @@ function StageScene({
   reaction: { kind: ReactionKind; id: number } | null;
   move: { id: string; n: number } | null;
   zoomBy: (dz: number, snap: boolean) => void;
+  backdropCam?: SharedValue<BackdropCam>;
+  onFirstFrame?: () => void;
 }) {
   const scene = useThree((s) => s.scene);
   const gl = useThree((s) => s.gl);
@@ -456,8 +523,11 @@ function StageScene({
   const cam = useRef({ target: new THREE.Vector3(...FOCUS[focus].target), distance: FOCUS[focus].distance, height: FOCUS[focus].height });
   const goalTarget = useMemo(() => new THREE.Vector3(), []);
 
+  // Report the first frame drawn with the outfit bound (the frame after this one is on screen).
+  const frames = useRef(0);
   useFrame((state, dt) => {
     rig.update(Math.min(dt, 0.05));
+    if (frames.current < 3 && ++frames.current === 3) onFirstFrame?.();
 
     const v = view.current;
     if (!v.dragging) {
@@ -524,6 +594,18 @@ function StageScene({
     camera.position.set(t.x, t.y + cam.current.height, t.z + cam.current.distance * fit);
     camera.lookAt(t);
     fitDepthRange(camera, t);
+
+    // The backdrop zooms and pans with the camera, about the screen's default framing, so it
+    // reads as the viewer moving closer rather than the character growing.
+    if (backdropCam && H > 0) {
+      const base = FOCUS[focus];
+      const s = base.distance / cam.current.distance;
+      const pxPerM = H / 2 / (cam.current.distance * fit * Math.tan(THREE.MathUtils.degToRad(CAMERA_FOV) / 2));
+      const x = (base.target[0] - t.x) * pxPerM;
+      const y = (t.y - base.target[1]) * pxPerM;
+      const prev = backdropCam.value;
+      if (Math.abs(prev.s - s) > 0.002 || Math.abs(prev.x - x) > 0.5 || Math.abs(prev.y - y) > 0.5) backdropCam.value = { s, x, y };
+    }
   });
 
   return null;
@@ -535,6 +617,20 @@ const styles = StyleSheet.create({
   failText: { color: "#c9d2cd", fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 120 },
   devError: { color: "#ff8a80", fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 6, paddingHorizontal: 16, textAlign: "center" },
   zoom: { position: "absolute", right: 10, bottom: 10, gap: 8 },
+  tip: {
+    position: "absolute",
+    right: 44,
+    top: 4,
+    width: 220,
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  tipText: { color: "#fff", fontSize: 12, fontFamily: "Inter_600SemiBold" },
   zoomBtn: {
     width: 36,
     height: 36,

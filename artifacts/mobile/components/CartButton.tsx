@@ -64,5 +64,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 3,
   },
-  badgeText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  badgeText: { fontSize: 11, fontFamily: "Inter_700Bold" },
 });

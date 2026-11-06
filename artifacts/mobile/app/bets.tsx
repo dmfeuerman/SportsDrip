@@ -1,5 +1,10 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { useUnseenCount } from "@/lib/settings";
 import React, { useMemo, useState } from "react";
+import ParlayTicket from "@/components/ParlayTicket";
+import { useMyParlays } from "@/hooks/useMyParlays";
+import { useToast } from "@/context/ToastContext";
+import * as api from "@/lib/api";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
@@ -21,7 +26,9 @@ export default function MyBetsScreen() {
   const c = useColors();
   const bottomPad = useBottomPad(false);
   const params = useLocalSearchParams<{ wallet?: string }>();
-  const { bets, balance, totalWon, totalStaked, cancelBet } = useApp();
+  const { bets, balance, totalWon, totalStaked, cancelBet, profile } = useApp();
+  const parlays = useMyParlays(profile?.uid);
+  const { show } = useToast();
   const { leagues, myLeagueBets } = useLeague();
   const { games } = useGames();
   const gameById = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
@@ -49,6 +56,9 @@ export default function MyBetsScreen() {
   const open = rows.filter((r) => r.bet.status === "pending");
   const settled = rows.filter((r) => r.bet.status !== "pending");
   const list = tab === "open" ? open : settled;
+  // Red badges count only bets you haven't looked at yet.
+  const openNew = useUnseenCount("bets.open", open.map((r) => r.key), tab === "open");
+  const settledNew = useUnseenCount("bets.settled", settled.map((r) => r.key), tab === "settled");
   const won = settled.filter((r) => r.bet.status === "won").length;
   const lost = settled.filter((r) => r.bet.status === "lost").length;
   const pushes = settled.filter((r) => r.bet.status === "push").length;
@@ -64,7 +74,7 @@ export default function MyBetsScreen() {
     <View style={[styles.container, { backgroundColor: c.background }]}>
       <ScreenHeader
         back
-        title="My bets"
+        title="My Bets"
         subtitle={`${won}W · ${lost}L${pushes ? ` · ${pushes}P` : ""}${winRate !== null ? ` · ${winRate}% hit rate` : ""}`}
         right={<Amount value={balance} animate />}
       >
@@ -72,7 +82,7 @@ export default function MyBetsScreen() {
           <StatTile label="Staked" hint="credits, all time">
             <Amount value={totalStaked} size="sm" tone="neutral" />
           </StatTile>
-          <StatTile label="Net from wins" hint="credits">
+          <StatTile label="Net From Wins" hint="credits">
             <Amount value={totalWon} size="sm" tone={totalWon > 0 ? "positive" : "neutral"} signed />
           </StatTile>
         </View>
@@ -96,8 +106,8 @@ export default function MyBetsScreen() {
           value={tab}
           onChange={setTab}
           options={[
-            { value: "open", label: "Open", badge: open.length },
-            { value: "settled", label: "Settled", badge: settled.length },
+            { value: "open", label: "Open", badge: openNew || undefined },
+            { value: "settled", label: "Settled", badge: settledNew || undefined },
           ]}
         />
       </ScreenHeader>
@@ -157,7 +167,32 @@ export default function MyBetsScreen() {
             }
           />
         )}
+        ListHeaderComponent={
+          wallet === "all" || wallet === "credits" ? (
+            <View style={{ gap: 10, marginBottom: 10 }}>
+              {parlays
+                .filter((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending"))
+                .map((p) => (
+                  <ParlayTicket
+                    key={p.id}
+                    p={p}
+                    busy={busy === p.id}
+                    onCancel={async () => {
+                      setBusy(p.id);
+                      try {
+                        await api.cancelParlay({ parlayId: p.id });
+                      } catch (e) {
+                        show({ kind: "warning", title: "Couldn't cancel", body: api.friendlyError(e) });
+                      }
+                      setBusy(null);
+                    }}
+                  />
+                ))}
+            </View>
+          ) : undefined
+        }
         ListEmptyComponent={
+          parlays.some((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending")) && (wallet === "all" || wallet === "credits") ? undefined : (
           <EmptyState
             icon={tab === "open" ? "ticket-outline" : "history"}
             title={tab === "open" ? "No open bets" : "Nothing settled yet"}
@@ -169,6 +204,7 @@ export default function MyBetsScreen() {
             action={tab === "open" ? "Browse games" : undefined}
             onAction={() => router.navigate("/(tabs)/games")}
           />
+          )
         }
       />
       <BetBreakdownModal

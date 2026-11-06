@@ -38,9 +38,9 @@ export default function LeagueRecapScreen() {
         <View style={{ padding: 16 }}>
           <EmptyState
             icon="newspaper-variant-outline"
-            title="League not found"
+            title="League Not Found"
             body="You may have left this league or it's still loading."
-            action="Back to leagues"
+            action="Back to Leagues"
             onAction={() => router.navigate("/(tabs)/leagues")}
           />
         </View>
@@ -89,7 +89,7 @@ export default function LeagueRecapScreen() {
         {!activeReport || activeReport.cards.length === 0 ? (
           <EmptyState
             icon="newspaper-variant-outline"
-            title="No weekly report yet"
+            title="No Weekly Report Yet"
             body="Every Tuesday morning, SportDrip compiles the biggest hits, worst bad beats, climbers, fallers, and streaks from your league."
           />
         ) : (
@@ -167,7 +167,7 @@ function StoryCard({
           size="sm"
           variant="secondary"
           icon="share-variant"
-          label="Share card"
+          label="Share Card"
           onPress={() => {
             void shareViewOrText({
               viewRef: cardRef,

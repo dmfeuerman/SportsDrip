@@ -13,13 +13,14 @@ export type FixedLeagueDuration = "1 Month" | "6 Weeks" | "2 Months" | "3 Months
 export type LeagueDuration = FixedLeagueDuration | "Full Season";
 export type Sport = "NFL" | "NBA" | "MLB" | "NHL" | "NCAAF" | "NCAAB" | "Soccer";
 export type LeagueStatus = "active" | "ended";
-export type LeagueMode = "bankroll" | "pickem" | "survivor" | "matchups";
+export type LeagueMode = "bankroll" | "pickem" | "survivor" | "matchups" | "bracket";
 
 export const LEAGUE_MODES: Array<{ value: LeagueMode; label: string; desc: string }> = [
   { value: "bankroll", label: "Bankroll", desc: "Classic token stack, odds payouts, and optional loans" },
   { value: "matchups", label: "H2H League", desc: "Matchups only — beat your opponent each round; standings go by W-L record" },
   { value: "pickem", label: "Weekly Pick'em", desc: "Pick straight-up winners each week — 1 point per win" },
   { value: "survivor", label: "Survivor Pool", desc: "One team per week, never twice — lose and you're out" },
+  { value: "bracket", label: "Bracket", desc: "Fill a tournament bracket — 1-2-4-8-16-32 points by round" },
 ];
 
 /** How often head-to-head matchups turn over. Must match functions/src/lib/leagueConfig.ts. */
@@ -95,6 +96,10 @@ export interface LeagueMember {
   eliminatedWeek?: string | null;
   usedTeams?: string[];
   h2h?: H2HRecord;
+  /** Mirrored from users/{uid}.achievementCount when a trophy lands. */
+  achievementCount?: number;
+  /** Bankrupt reset used this league (requestReset). */
+  resetUsed?: boolean;
 }
 
 export interface LeagueResult {
@@ -111,6 +116,10 @@ export interface LeagueResult {
 }
 
 export interface League {
+  /** When play opens; before it friends can join, after it the roster is locked. Older leagues: createdAt. */
+  startsAt?: number;
+  /** Bracket mode: bracketTemplates/{id}. */
+  bracketTemplateId?: string | null;
   id: string;
   name: string;
   code: string;
@@ -226,9 +235,14 @@ export interface LeagueMessage {
   id: string;
   uid: string;
   name: string;
-  kind: "text" | "bet" | "system";
+  kind: "text" | "bet" | "system" | "taunt";
   text: string;
   at: number;
+  /** Taunts: the move to play, sender avatar snapshot. */
+  moveId?: string;
+  matchupId?: string;
+  avatar?: import("@/types/avatar").AvatarConfig | null;
+  equipped?: import("@/types/avatar").Equipped | null;
   betId?: string;
   gameId?: string;
   sport?: string;
@@ -244,6 +258,10 @@ export interface LeagueMessage {
   odds?: number;
   potentialPayout?: number;
   lock?: boolean;
+  /** Kickoff, for bet cards (Tail only while upcoming). */
+  startsAt?: number | null;
+  /** Hidden pick: the doc carries no side/pick until kickoff. */
+  hidden?: boolean;
   replyTo?: {
     id: string;
     kind: "message" | "bet_result";
@@ -467,6 +485,18 @@ export const MIN_LEAGUE_STAKE = 10;
 export function isLeagueClosed(league: Pick<League, "status" | "endsAt">, now: number = Date.now()): boolean {
   return league.status !== "active" || (!!league.endsAt && now >= league.endsAt);
 }
+
+/** When play opens (older leagues started at creation). */
+export const leagueStartsAt = (league: Pick<League, "startsAt" | "createdAt">): number => league.startsAt ?? league.createdAt ?? 0;
+/** A league needs this many players to start. Must match functions/src/lib/leagueConfig.ts. */
+export const MIN_LEAGUE_PLAYERS = 2;
+/**
+ * Started leagues take no new members; unstarted ones take no bets. A league
+ * starts at its start time once it has two players; the second to join starts
+ * it if that time has already passed.
+ */
+export const isLeagueStarted = (league: Pick<League, "startsAt" | "createdAt"> & { memberIds?: string[] }, now: number = Date.now()): boolean =>
+  now >= leagueStartsAt(league) && (league.memberIds?.length ?? MIN_LEAGUE_PLAYERS) >= MIN_LEAGUE_PLAYERS;
 
 export const LEAGUE_CLOSED_MESSAGE = "This league is closed. It's read-only now.";
 

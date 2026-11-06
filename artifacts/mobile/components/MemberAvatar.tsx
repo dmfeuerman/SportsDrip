@@ -1,7 +1,7 @@
 import React, { memo } from "react";
 import { View } from "react-native";
 import AvatarDisplay from "@/components/AvatarDisplay";
-import { Initial } from "@/components/ui";
+import PlayerJersey from "@/components/PlayerJersey";
 import { useColors } from "@/hooks/useColors";
 import type { PublicUser } from "@/lib/api";
 import type { CatalogItem } from "@/types/catalog";
@@ -26,7 +26,7 @@ function MemberAvatar({
   ring?: string;
 }) {
   const c = useColors();
-  if (!profile?.avatar) return <Initial name={name} color={color} size={size} />;
+  if (!profile?.avatar) return <PlayerJersey name={name} color={color} size={size} />;
   return (
     <View
       style={{

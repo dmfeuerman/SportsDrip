@@ -15,6 +15,11 @@ import {
 import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { QuotedParent, ReplyComposerBar, type ReplyQuote } from "@/components/chat/ReplyThread";
+import BetChatCard from "@/components/chat/BetChatCard";
+import TauntCard from "@/components/chat/TauntCard";
+import FriendMoneyCard from "@/components/chat/FriendMoneyCard";
+import FriendSendSheet from "@/components/chat/FriendSendSheet";
+import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
 import MemberAvatar from "@/components/MemberAvatar";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
 import { BackButton, EmptyState, Pill, TabStrip } from "@/components/ui";
@@ -25,19 +30,25 @@ import { useLeague, useLeagueDetail } from "@/context/LeagueContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { useFriends } from "@/hooks/useFriends";
+import { useNow } from "@/hooks/useNow";
 import { chatText } from "@/lib/chatText";
 import { DEMO, demoFriends } from "@/lib/demo";
 import { markChatSeen, useAllChatSeen } from "@/lib/settings";
 import { deleteField, doc, updateDoc } from "firebase/firestore";
 import { getDb } from "@/lib/firebase";
-import { REACTION_EMOJIS } from "@/constants/leagueTypes";
+import ReactionRow from "@/components/chat/ReactionRow";
 
 /** Sets, switches or clears my one reaction on a DM (rules allow only my own key). */
-function reactToDm(m: DirectMessage, uid: string, emoji: string) {
+async function reactToDm(m: DirectMessage, uid: string, emoji: string): Promise<string | null> {
   const db = getDb();
-  if (!db || DEMO) return;
+  if (!db || DEMO) return null;
   const same = m.reactors?.[uid] === emoji;
-  updateDoc(doc(db, "directMessages", m.threadId, "messages", m.id), { [`reactors.${uid}`]: same ? deleteField() : emoji }).catch(() => {});
+  try {
+    await updateDoc(doc(db, "directMessages", m.threadId, "messages", m.id), { [`reactors.${uid}`]: same ? deleteField() : emoji });
+    return null;
+  } catch {
+    return "Couldn't react. Try again.";
+  }
 }
 
 type ChatMode = "dm" | "league";
@@ -70,7 +81,7 @@ export default function MessagesScreen() {
     [liveFriends]
   );
 
-  const { leagues, sendMessage: sendLeagueMessage } = useLeague();
+  const { leagues, sendMessage: sendLeagueMessage, reactToItem } = useLeague();
   const {
     threadIdFor,
     dmMessagesByThread,
@@ -78,6 +89,8 @@ export default function MessagesScreen() {
     leagueReplyQuotes,
     recordLeagueMessageQuote,
     unreadForFriend,
+    unreadDmCount,
+    unreadLeagueCount,
     markThreadRead,
     setActiveChatId,
   } = useChat();
@@ -91,9 +104,13 @@ export default function MessagesScreen() {
     params.leagueId ?? leagues[0]?.id ?? null
   );
   const [replyQuote, setReplyQuote] = useState<ReplyQuote | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [profileUid, setProfileUid] = useState<string | null>(null);
+  const [quickGame, setQuickGame] = useState<string | null>(null);
+  const [follow, setFollow] = useState<FollowIntent | null>(null);
+  const now = useNow(30_000);
 
   const listRef = useRef<React.ComponentRef<typeof FlatList<any>> | null>(null);
 
@@ -184,29 +201,29 @@ export default function MessagesScreen() {
     setSending(true);
     buzz.light();
 
+    // Clear the composer at once; the message shows immediately (local state /
+    // Firestore's pending write) and the composer is restored only if it fails.
+    const sentQuote = replyQuote;
+    setText("");
+    setReplyQuote(null);
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+    const restore = () => {
+      setText((cur) => cur || body);
+      setReplyQuote((cur) => cur ?? sentQuote);
+    };
     if (mode === "dm" && activeFriend) {
-      const err = await sendDirectMessage(activeFriend.uid, activeFriend.displayName, body, replyQuote);
       setSending(false);
-      if (!err) {
-        setText("");
-        setReplyQuote(null);
-        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
-      }
+      const err = await sendDirectMessage(activeFriend.uid, activeFriend.displayName, body, sentQuote);
+      if (err) restore();
     } else if (mode === "league" && activeLeague) {
-      const quote = replyQuote
-        ? (Object.fromEntries(Object.entries(replyQuote).filter(([, v]) => v !== undefined)) as ReplyQuote)
+      const quote = sentQuote
+        ? (Object.fromEntries(Object.entries(sentQuote).filter(([, v]) => v !== undefined)) as ReplyQuote)
         : null;
-      const err = await sendLeagueMessage(activeLeague.id, body, quote);
+      markChatSeen(activeLeague.id, Date.now());
       setSending(false);
-      if (!err) {
-        if (replyQuote) {
-          recordLeagueMessageQuote(`latest_${Date.now()}`, replyQuote);
-        }
-        setText("");
-        setReplyQuote(null);
-        markChatSeen(activeLeague.id, Date.now());
-        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
-      }
+      const err = await sendLeagueMessage(activeLeague.id, body, quote);
+      if (err) restore();
+      else if (sentQuote) recordLeagueMessageQuote(`latest_${Date.now()}`, sentQuote);
     } else {
       setSending(false);
     }
@@ -267,8 +284,8 @@ export default function MessagesScreen() {
             setReplyQuote(null);
           }}
           options={[
-            { value: "dm", label: "Direct Messages" },
-            { value: "league", label: "League Chats", badge: leagues.length || undefined },
+            { value: "dm", label: "Direct Messages", badge: unreadDmCount || undefined },
+            { value: "league", label: "League Chats", badge: unreadLeagueCount || undefined },
           ]}
         />
 
@@ -351,7 +368,7 @@ export default function MessagesScreen() {
           <View style={styles.emptyContainer}>
             <EmptyState
               icon="message-text-outline"
-              title="No direct chats yet"
+              title="No Direct Chats Yet"
               body="Add a friend to start messaging 1-on-1, share picks, and challenge them head-to-head."
               action="Find Friends"
               onAction={() => router.navigate("/(tabs)/friends")}
@@ -422,34 +439,14 @@ export default function MessagesScreen() {
                             : { backgroundColor: c.isDark ? c.card : "#E9E9EB", borderColor: c.border, borderWidth: c.isDark ? 1 : 0, borderBottomLeftRadius: 4 },
                         ]}
                       >
+                        {m.kind === "taunt" ? <TauntCard taunt={m} /> : null}
+                        {m.kind === "gift" || m.kind === "money" || m.kind === "loan" ? <FriendMoneyCard m={m} myUid={myUid} /> : null}
                         <Text style={[styles.bubbleText, { color: mine ? "#FFFFFF" : c.foreground }]}>
                           {chatText(m.text)}
                         </Text>
                       </Pressable>
 
-                      <View style={[styles.msgMetaRow, { gap: 4 }]}>
-                        {REACTION_EMOJIS.slice(0, 3).map((e) => {
-                          const n = Object.values(m.reactors ?? {}).filter((x) => x === e).length;
-                          const on = m.reactors?.[myUid] === e;
-                          if (mine && n === 0) return null;
-                          return (
-                            <Pressable
-                              key={e}
-                              accessibilityRole="button"
-                              accessibilityLabel={`React ${e}`}
-                              hitSlop={4}
-                              disabled={mine}
-                              onPress={() => {
-                                buzz.tick();
-                                reactToDm(m, myUid, e);
-                              }}
-                              style={{ paddingHorizontal: 5, paddingVertical: 1, borderRadius: 999, borderWidth: 1, borderColor: on ? c.league : c.border, backgroundColor: on ? c.leagueSoft : "transparent", flexDirection: "row", gap: 2 }}
-                            >
-                              <Text style={{ fontSize: 11 }}>{e}</Text>
-                              {n > 0 ? <Text style={[styles.msgTime, { color: c.mutedForeground }]}>{n}</Text> : null}
-                            </Pressable>
-                          );
-                        })}
+                      <View style={styles.msgMetaRow}>
                         <Text style={[styles.msgTime, { color: c.subtleForeground }]}>{formatClock(m.at)}</Text>
                         <Pressable
                           hitSlop={8}
@@ -469,6 +466,12 @@ export default function MessagesScreen() {
                           </Text>
                         </Pressable>
                       </View>
+                      <ReactionRow
+                        reactors={m.reactors}
+                        uid={myUid}
+                        align={mine ? "right" : "left"}
+                        onReact={(e) => reactToDm(m, myUid, e)}
+                      />
                     </View>
                   </View>
                 </View>
@@ -487,7 +490,7 @@ export default function MessagesScreen() {
         <View style={styles.emptyContainer}>
           <EmptyState
             icon="trophy-outline"
-            title="No league chats yet"
+            title="No League Chats Yet"
             body="Join or start a league to unlock your league's dedicated group chat room."
             action="Explore Leagues"
             onAction={() => router.navigate("/(tabs)/leagues")}
@@ -564,10 +567,18 @@ export default function MessagesScreen() {
                           : { backgroundColor: c.isDark ? c.card : "#E9E9EB", borderColor: c.border, borderWidth: c.isDark ? 1 : 0, borderBottomLeftRadius: 4 },
                       ]}
                     >
-                      {m.kind === "bet" && m.teamAbbr ? (
-                        <View style={{ marginBottom: 4 }}>
-                          <Pill label={`🎟 ${m.label ?? m.teamAbbr} vs ${m.opponentAbbr}`} tone="league" />
-                        </View>
+                      {m.kind === "taunt" ? <TauntCard taunt={m} /> : null}
+                      {m.kind === "bet" && activeLeague ? (
+                        <BetChatCard
+                          message={m}
+                          uid={myUid ?? null}
+                          leagueId={activeLeague.id}
+                          now={now}
+                          onTail={(gameId, intent) => {
+                            setFollow(intent);
+                            setQuickGame(gameId);
+                          }}
+                        />
                       ) : null}
                       <Text style={[styles.bubbleText, { color: mine ? "#FFFFFF" : c.foreground }]}>
                         {chatText(m.text)}
@@ -594,6 +605,15 @@ export default function MessagesScreen() {
                         </Text>
                       </Pressable>
                     </View>
+                    {m.kind !== "system" && activeLeague ? (
+                      <ReactionRow
+                        reactors={m.reactors}
+                        reactions={m.reactions}
+                        uid={myUid}
+                        align={mine ? "right" : "left"}
+                        onReact={(e) => reactToItem(activeLeague.id, "message", m.id, e as never)}
+                      />
+                    ) : null}
                   </View>
                 </View>
               </View>
@@ -624,6 +644,19 @@ export default function MessagesScreen() {
             },
           ]}
         >
+          {mode === "dm" && activeFriend ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Send ${activeFriend.displayName} clothes, credits or a loan`}
+              onPress={() => {
+                buzz.tick();
+                setSendOpen(true);
+              }}
+              style={({ pressed }) => [styles.sendBtn, { backgroundColor: c.secondary, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <MaterialCommunityIcons name="gift-outline" size={20} color={c.primary} />
+            </Pressable>
+          ) : null}
           <TextInput
             style={[
               styles.input,
@@ -669,11 +702,25 @@ export default function MessagesScreen() {
         </View>
       )}
 
+      <FriendSendSheet
+        friend={sendOpen && activeFriend ? { uid: activeFriend.uid, name: activeFriend.displayName } : null}
+        onClose={() => setSendOpen(false)}
+      />
+
       {/* Friend Profile Sheet with Challenge & Invite to League actions */}
       <PlayerProfileSheet
         uid={profileUid}
         leagueId={mode === "league" ? selectedLeagueId ?? undefined : undefined}
         onClose={() => setProfileUid(null)}
+      />
+      <GameQuickView
+        gameId={quickGame}
+        onClose={() => {
+          setQuickGame(null);
+          setFollow(null);
+        }}
+        defaultWallet={follow?.leagueId}
+        follow={follow}
       />
     </KeyboardAvoidingView>
   );
@@ -714,7 +761,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  unreadDotText: { color: "#FFFFFF", fontSize: 10, fontFamily: "Inter_800ExtraBold" },
+  unreadDotText: { color: "#FFFFFF", fontSize: 11, fontFamily: "Inter_800ExtraBold" },
   dotOnly: { width: 8, height: 8, borderRadius: 4 },
   emptyContainer: { flex: 1, padding: 20, justifyContent: "center" },
   messagesList: { paddingHorizontal: 16, paddingVertical: 14, gap: 12, flexGrow: 1, justifyContent: "flex-end" },
@@ -742,7 +789,7 @@ const styles = StyleSheet.create({
   },
   bubbleText: { fontSize: 15, lineHeight: 20, fontFamily: "Inter_400Regular" },
   msgMetaRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4 },
-  msgTime: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  msgTime: { fontSize: 11, fontFamily: "Inter_500Medium" },
   replyLink: { fontSize: 11, fontFamily: "Inter_700Bold" },
   emptyChat: { paddingVertical: 40, alignItems: "center" },
   emptyChatText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },

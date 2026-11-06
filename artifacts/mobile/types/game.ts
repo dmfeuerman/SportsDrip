@@ -75,8 +75,12 @@ export interface Game {
   awayTeam: TeamSide;
   /** True only when the feed carried a real moneyline. The server refuses bets otherwise. */
   priced?: boolean;
-  /** Book the moneyline came from. */
+  /** Book the moneyline came from ("SportDrip Model" for model lines). */
   oddsProvider?: string | null;
+  /** "book": a sportsbook moneyline; "model": SportDrip's own line (no book line yet). */
+  oddsSource?: "book" | "model" | null;
+  /** Model details when oddsSource is "model". */
+  model?: { pHome: number; confidence: "low" | "medium" | "high"; version: string; pricedAt: number } | null;
   updatedAt: number;
 
   /** "Q3 · 4:12", "Top 7", "78'". Present while live. */

@@ -9,6 +9,8 @@ export type { AvatarConfig, Slot } from "@/types/avatar";
 
 export interface PublicUser {
   uid: string;
+  /** Weekly ladder placement (scheduled/ladder.ts), when enrolled. */
+  ladder?: { tier?: string } | null;
   username: string;
   displayName: string;
   avatar: AvatarConfig;
@@ -18,6 +20,8 @@ export interface PublicUser {
   balance?: number;
   stats?: UserStats;
   favoriteTeams?: FavoriteTeam[];
+  /** Days in a row you and this friend both made a pick (listFriends only). */
+  friendStreak?: { count: number; longest: number };
 }
 
 /** A team someone follows. Stored on users/{uid}.favoriteTeams (max 5). */
@@ -43,6 +47,8 @@ export interface StreakInfo {
   lastDay: string;
   /** Banked streak freezes (0–1); one covers a single missed day. */
   freezes?: number;
+  /** A missed day without a freeze: `needed` actions on `day` restore `from` + 1. */
+  repairPending?: { day: string; needed: number; done: number; from: number } | null;
 }
 
 export interface PunishmentInfo {
@@ -89,14 +95,28 @@ export interface WeeklyQuest {
   claimed: boolean;
 }
 export const getWeeklyQuests = callable<Record<string, never>, { week: string; quests: WeeklyQuest[] }>("getWeeklyQuests");
+export const claimSeasonTier = callable<{ seasonId: string; tier: number }, { ok: true; duplicate?: boolean }>("claimSeasonTier");
 export const claimQuest = callable<{ questId: string }, { ok: true; xp: number; level: number }>("claimQuest");
 
-export const setAlertPrefs = callable<{ sweat: boolean }, { ok: true }>("setAlertPrefs");
+export const setAlertPrefs = callable<{ sweat?: boolean; quietHours?: boolean; tz?: string }, { ok: true }>("setAlertPrefs");
 
 export const makeDailyPick = callable<
   { side: "home" | "away" },
   { ok: true; day: string; streak: number; freezes: number; milestone: number | null }
 >("makeDailyPick");
+
+/** A bet-slip parlay on the credits wallet (functions/src/callable/slipParlays.ts). */
+export const placeParlay = callable<
+  { legs: Array<{ gameId: string; market: Market; selection: Selection }>; stake: number; idempotencyKey: string },
+  { ok: true; parlayId: string; duplicate: boolean; odds?: number; balance?: number | null }
+>("placeParlay");
+export const cancelParlay = callable<{ parlayId: string }, { ok: true; balance: number | null }>("cancelParlay");
+
+/** Today's free 100-credit moneyline bet on any upcoming game (functions/src/callable/dailyPick.ts). */
+export const placeFreeBet = callable<
+  { gameId: string; side?: "home" | "away"; market?: Market; selection?: Selection; idempotencyKey: string },
+  { ok: true; betId: string; day: string; winnings: number; duplicate: boolean; streak: number | null; milestone: number | null }
+>("placeFreeBet");
 
 export const updateFavoriteTeams = callable<{ teams: FavoriteTeam[]; reminders?: boolean }, { ok: true; teams: FavoriteTeam[] }>(
   "updateFavoriteTeams"
@@ -146,6 +166,8 @@ export interface PlayerProfile {
     streak?: StreakInfo | null;
     punishment?: PunishmentInfo | null;
     trophies?: TrophyItem[];
+    /** A trophy id the player pinned to the top of their profile. */
+    featuredTrophy?: string | null;
     memberSince: number | null;
     balance: number | null;
   };
@@ -168,6 +190,7 @@ export interface PlayerProfile {
 }
 
 export const getPlayerProfile = callable<{ uid: string; leagueId?: string }, PlayerProfile>("getPlayerProfile");
+export const setFeaturedTrophy = callable<{ trophyId: string | null }, { ok: true; trophyId: string | null }>("setFeaturedTrophy");
 
 // ── push ───────────────────────────────────────────────────────────────────
 export const registerPushToken = callable<
@@ -310,6 +333,51 @@ export const purchaseItem = callable<
   { ok: true; balance: number | null; itemId: string }
 >("purchaseItem");
 
+/** Buys a catalog item for a friend (functions/src/callable/gifts.ts). */
+export const giftItem = callable<
+  { itemId: string; toUid: string; idempotencyKey: string; note?: string },
+  { ok: true; duplicate: boolean; balance: number | null; itemId: string }
+>("giftItem");
+
+// ── friends: credits and loans outside leagues (functions/src/callable/friendMoney.ts) ──
+export const FRIEND_SEND_MIN = 10;
+export const FRIEND_SEND_MAX = 5_000;
+export const FRIEND_DAILY_SEND_CAP = 10_000;
+export const FRIEND_LOAN_RATES = [0, 5, 10, 20] as const;
+export const FRIEND_SEND_LEVEL = 5;
+export const loanOwed = (amount: number, pct: number) => amount + Math.round((amount * pct) / 100);
+
+export interface FriendLoan {
+  id: string;
+  lenderUid: string;
+  borrowerUid: string;
+  lenderName: string;
+  borrowerName: string;
+  amount: number;
+  interestPct: number;
+  owed: number;
+  repaid: number;
+  note: string | null;
+  status: "requested" | "offered" | "active" | "repaid" | "declined" | "cancelled";
+  createdBy: string;
+  createdAt: number;
+}
+
+export const sendCredits = callable<
+  { toUid: string; amount: number; note?: string; idempotencyKey: string },
+  { ok: true; duplicate: boolean; balance: number | null }
+>("sendCredits");
+export const requestFriendLoan = callable<{ toUid: string; amount: number; interestPct: number; note?: string }, { ok: true; loanId: string }>("requestFriendLoan");
+export const offerFriendLoan = callable<{ toUid: string; amount: number; interestPct: number; note?: string }, { ok: true; loanId: string }>("offerFriendLoan");
+export const respondFriendLoan = callable<{ loanId: string; accept: boolean }, { ok: true; status: string }>("respondFriendLoan");
+export const repayFriendLoan = callable<
+  { loanId: string; amount: number; idempotencyKey: string },
+  { ok: true; duplicate: boolean; balance: number | null; status?: string }
+>("repayFriendLoan");
+
+/** Returning-player Prize Box (functions/src/callable/winBack.ts). */
+export const claimWinBackBox = callable<Record<string, never>, { ok: true; credits: number; balance: number | null }>("claimWinBackBox");
+
 export const saveAppearance = callable<
   { avatar: AvatarConfig; equipped: Partial<Record<Slot, string | null>> },
   { ok: true; avatar: AvatarConfig; equipped: Partial<Record<Slot, string>> }
@@ -402,9 +470,13 @@ export const createLeague = callable<
     matchupsEnabled?: boolean;
     matchupCadence?: MatchupCadence;
     stimulusEnabled?: boolean;
+    bracketTemplateId?: string;
+    startNow?: boolean;
+    startsAt?: number;
   },
   { ok: true; leagueId: string; code: string; duplicate: boolean }
 >("createLeague");
+export const submitBracket = callable<{ leagueId: string; picks: Record<string, string> }, { ok: true; picks: number }>("submitBracket");
 
 export const joinLeague = callable<{ code: string }, { ok: true; leagueId: string; duplicate: boolean }>(
   "joinLeague"
@@ -562,6 +634,16 @@ export async function placeLeagueBet(args: PlaceLeagueBetArgs): Promise<PlaceLea
   }
   return res;
 }
+
+export type TauntInput =
+  | { scope: "league"; leagueId: string; matchupId: string; receiverUid: string; moveId: string }
+  | { scope: "dm"; receiverUid: string; matchupId: string; moveId: string };
+export const sendTaunt = callable<TauntInput, { ok: true; id: string }>("sendTaunt");
+export const setMuteTaunts = callable<{ mute: boolean }, { ok: true }>("setMuteTaunts");
+
+export const registerLiveActivity = callable<{ gameId: string; token: string; side: "home" | "away" }, { ok: true }>("registerLiveActivity");
+
+export const requestReset = callable<{ leagueId: string }, { ok: true; leagueTokens: number; duplicate?: boolean }>("requestReset");
 
 export const takeBankLoan = callable<
   { leagueId: string; amount: number; idempotencyKey: string },

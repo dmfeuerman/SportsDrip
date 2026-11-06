@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import TeamCrest from "@/components/TeamCrest";
+import { trackEvent } from "@/lib/analytics";
 import { haptic as buzz } from "@/lib/motion";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -7,6 +9,8 @@ import Animated, { ZoomIn } from "react-native-reanimated";
 import PressableScale from "@/components/fx/PressableScale";
 import RollingNumber from "@/components/fx/RollingNumber";
 import KeyboardSheet from "@/components/KeyboardSheet";
+import ScrollHint, { useScrollHint } from "@/components/ScrollHint";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import NumericInput from "@/components/NumericInput";
 import { ChallengeSetup, ChallengeSummary, clampOdds } from "@/components/ChallengeComposer";
 import TeamEdge from "@/components/insights/TeamEdge";
@@ -120,9 +124,14 @@ export default function BetModal({
   challenge,
 }: Props) {
   const c = useColors();
+  const insets = useSafeAreaInsets();
+  const hint = useScrollHint();
   const oddsFormat = useOddsFormat();
   const now = useNow(15_000);
   const [amount, setAmount] = useState("");
+  // Why the last tap on Place Bet didn't go through; clears as the amount changes.
+  const [blocked, setBlocked] = useState<string | null>(null);
+  useEffect(() => setBlocked(null), [amount]);
   const [walletId, setWalletId] = useState(() => pickWallet(wallets, defaultWallet));
   const [focused, setFocused] = useState(false);
   const [lockPick, setLockPick] = useState(false);
@@ -134,6 +143,7 @@ export default function BetModal({
   const unpriced = !(typeof odds === "number" && Number.isFinite(odds) && odds > 1);
   const [mode, setMode] = useState<Mode>(canChallenge && (challenge?.initial || unpriced) ? "friend" : "book");
   const [friendUid, setFriendUid] = useState<string | null>(challenge?.friendUid ?? null);
+  useEffect(() => setBlocked(null), [friendUid]);
   const [format, setFormat] = useState<ChallengeMode>("pot");
   const [chOdds, setChOdds] = useState(() => clampOdds(odds ?? 2));
   const [sending, setSending] = useState(false);
@@ -146,6 +156,7 @@ export default function BetModal({
 
   useEffect(() => {
     if (visible) {
+      trackEvent("slip_opened", { game_id: game?.id });
       const initialWallet = pickWallet(wallets, defaultWallet);
       setWalletId(initialWallet);
       setAmount(prefillStakeFor(wallets, initialWallet, defaultStake));
@@ -162,6 +173,27 @@ export default function BetModal({
   }, [visible, defaultWallet]);
 
   const friendMode = canChallenge && mode === "friend";
+  useEffect(() => {
+    if (visible && error) trackEvent("slip_error", { message: error });
+  }, [visible, error]);
+  // One slip_stake_set per open: the first edit away from the prefilled stake.
+  const stakeTracked = useRef(false);
+  const prefilled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!visible) {
+      stakeTracked.current = false;
+      prefilled.current = null;
+      return;
+    }
+    if (prefilled.current === null) {
+      prefilled.current = amount;
+      return;
+    }
+    if (!stakeTracked.current && amount !== prefilled.current) {
+      stakeTracked.current = true;
+      trackEvent("slip_stake_set", {});
+    }
+  }, [visible, amount]);
   useEffect(() => {
     if (visible && friendMode) void loadFriends();
   }, [visible, friendMode, loadFriends]);
@@ -245,10 +277,26 @@ export default function BetModal({
   }
 
   async function handleConfirm() {
-    if (!canBet || !wallet) return;
+    if (!wallet || submitting) return;
+    if (!canBet) {
+      const why =
+        stake <= 0
+          ? `Enter how much to bet. The minimum is ${MIN_STAKE} ${unit}.`
+          : tooSmall
+            ? `That's below the minimum. Bets start at ${MIN_STAKE} ${unit}.`
+            : tooBig
+              ? `That's more than ${wallet.label} holds (${available.toLocaleString()} ${unit}).`
+              : null;
+      if (why) {
+        buzz.warning();
+        setBlocked(why);
+      }
+      return;
+    }
     Keyboard.dismiss();
     buzz.medium();
     rememberStake(wallet.id, stake);
+    trackEvent("slip_confirmed", { wallet: wallet.id === "credits" ? "credits" : "league" });
     await onConfirm(stake, wallet.id, {
       lock: isLeague && !lockAlreadyUsed ? lockPick : false,
       hidden: isLeague ? hidePick : false,
@@ -269,7 +317,24 @@ export default function BetModal({
   }
 
   async function sendChallenge() {
-    if (!canSend || !game || !side || !friendUid || !terms) return;
+    if (busy) return;
+    if (!canSend) {
+      const why = !friendUid
+        ? "Choose a friend to challenge first."
+        : stake <= 0
+          ? `Enter how much to put in. The minimum is ${MIN_STAKE} credits.`
+          : tooBig
+            ? `That's more than your ${available.toLocaleString()} credits.`
+            : quote && !quote.ok
+              ? quote.reason
+              : null;
+      if (why) {
+        buzz.warning();
+        setBlocked(why);
+      }
+      return;
+    }
+    if (!game || !side || !friendUid || !terms) return;
     Keyboard.dismiss();
     buzz.medium();
     setSending(true);
@@ -294,9 +359,11 @@ export default function BetModal({
   }
 
   return (
-    <KeyboardSheet visible={visible} onClose={handleClose} dismissible={!busy} style={styles.sheet}>
+    <KeyboardSheet visible={visible} onClose={handleClose} dismissible={!busy} style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+      <View style={styles.scroll}>
       <ScrollView
         ref={scrollRef}
+        {...hint.scrollProps}
         style={styles.scroll}
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
@@ -327,9 +394,7 @@ export default function BetModal({
         ) : null}
 
         <Animated.View entering={ZoomIn.springify().damping(13).stiffness(220)} style={[styles.teamRow, { backgroundColor: c.alpha(teamColor, 0.14), borderColor: c.alpha(teamColor, 0.45) }]}>
-          <View style={[styles.teamCircle, { backgroundColor: c.alpha(teamColor, 0.22), borderColor: teamColor }]}>
-            <Text style={[styles.teamAbbr, { color: c.foreground }]}>{teamAbbr}</Text>
-          </View>
+          <TeamCrest abbr={teamAbbr} color={teamColor} size={42} sport={game?.sport} />
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={[styles.teamName, { color: c.foreground }]} numberOfLines={1}>
               {pickTitle ?? `${teamName} to win`}
@@ -345,8 +410,8 @@ export default function BetModal({
             value={mode}
             onChange={switchMode}
             options={[
-              { value: "book", label: "Bet the book" },
-              { value: "friend", label: "Challenge a friend" },
+              { value: "book", label: "Bet the Book" },
+              { value: "friend", label: "Challenge a Friend" },
             ]}
           />
         ) : null}
@@ -438,6 +503,7 @@ export default function BetModal({
             placeholder={friendMode ? "Your stake (credits)" : `Stake (${unit})`}
             placeholderTextColor={c.subtleForeground}
             keyboardType="number-pad"
+            doneBar={false}
             editable={!busy}
             accessibilityLabel={`Stake amount in ${wallet?.label ?? "credits"} ${unit}`}
           />
@@ -481,7 +547,7 @@ export default function BetModal({
             <View style={styles.extraRow}>
               <MaterialCommunityIcons name="eye-off-outline" size={16} color={hidePick ? c.league : c.mutedForeground} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.extraTitle, { color: c.foreground }]}>Hide pick until kickoff</Text>
+                <Text style={[styles.extraTitle, { color: c.foreground }]}>Hide Pick Until Kickoff</Text>
                 <Text style={[styles.extraSub, { color: c.mutedForeground }]}>
                   Don't post a bet card in chat or show your side until lock
                 </Text>
@@ -507,7 +573,7 @@ export default function BetModal({
             <RollingNumber value={payout} style={[styles.summaryStrong, { color: c.foreground }]} duration={420} flash={false} />
           </View>
           <SummaryRow label="Profit" value={`+${Math.max(0, profit).toLocaleString()}`} color={c.positive} />
-          <SummaryRow label="If it loses" value={stake ? `−${stake.toLocaleString()}` : "0"} color={stake ? c.negative : undefined} />
+          <SummaryRow label="If It Loses" value={stake ? `−${stake.toLocaleString()}` : "0"} color={stake ? c.negative : undefined} />
           <SummaryRow label={`${wallet?.label ?? "Balance"} after placing`} value={`${Math.max(0, available - stake).toLocaleString()} ${unit}`} />
         </View>
         )}
@@ -517,7 +583,7 @@ export default function BetModal({
             The book hasn't posted a line on this game yet, so it can't take bets.{canChallenge ? " You can still challenge a friend on it." : " Check back closer to kickoff."}
           </Text>
         ) : null}
-        {tooSmall && <Text style={[styles.note, { color: c.mutedForeground }]}>Minimum stake is {MIN_STAKE}.</Text>}
+        {tooSmall && <Text style={[styles.note, { color: c.negative }]}>Minimum stake is {MIN_STAKE} {unit}.</Text>}
         {tooBig && <Text style={[styles.note, { color: c.negative }]}>That's more than {wallet?.label ?? "this wallet"} holds.</Text>}
         {heavy && !tooBig && <Text style={[styles.note, { color: c.warning }]}>That's over half of this wallet on one game.</Text>}
         {friendMode && quote && !quote.ok && !tooSmall ? <Text style={[styles.note, { color: c.warning }]}>{quote.reason}</Text> : null}
@@ -538,6 +604,8 @@ export default function BetModal({
           </Text>
         ) : null}
       </ScrollView>
+      <ScrollHint visible={hint.visible} />
+      </View>
 
       <View style={[styles.footer, { borderTopColor: c.border }]}>
         {friendMode ? (
@@ -551,19 +619,25 @@ export default function BetModal({
               <View style={{ flex: 1 }}>
                 <Text style={[styles.payingLabel, { color: c.mutedForeground }]}>CHALLENGING</Text>
                 <Text style={[styles.payingName, { color: c.foreground }]} numberOfLines={1}>
-                  {friend ? `${friend.displayName} · they get ${other?.abbreviation ?? ""}` : "Pick a friend"}
+                  {friend ? `${friend.displayName} · they get ${other?.abbreviation ?? ""}` : "Select Friend"}
                 </Text>
               </View>
               <View style={[styles.kindPill, { backgroundColor: c.alpha(c.accent, 0.2) }]}>
                 <Text style={[styles.kindText, { color: c.accent }]}>{format === "pot" ? "POT" : `${chOdds.toFixed(2)}X`}</Text>
               </View>
             </View>
+            {blocked ? (
+              <View accessibilityRole="alert" style={[styles.blocked, { backgroundColor: c.alpha(c.negative, 0.12), borderColor: c.negative }]}>
+                <MaterialCommunityIcons name="alert-circle-outline" size={16} color={c.negative} />
+                <Text style={[styles.blockedText, { color: c.foreground }]}>{blocked}</Text>
+              </View>
+            ) : null}
             <Button
               label={terms ? `Send challenge · ${terms.creatorStake.toLocaleString()} credits` : "Send challenge"}
               icon="sword-cross"
               size="lg"
               onPress={sendChallenge}
-              disabled={!canSend}
+              disabled={busy}
               loading={sending}
               haptic={false}
               shimmer={canSend}
@@ -589,11 +663,17 @@ export default function BetModal({
             </View>
           </View>
         ) : null}
+        {blocked ? (
+          <View accessibilityRole="alert" style={[styles.blocked, { backgroundColor: c.alpha(c.negative, 0.12), borderColor: c.negative }]}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={16} color={c.negative} />
+            <Text style={[styles.blockedText, { color: c.foreground }]}>{blocked}</Text>
+          </View>
+        ) : null}
         <Button
           label={!priced ? NO_LINE : stake >= MIN_STAKE ? `Place bet · ${stake.toLocaleString()} ${unit}` : "Place bet"}
           size="lg"
           onPress={handleConfirm}
-          disabled={!canBet}
+          disabled={!priced || submitting || !wallet}
           loading={submitting}
           variant={currency === "league" ? "league" : "primary"}
           haptic={false}
@@ -620,6 +700,8 @@ function SummaryRow({ label, value, color, strong }: { label: string; value: str
 }
 
 const styles = StyleSheet.create({
+  blocked: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  blockedText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   sheet: { gap: 0 },
   scroll: { flexGrow: 0, flexShrink: 1 },
   body: { gap: 12, paddingBottom: 12 },
@@ -635,7 +717,7 @@ const styles = StyleSheet.create({
   teamAbbr: { fontSize: 13, fontFamily: "Inter_700Bold" },
   teamName: { fontSize: 16, fontFamily: "Inter_700Bold" },
   oddsLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  label: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  label: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   wallet: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 2, minWidth: 110, maxWidth: 180 },
   walletHead: { flexDirection: "row", alignItems: "center", gap: 4 },
   walletName: { fontSize: 12, fontFamily: "Inter_600SemiBold", flexShrink: 1 },
@@ -657,8 +739,8 @@ const styles = StyleSheet.create({
   summaryStrong: { fontSize: 15, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   note: { fontSize: 12, fontFamily: "Inter_500Medium" },
   payingWith: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
-  payingLabel: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  payingLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   payingName: { fontSize: 14, fontFamily: "Inter_700Bold" },
   kindPill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
-  kindText: { fontSize: 9, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.6 },
+  kindText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.6 },
 });

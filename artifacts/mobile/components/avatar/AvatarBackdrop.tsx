@@ -1,5 +1,6 @@
 import React, { createContext, memo, useContext, useMemo, useRef } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
 import Svg, { Circle, Defs, Ellipse, G, Line, LinearGradient, Path, Polygon, RadialGradient, Rect, Stop } from "react-native-svg";
 import { backgroundOf } from "@/constants/backgrounds";
 import { useColors, type Colors } from "@/hooks/useColors";
@@ -14,6 +15,26 @@ import { useColors, type Colors } from "@/hooks/useColors";
  * crowds and windows), so it renders the same on every device and every
  * frame, and memoises to one draw.
  */
+/** Camera zoom (1 = default framing) and pan in px, written by the live stage each frame. */
+export interface BackdropCam {
+  s: number;
+  x: number;
+  y: number;
+}
+export const useBackdropCam = () => useSharedValue<BackdropCam>({ s: 1, x: 0, y: 0 });
+
+/** A backdrop that zooms and pans with the stage's camera (pass the same `cam` to the stage). */
+export function ZoomingBackdrop({ id, cam }: { id: string | null | undefined; cam: SharedValue<BackdropCam> }) {
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateX: cam.value.x }, { translateY: cam.value.y }, { scale: cam.value.s }],
+  }));
+  return (
+    <Animated.View style={[StyleSheet.absoluteFill, style]} pointerEvents="none">
+      <AvatarBackdropMemo id={id} />
+    </Animated.View>
+  );
+}
+
 function AvatarBackdrop({ id, style }: { id: string | null | undefined; style?: StyleProp<ViewStyle> }) {
   const c = useColors();
   const scene = backgroundOf(id);
@@ -41,7 +62,8 @@ function AvatarBackdrop({ id, style }: { id: string | null | undefined; style?: 
   );
 }
 
-export default memo(AvatarBackdrop);
+const AvatarBackdropMemo = memo(AvatarBackdrop);
+export default AvatarBackdropMemo;
 
 let instances = 0;
 const IdSuffix = createContext("");

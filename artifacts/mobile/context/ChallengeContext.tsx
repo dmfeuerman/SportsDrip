@@ -1,5 +1,6 @@
 import { collection, limit, onSnapshot, orderBy, query, where, type Query } from "firebase/firestore";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useApp } from "@/context/AppContext";
 import * as api from "@/lib/api";
 import type { Challenge, ChallengeMode, ChallengeTeam, PublicUser } from "@/lib/api";
 import { DEMO, demoFriends } from "@/lib/demo";
@@ -112,6 +113,7 @@ const NONE: Challenge[] = [];
 const OPEN = new Set(["pending", "accepted"]);
 
 export function ChallengeProvider({ uid, children }: { uid: string | null; children: React.ReactNode }) {
+  const { reportSyncFailure } = useApp();
   const [challenges, setChallenges] = useState<Challenge[]>(NONE);
   const [friends, setFriends] = useState<PublicUser[]>(DEMO ? demoFriends : []);
   const [friendsLoading, setFriendsLoading] = useState(false);
@@ -194,7 +196,8 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
               ...(args.mode === "odds" && typeof args.odds === "number" ? { odds: args.odds } : {}),
               ...(trimmed ? { message: trimmed } : {}),
             };
-            await api.createChallenge(payload);
+            // Instant: the composer closes now; a refusal comes back as a toast.
+            api.createChallenge(payload).catch((err) => reportSyncFailure(api.friendlyError(err), "The challenge wasn't sent."));
             return null;
           } catch (err) {
             return api.friendlyError(err);
@@ -202,7 +205,7 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
         },
         "Already sending…"
       ),
-    [enabled, once]
+    [enabled, once, reportSyncFailure]
   );
 
   const respond = useCallback(
@@ -227,16 +230,12 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
       once<string | null>(
         `cancel:${challengeId}`,
         async () => {
-          try {
-            await api.cancelChallenge({ challengeId });
-            return null;
-          } catch (err) {
-            return api.friendlyError(err);
-          }
+          api.cancelChallenge({ challengeId }).catch((err) => reportSyncFailure(api.friendlyError(err), "The challenge is still open."));
+          return null;
         },
         null
       ),
-    [once]
+    [once, reportSyncFailure]
   );
 
   const derived = useMemo(() => {

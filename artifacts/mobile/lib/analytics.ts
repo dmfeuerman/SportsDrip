@@ -28,6 +28,20 @@ export const FUNNEL_EVENTS = [
   "bet_tailed",
   "bet_faded",
   "share_card_tapped",
+  "slip_opened",
+  "slip_stake_set",
+  "slip_confirmed",
+  "slip_error",
+  "share_completed",
+  "reaction_sent",
+  "prompt_shown",
+  "prompt_accepted",
+  "prompt_declined",
+  "daily_pick_made",
+  "quest_claimed",
+  "feed_item_tapped",
+  "tail_from_chat",
+  "activation_reached",
 ] as const;
 
 export type FunnelEvent = (typeof FUNNEL_EVENTS)[number];
@@ -146,7 +160,8 @@ function payload(e: QueuedEvent, uid: string) {
 export function trackEvent(name: FunnelEvent, params?: EventParams): void {
   const clientAt = Date.now();
   const event: QueuedEvent = { id: eventId(clientAt), name, params: sanitize(params), clientAt, sessionId };
-  if (__DEV__) console.log(`[analytics] ${name}`, event.params);
+  // Monitor log off. Uncomment to see every analytics event in Metro.
+  // if (__DEV__) console.log(`[analytics] ${name}`, event.params);
   if (!enabled()) return;
   queue = [...queue, event].slice(-MAX_QUEUE);
   void load().then(persist);

@@ -33,13 +33,16 @@ function BackgroundCard({
 }) {
   const c = useColors();
   const col = c.rarity(bg.rarity);
-  const lock = owned ? null : bg.levelReward ? bg.levelReward : bg.levelRequired && bg.levelRequired > level ? bg.levelRequired : null;
-  const label = inUse ? "In use" : owned ? "Use" : lock ? `Lv ${lock}` : bg.price.toLocaleString();
+  // Hard gate: can't be bought until this level. Reward: free at this level, buyable now.
+  const lock = owned ? null : bg.levelRequired && bg.levelRequired > level ? bg.levelRequired : null;
+  const reward = owned || !bg.levelReward ? null : bg.levelReward;
+  const buyable = !owned && !lock && bg.price > 0;
+  const label = inUse ? "In Use" : owned ? "Use" : lock ? `Lv ${lock}` : buyable ? `Buy ${bg.price.toLocaleString()}` : reward ? `Lv ${reward}` : "Locked";
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${bg.name}, ${bg.rarity}${inUse ? ", in use" : owned ? ", owned" : lock ? `, unlocks at level ${lock}` : `, ${bg.price} credits`}`}
+      accessibilityLabel={`${bg.name}, ${bg.rarity}${inUse ? ", in use" : owned ? ", owned" : lock ? `, unlocks at level ${lock}` : `, ${bg.price} credits${reward ? `, or free at level ${reward}` : ""}`}`}
       onPress={onPreview}
       style={({ pressed }) => [styles.card, { backgroundColor: c.card, borderColor: inUse ? c.primary : c.border, borderWidth: inUse ? 1.5 : 1, opacity: pressed ? 0.9 : 1 }]}
     >
@@ -47,8 +50,13 @@ function BackgroundCard({
         <AvatarBackdrop id={bg.id} />
         {lock ? (
           <View style={styles.lockVeil}>
-            <MaterialCommunityIcons name={bg.levelReward ? "gift" : "lock"} size={22} color="#FFFFFF" />
-            <Text style={styles.lockText}>{bg.levelReward ? `LEVEL ${lock} REWARD` : `LEVEL ${lock}`}</Text>
+            <MaterialCommunityIcons name="lock" size={22} color="#FFFFFF" />
+            <Text style={styles.lockText}>{`LEVEL ${lock}`}</Text>
+          </View>
+        ) : reward ? (
+          <View style={[styles.rewardTag, { backgroundColor: "rgba(0,0,0,0.6)" }]}>
+            <MaterialCommunityIcons name="star-four-points" size={11} color="#FFFFFF" />
+            <Text style={styles.rewardText}>{`FREE AT LV ${reward}`}</Text>
           </View>
         ) : null}
         <View style={[styles.rarity, { backgroundColor: "rgba(0,0,0,0.55)", borderColor: col }]}>
@@ -66,8 +74,8 @@ function BackgroundCard({
         </Text>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={inUse ? "In use" : owned ? `Use ${bg.name}` : lock ? `Locked until level ${lock}` : `Buy ${bg.name}`}
-          disabled={busy || inUse || !!lock || (!owned && !canAfford)}
+          accessibilityLabel={inUse ? "In use" : owned ? `Use ${bg.name}` : lock ? `Locked until level ${lock}` : `Buy ${bg.name} for ${bg.price} credits`}
+          disabled={busy || inUse || !!lock || (!owned && (!buyable || !canAfford))}
           onPress={owned ? onUse : onBuy}
           hitSlop={4}
           style={({ pressed }) => [
@@ -84,7 +92,7 @@ function BackgroundCard({
             <ActivityIndicator size="small" color={c.primary} />
           ) : (
             <View style={styles.actionRow}>
-              {!owned && !lock ? <MaterialCommunityIcons name="lightning-bolt" size={13} color={c.primary} /> : null}
+              {buyable ? <MaterialCommunityIcons name="lightning-bolt" size={13} color={c.primary} /> : null}
               {lock ? <MaterialCommunityIcons name="lock" size={12} color={c.mutedForeground} /> : null}
               <Text
                 style={[
@@ -108,11 +116,13 @@ const styles = StyleSheet.create({
   card: { flex: 1, borderRadius: 16, overflow: "hidden" },
   thumb: { height: 150, overflow: "hidden" },
   lockVeil: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", gap: 4 },
-  lockText: { color: "#FFFFFF", fontSize: 10, fontFamily: "Inter_900Black", letterSpacing: 1 },
+  rewardTag: { position: "absolute", left: 8, bottom: 8, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
+  rewardText: { color: "#FFFFFF", fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 0.6 },
+  lockText: { color: "#FFFFFF", fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 1 },
   rarity: { position: "absolute", left: 8, top: 8, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1 },
-  rarityText: { fontSize: 8, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  rarityText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   on: { position: "absolute", right: 8, top: 8, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  onText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  onText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   info: { padding: 10, gap: 8 },
   name: { fontSize: 14, fontFamily: "Inter_700Bold" },
   action: { borderRadius: 10, borderWidth: 1, paddingVertical: 7, alignItems: "center" },

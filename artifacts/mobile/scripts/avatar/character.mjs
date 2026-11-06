@@ -355,7 +355,7 @@ export function limbT(kind, side, x, y, z) {
 export function limbParam(kind, side, x, y, z) {
   const { ARM, LEG } = sweeps();
   const S = kind === "arm" ? ARM[side] : LEG[side];
-  if (!S.near(x, y, z, 0.06)) return { d: 1, t: -1 };
+  if (!S.near(x, y, z, 0.09)) return { d: 1, t: -1 };
   return S.eval(x, y, z);
 }
 

@@ -9,7 +9,7 @@ import { trackEvent } from "@/lib/analytics";
 export async function shareViewOrText(args: {
   viewRef?: { current: unknown } | null;
   message: string;
-  kind: "bet_ticket" | "result_popup" | "league_report" | "purchase";
+  kind: "bet_ticket" | "result_popup" | "league_report" | "purchase" | "streak" | "streak_week" | "wrapped";
   id?: string;
 }): Promise<void> {
   trackEvent("share_card_tapped", { kind: args.kind, id: args.id ?? null });
@@ -31,11 +31,8 @@ export async function shareViewOrText(args: {
   }
 
   try {
-    if (uri) {
-      await Share.share({ message: args.message, url: uri });
-    } else {
-      await Share.share({ message: args.message });
-    }
+    const res = uri ? await Share.share({ message: args.message, url: uri }) : await Share.share({ message: args.message });
+    if (res.action === Share.sharedAction) trackEvent("share_completed", { kind: args.kind ?? null, image: !!uri });
   } catch {
     // User dismissed the system share sheet.
   }

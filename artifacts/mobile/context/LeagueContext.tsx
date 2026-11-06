@@ -45,6 +45,7 @@ import {
 import { useNow } from "@/hooks/useNow";
 import { trackEvent } from "@/lib/analytics";
 import * as api from "@/lib/api";
+import { useApp } from "@/context/AppContext";
 import { firebaseConfigured, getDb } from "@/lib/firebase";
 import { DEMO, demoActivity, demoLeagueBets, demoLeagues, demoLoans } from "@/lib/demo";
 import { rankByMode, rankMembers, type Standing } from "@/lib/loanMath";
@@ -63,6 +64,9 @@ export interface CreateLeagueInput {
   matchupsEnabled?: boolean;
   matchupCadence?: MatchupCadence;
   stimulusEnabled?: boolean;
+  bracketTemplateId?: string;
+  /** Scheduled start (ms); null/undefined starts now. */
+  startsAt?: number | null;
 }
 
 export type JoinSource = "code" | "link" | "signup" | "notification";
@@ -219,6 +223,27 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
     }
   }, []);
 
+  const { reportSyncFailure } = useApp();
+  /**
+   * Instant: the caller carries on as if it worked (sheets close, the app
+   * moves on) while the call runs; a refusal arrives as a toast.
+   */
+  const instant = useCallback(
+    (leagueId: string, key: string, fn: () => Promise<unknown>): Result => {
+      const league = leaguesRef.current.find((l) => l.id === leagueId);
+      if (league && isLeagueClosed(league)) {
+        setError(LEAGUE_CLOSED_MESSAGE);
+        return Promise.resolve(LEAGUE_CLOSED_MESSAGE);
+      }
+      if (inFlight.current.has(key)) return Promise.resolve(null);
+      void run(key, fn).then((why) => {
+        if (why) reportSyncFailure(why);
+      });
+      return Promise.resolve(null);
+    },
+    [run, reportSyncFailure]
+  );
+
   const guarded = useCallback(
     (leagueId: string, key: string, fn: () => Promise<unknown>): Result => {
       const league = leaguesRef.current.find((l) => l.id === leagueId);
@@ -251,6 +276,8 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
           matchupsEnabled: input.mode === "matchups" || Boolean(input.matchupsEnabled),
           matchupCadence: input.matchupCadence ?? "weekly",
           stimulusEnabled: Boolean(input.stimulusEnabled),
+          ...(input.mode === "bracket" && input.bracketTemplateId ? { bracketTemplateId: input.bracketTemplateId } : {}),
+          ...(input.startsAt ? { startNow: false, startsAt: input.startsAt } : { startNow: true }),
         });
         if (!res.duplicate) {
           trackEvent("league_created", {
@@ -293,7 +320,8 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
       if (!db) return null;
       const msgId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       try {
-        await setDoc(doc(db, "leagues", leagueId, "messages", msgId), {
+        // Not awaited: Firestore shows the local write in the chat at once; a rejection comes back as a toast.
+        void setDoc(doc(db, "leagues", leagueId, "messages", msgId), {
           uid,
           name: me.displayName,
           kind: "text",
@@ -305,13 +333,13 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
           ...(gameId ? { gameId } : {}),
           reactions: {},
           reactors: {},
-        });
+        }).catch((err) => reportSyncFailure(api.friendlyError(err), "The message wasn't sent."));
         return null;
       } catch (err) {
         return api.friendlyError(err);
       }
     },
-    [uid]
+    [uid, reportSyncFailure]
   );
 
   const value = useMemo<LeagueContextType>(
@@ -335,7 +363,7 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
         leaveLeague: (leagueId) => guarded(leagueId, `leave:${leagueId}`, () => api.leaveLeague({ leagueId })),
         endLeague: (leagueId) => guarded(leagueId, `end:${leagueId}`, () => api.endLeague({ leagueId })),
         voteEndLeague: (leagueId, vote) =>
-          guarded(leagueId, `voteend:${leagueId}`, () => api.voteEndLeague({ leagueId, vote })),
+          instant(leagueId, `voteend:${leagueId}`, () => api.voteEndLeague({ leagueId, vote })),
         updateBankSettings: (leagueId, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours) =>
           guarded(leagueId, `bank:${leagueId}`, () =>
             api.updateLeagueSettings({ leagueId, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours })
@@ -343,32 +371,35 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
         updateLeagueSettings: (args) =>
           guarded(args.leagueId, `settings:${args.leagueId}`, () => api.updateLeagueSettings(args)),
         inviteFriend: (leagueId, friendUid) =>
-          guarded(leagueId, `invite:${leagueId}:${friendUid}`, () => api.inviteToLeague({ leagueId, friendUid })),
-        placeLeagueBet: (args) => guarded(args.leagueId, `lbet:${args.idempotencyKey}`, () => api.placeLeagueBet(args)),
+          instant(leagueId, `invite:${leagueId}:${friendUid}`, () => api.inviteToLeague({ leagueId, friendUid })),
+        placeLeagueBet: (args) => instant(args.leagueId, `lbet:${args.idempotencyKey}`, () => api.placeLeagueBet(args)),
         reportResult: (leagueId, betId, reason) =>
-          run(`dispute:${betId}`, () => api.reportResult({ leagueId, betId, reason })),
+          instant(leagueId, `dispute:${betId}`, () => api.reportResult({ leagueId, betId, reason })),
         voidLeagueBet: (leagueId, betId, reason) =>
-          guarded(leagueId, `void:${betId}`, () => api.voidLeagueBet({ leagueId, betId, reason })),
+          instant(leagueId, `void:${betId}`, () => api.voidLeagueBet({ leagueId, betId, reason })),
         reactToItem: (leagueId, targetType, targetId, emoji) =>
-          run(`react:${targetId}:${emoji}`, () => api.reactToItem({ leagueId, targetType, targetId, emoji })),
+          instant(leagueId, `react:${targetId}:${emoji}`, () => {
+            trackEvent("reaction_sent", { target_type: targetType });
+            return api.reactToItem({ leagueId, targetType, targetId, emoji });
+          }),
         sendMessage,
         makePick: (leagueId, gameId, side) =>
-          guarded(leagueId, `pick:${leagueId}:${gameId}`, () => api.makePick({ leagueId, gameId, side })),
+          instant(leagueId, `pick:${leagueId}:${gameId}`, () => api.makePick({ leagueId, gameId, side })),
         createGroupParlay: (args) =>
           guarded(args.leagueId, `parlay:${args.idempotencyKey}`, () => api.createGroupParlay(args)),
         addParlayLeg: (args) =>
-          guarded(args.leagueId, `pleg:${args.parlayId}:${args.gameId}`, () => api.addParlayLeg(args)),
+          instant(args.leagueId, `pleg:${args.parlayId}:${args.gameId}`, () => api.addParlayLeg(args)),
         rideParlay: (leagueId, parlayId, stake) =>
-          guarded(leagueId, `pride:${parlayId}`, () => api.rideParlay({ leagueId, parlayId, stake })),
+          instant(leagueId, `pride:${parlayId}`, () => api.rideParlay({ leagueId, parlayId, stake })),
         lockParlay: (leagueId, parlayId) =>
-          guarded(leagueId, `plock:${parlayId}`, () => api.lockParlay({ leagueId, parlayId })),
-        stimulus: (args) => guarded(args.leagueId, `stimulus:${args.leagueId}`, () => api.leagueStimulus(args)),
+          instant(leagueId, `plock:${parlayId}`, () => api.lockParlay({ leagueId, parlayId })),
+        stimulus: (args) => instant(args.leagueId, `stimulus:${args.leagueId}`, () => api.leagueStimulus(args)),
         takeBankLoan: (leagueId, amount) =>
-          guarded(leagueId, `borrow:${leagueId}`, () =>
+          instant(leagueId, `borrow:${leagueId}`, () =>
             api.takeBankLoan({ leagueId, amount, idempotencyKey: api.newIdempotencyKey() })
           ),
         repayLoan: (leagueId, loanId, amount) =>
-          guarded(leagueId, `repay:${loanId}`, () =>
+          instant(leagueId, `repay:${loanId}`, () =>
             api.repayLoan({ leagueId, loanId, amount, idempotencyKey: api.newIdempotencyKey() })
           ),
         requestLoan: (leagueId, amount, rate, message) => {
@@ -376,15 +407,15 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
             setError(LOAN_REQUESTS_CLOSED_MESSAGE);
             return Promise.resolve(LOAN_REQUESTS_CLOSED_MESSAGE);
           }
-          return guarded(leagueId, `request:${leagueId}`, () =>
+          return instant(leagueId, `request:${leagueId}`, () =>
             api.requestPeerLoan({ leagueId, amount, rate, message, idempotencyKey: api.newIdempotencyKey() })
           );
         },
         peerLoanAction: (leagueId, loanId, action, rate) =>
-          guarded(leagueId, `peer:${loanId}`, () => api.peerLoanAction({ leagueId, loanId, action, rate })),
+          instant(leagueId, `peer:${loanId}`, () => api.peerLoanAction({ leagueId, loanId, action, rate })),
       };
     },
-    [ready, uid, leagues, closedKey, myLeagueBets, error, createLeague, joinLeague, guarded, run, sendMessage]
+    [ready, uid, leagues, closedKey, myLeagueBets, error, createLeague, joinLeague, guarded, instant, run, sendMessage]
   );
 
   return <LeagueContext.Provider value={value}>{children}</LeagueContext.Provider>;
@@ -525,7 +556,8 @@ export function useLeagueDetail(league: League | undefined): LeagueDetail {
         asOf
       ),
       league.mode,
-      (u) => league.members?.[u]?.h2h
+      (u) => league.members?.[u]?.h2h,
+      (u) => league.members?.[u]
     );
   }, [league, loans, now]);
 
@@ -629,7 +661,17 @@ export function useGameLeagueSweat(gameId: string | undefined): {
  * One listener per active league over recently-updated gameSides docs. Returns
  * names only, never sides or stakes, so hidden picks stay hidden.
  */
-export function useBoardLeagueSides(myUid: string | null | undefined): Map<string, Array<{ uid: string; displayName: string; avatarColor: string }>> {
+export interface BoardLeagueSide {
+  uid: string;
+  displayName: string;
+  avatarColor: string;
+  /** null = hidden pick; never resolved to a side client-side before kickoff. */
+  side: "home" | "away" | null;
+  betId: string;
+  leagueId: string;
+}
+
+export function useBoardLeagueSides(myUid: string | null | undefined): Map<string, BoardLeagueSide[]> {
   const { activeLeagues } = useLeague();
   const [docs, setDocs] = useState<Record<string, GameSidesDoc[]>>({});
   const key = activeLeagues.map((l) => l.id).join(",");
@@ -653,14 +695,21 @@ export function useBoardLeagueSides(myUid: string | null | undefined): Map<strin
   }, [key]);
 
   return useMemo(() => {
-    const out = new Map<string, Array<{ uid: string; displayName: string; avatarColor: string }>>();
-    for (const list of Object.values(docs)) {
+    const out = new Map<string, BoardLeagueSide[]>();
+    for (const [leagueId, list] of Object.entries(docs)) {
       for (const d of list) {
         const gameId = d.gameId ?? d.id;
         const arr = out.get(gameId) ?? [];
         for (const e of d.entries ?? []) {
           if (!e.uid || e.uid === myUid || arr.some((x) => x.uid === e.uid)) continue;
-          arr.push({ uid: e.uid, displayName: e.displayName || e.name || "Player", avatarColor: "" });
+          arr.push({
+            uid: e.uid,
+            displayName: e.displayName || e.name || "Player",
+            avatarColor: "",
+            side: e.side ?? null,
+            betId: e.betId,
+            leagueId,
+          });
         }
         if (arr.length) out.set(gameId, arr);
       }
@@ -728,7 +777,8 @@ export function useLeagueSummaries(): { summaries: LeagueSummary[]; totalDebt: n
             asOf
           ),
           league.mode,
-          (u) => league.members?.[u]?.h2h
+          (u) => league.members?.[u]?.h2h,
+          (u) => league.members?.[u]
         );
       }
       const me = standings.find((s) => s.uid === uid) ?? null;

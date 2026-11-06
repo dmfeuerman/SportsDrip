@@ -6,7 +6,7 @@ import { Pressable } from "@/components/fx/Tap";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import GameQuickView from "@/components/GameQuickView";
 import { openSocialNotification } from "@/components/InviteToastHost";
-import { Amount, Button, EmptyState, ScreenHeader, useBottomPad } from "@/components/ui";
+import { Amount, EmptyState, ScreenHeader, useBottomPad } from "@/components/ui";
 import { isChallenge, isLoss, isWin, useNotifications, type AppNotification } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
 import { useNow } from "@/hooks/useNow";
@@ -19,6 +19,9 @@ const ICON: Record<AppNotification["type"], React.ComponentProps<typeof Material
   sweat_alert: "fire",
   achievement: "trophy-award",
   referral_bonus: "account-heart",
+  gift_received: "gift-outline",
+  credits_received: "cash-fast",
+  win_back: "hand-wave-outline",
   bet_lost: "arrow-down-bold-circle",
   bet_push: "minus-circle",
   bet_refunded: "undo-variant",
@@ -74,15 +77,19 @@ export default function ActivityScreen() {
     }
   }, [refresh]);
 
+  // Opening Activity clears its badge at once; what was new stays highlighted
+  // here until you leave.
+  const [fresh, setFresh] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (!unreadCount) return;
-    const t = setTimeout(markAllRead, 2500);
-    return () => clearTimeout(t);
-  }, [unreadCount, markAllRead]);
+    const ids = notifications.filter((n) => !n.read).map((n) => n.id);
+    setFresh((prev) => new Set([...prev, ...ids]));
+    markAllRead();
+  }, [unreadCount, notifications, markAllRead]);
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
-      <ScreenHeader back title="Activity" subtitle={unreadCount ? `${unreadCount} new` : "Results, payouts, loans and invites"} right={unreadCount ? <Button size="sm" variant="ghost" label="Mark read" onPress={markAllRead} /> : undefined} />
+      <ScreenHeader back title="Activity" subtitle={fresh.size ? `${fresh.size} new` : "Results, payouts, loans and invites"} />
       <FlatList
         data={notifications}
         keyExtractor={(n) => n.id}
@@ -117,11 +124,22 @@ export default function ActivityScreen() {
               });
               return;
             }
+            // Every row goes somewhere: the most specific screen for its type, else its league, else the closest list.
+            const gameId = n.data?.gameId;
             if ((n.type === "league_invite" && n.data?.code) || n.type === "friend_request" || n.type === "friend_accepted" || n.type === "referral_bonus" || n.type === "level_up" || isChallenge(n)) openSocialNotification(n);
-            else if (n.leagueId) router.push({ pathname: "/league/[id]", params: { id: n.leagueId, tab: n.type.startsWith("loan") ? "bank" : "standings" } });
+            else if (n.type === "achievement") router.push("/trophies" as never);
+            else if ((n.type === "team_reminder" || n.type === "sweat_alert") && gameId) setQuickGame(gameId);
+            else if (n.leagueId && (n.type.startsWith("loan") || n.type.startsWith("stimulus"))) router.push({ pathname: "/league/[id]", params: { id: n.leagueId, tab: "bank" } });
+            else if (n.leagueId && (n.type === "bet_tailed" || n.type === "bet_faded" || n.type === "bet_refunded")) router.push({ pathname: "/league/[id]", params: { id: n.leagueId, tab: "bets" } });
+            else if (n.leagueId && n.type === "reaction") router.push({ pathname: "/league/[id]", params: { id: n.leagueId, tab: "feed" } });
+            else if (n.leagueId) router.push({ pathname: "/league/[id]", params: { id: n.leagueId, tab: "standings" } });
+            else if (n.type === "team_reminder" || n.type === "sweat_alert") router.push("/(tabs)/games");
+            else if (n.type === "reaction") router.push("/feed" as never);
+            else if (n.type.startsWith("loan") || n.type.startsWith("stimulus") || n.type === "league_ended" || n.type === "league_payout" || n.type === "league_invite") router.push("/(tabs)/leagues");
+            else router.push("/bets");
           };
           return (
-            <Pressable accessibilityRole="button" accessibilityLabel={`${n.title}. ${n.body}`} onPress={go} style={({ pressed }) => [styles.row, { backgroundColor: n.read ? c.card : c.elevated, borderColor: n.read ? c.border : c.alpha(tone, 0.4), opacity: pressed ? 0.85 : 1 }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${n.title}. ${n.body}`} onPress={go} style={({ pressed }) => [styles.row, { backgroundColor: !fresh.has(n.id) ? c.card : c.elevated, borderColor: !fresh.has(n.id) ? c.border : c.alpha(tone, 0.4), opacity: pressed ? 0.85 : 1 }]}>
               <View style={[styles.icon, { backgroundColor: c.alpha(tone, 0.14) }]}>
                 <MaterialCommunityIcons name={ICON[n.type] ?? "bell-outline"} size={20} color={tone} />
               </View>
@@ -132,10 +150,10 @@ export default function ActivityScreen() {
                 <Text style={[styles.body, { color: c.mutedForeground }]} numberOfLines={2}>
                   {n.body}
                 </Text>
-                {n.bet && <Text style={[styles.cta, { color: c.primary }]}>Tap for full bet breakdown</Text>}
-                {n.type === "league_invite" && <Text style={[styles.cta, { color: c.accent }]}>Tap to join</Text>}
-                {n.type === "friend_request" && <Text style={[styles.cta, { color: c.accent }]}>Tap to respond</Text>}
-                {n.type === "challenge_received" && <Text style={[styles.cta, { color: c.accent }]}>Tap to accept or decline</Text>}
+                {n.bet && <Text style={[styles.cta, { color: c.primary }]}>Tap for Full Bet Breakdown</Text>}
+                {n.type === "league_invite" && <Text style={[styles.cta, { color: c.accent }]}>Tap to Join</Text>}
+                {n.type === "friend_request" && <Text style={[styles.cta, { color: c.accent }]}>Tap to Respond</Text>}
+                {n.type === "challenge_received" && <Text style={[styles.cta, { color: c.accent }]}>Tap to Accept or Decline</Text>}
               </View>
               <View style={{ alignItems: "flex-end", gap: 4 }}>
                 <Text style={[styles.time, { color: c.subtleForeground }]}>{ago(n.createdAtMs, now)}</Text>
@@ -144,10 +162,11 @@ export default function ActivityScreen() {
                 ) : null}
                 {!n.read && <View style={[styles.dot, { backgroundColor: c.accent }]} />}
               </View>
+              <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} />
             </Pressable>
           );
         }}
-        ListEmptyComponent={<EmptyState icon="bell-sleep-outline" title="All quiet" body="Bet results, league payouts, loan updates and invites will show up here." />}
+        ListEmptyComponent={<EmptyState icon="bell-sleep-outline" title="All Quiet" body="Bet results, league payouts, loan updates and invites will show up here." />}
       />
       <BetBreakdownModal
         item={breakdown}

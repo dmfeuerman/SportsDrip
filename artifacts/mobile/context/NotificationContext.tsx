@@ -79,7 +79,10 @@ export interface AppNotification {
     | "reaction"
     | "sweat_alert"
     | "achievement"
-    | "referral_bonus";
+    | "referral_bonus"
+    | "gift_received"
+    | "credits_received"
+    | "win_back";
   title: string;
   body: string;
   delta: number;
@@ -134,6 +137,8 @@ export const SOCIAL_TYPES: ReadonlySet<AppNotification["type"]> = new Set([
   "stimulus_request",
   "stimulus_approved",
   "referral_bonus",
+  "gift_received",
+  "credits_received",
 ]);
 
 /** A settled head-to-head carries a `bet` from the player's side, so it renders like a bet result. */
@@ -268,10 +273,11 @@ export function NotificationProvider({
 
   const markRead = useCallback(
     (ids: string[]) => {
-      if (DEMO) {
-        setNotifications((p) => p.map((n) => (ids.includes(n.id) ? { ...n, read: true } : n)));
-        return;
-      }
+      if (!ids.length) return;
+      // Clear the badge now; the write follows.
+      const set = new Set(ids);
+      setNotifications((p) => (p.some((n) => set.has(n.id) && !n.read) ? p.map((n) => (set.has(n.id) ? { ...n, read: true } : n)) : p));
+      if (DEMO) return;
       const db = getDb();
       if (!db || !uid || ids.length === 0) return;
       if (ids.length === 1) {

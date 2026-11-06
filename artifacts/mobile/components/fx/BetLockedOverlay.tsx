@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import TeamCrest from "@/components/TeamCrest";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect } from "react";
 import { AccessibilityInfo, Modal, StyleSheet, Text, View } from "react-native";
@@ -71,9 +72,7 @@ export default function BetLockedOverlay({ bet, onDone }: { bet: BetLockedInput;
         <Animated.View pointerEvents="none" style={[styles.ticket, { backgroundColor: c.elevated, borderColor: tint, shadowColor: tint }, cardStyle]}>
           <View style={[styles.stripe, { backgroundColor: bet.teamColor }]} />
           <View style={styles.head}>
-            <View style={[styles.badge, { borderColor: bet.teamColor, backgroundColor: c.alpha(bet.teamColor, 0.2) }]}>
-              <Text style={[styles.abbr, { color: c.foreground }]}>{bet.teamAbbr}</Text>
-            </View>
+            <TeamCrest abbr={bet.teamAbbr} color={bet.teamColor} size={46} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.k, { color: c.mutedForeground }]}>YOUR PICK</Text>
               <Text style={[styles.team, { color: c.foreground }]} numberOfLines={1}>
@@ -129,7 +128,7 @@ const styles = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
   badge: { width: 50, height: 50, borderRadius: 25, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   abbr: { fontSize: 14, fontFamily: "Inter_900Black" },
-  k: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  k: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
   k2: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   team: { fontSize: 17, fontFamily: "Inter_900Black", letterSpacing: -0.3 },
   perf: { borderTopWidth: 1.5, borderStyle: "dashed", marginHorizontal: 12 },

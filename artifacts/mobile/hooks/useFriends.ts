@@ -1,13 +1,13 @@
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AppState } from "react-native";
 import * as api from "@/lib/api";
 import type { PublicUser } from "@/lib/api";
 import { getDb } from "@/lib/firebase";
 import { DEMO, demoFriends } from "@/lib/demo";
-import { usePolling } from "@/hooks/usePolling";
 
 /** Foreground re-read of requests + friends, under the live listeners. */
-export const FRIENDS_POLL_MS = 45_000;
+export const FRIENDS_POLL_MS = 3 * 60_000;
 
 export interface FriendRequest {
   id: string;
@@ -40,15 +40,157 @@ const NO_REQUESTS: FriendRequest[] = [];
  * client is an N+1 that `listFriends` does in one getAll), and the two request
  * queries are live so an incoming request lands without a refresh.
  */
-export function useFriends(uid: string | null) {
-  const [friends, setFriends] = useState<PublicUser[]>(DEMO ? demoFriends : []);
-  const [incoming, setIncoming] = useState<FriendRequest[]>(NO_REQUESTS);
-  const [outgoing, setOutgoing] = useState<FriendRequest[]>(NO_REQUESTS);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * One set of friend listeners and one poll per signed-in user, shared by every
+ * screen that calls useFriends (Chat, Home's checklist, the Friends tab, game
+ * and league screens). Each mount used to open its own three listeners and its
+ * own 45 s poll — every poll a listFriends call (one read per friend) plus two
+ * queries — so the same data was read several times over, every 45 seconds.
+ */
+interface Shared {
+  friends: PublicUser[];
+  incoming: FriendRequest[];
+  outgoing: FriendRequest[];
+  loading: boolean;
+  error: string | null;
+}
 
-  // Guards a setState after the screen has gone. Firestore callbacks and the
-  // listFriends round trip both outlive a fast tab switch.
+class FriendsStore {
+  state: Shared = { friends: [], incoming: NO_REQUESTS, outgoing: NO_REQUESTS, loading: true, error: null };
+  private subs = new Set<() => void>();
+  private refs = 0;
+  private stop: (() => void) | null = null;
+  private inflight: Promise<void> | null = null;
+  private lastPull = 0;
+
+  constructor(private uid: string) {}
+
+  subscribe = (fn: () => void) => {
+    this.subs.add(fn);
+    return () => {
+      this.subs.delete(fn);
+    };
+  };
+
+  set(next: Partial<Shared>) {
+    this.state = { ...this.state, ...next };
+    this.subs.forEach((f) => f());
+  }
+
+  /** The enriched list. Coalesced: overlapping callers share one call, and a pull within 5 s is reused. */
+  refresh = (force = false): Promise<void> => {
+    if (this.inflight) return this.inflight;
+    if (!force && Date.now() - this.lastPull < 5_000) return Promise.resolve();
+    this.inflight = (async () => {
+      try {
+        const res = await api.listFriends({});
+        this.lastPull = Date.now();
+        if (JSON.stringify(this.state.friends) !== JSON.stringify(res.friends)) this.set({ friends: res.friends });
+        if (this.state.error) this.set({ error: null });
+      } catch (err) {
+        this.set({ error: api.friendlyError(err) });
+      } finally {
+        if (this.state.loading) this.set({ loading: false });
+        this.inflight = null;
+      }
+    })();
+    return this.inflight;
+  };
+
+  /** Fallback re-read under the listeners, for a stalled listener. */
+  sync = async () => {
+    const db = getDb();
+    if (!db) return;
+    const pending = (field: "from" | "to") =>
+      getDocs(query(collection(db, "friendRequests"), where(field, "==", this.uid), where("status", "==", "pending")));
+    const res = await Promise.all([pending("to"), pending("from"), this.refresh(true)]).catch((err: { code?: string }) => {
+      if (__DEV__) console.warn(`[friends] poll friendRequests: ${err?.code ?? err}`);
+      return null;
+    });
+    if (!res) return;
+    const [inc, out] = res;
+    const sameIds = (prev: FriendRequest[], next: { id: string }[]) => prev.length === next.length && prev.every((r, i) => r.id === next[i]?.id);
+    const map = (docs: typeof inc.docs) => docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as FriendRequest);
+    const incoming = inc.empty ? NO_REQUESTS : sameIds(this.state.incoming, inc.docs) ? this.state.incoming : map(inc.docs);
+    const outgoing = out.empty ? NO_REQUESTS : sameIds(this.state.outgoing, out.docs) ? this.state.outgoing : map(out.docs);
+    if (incoming !== this.state.incoming || outgoing !== this.state.outgoing) this.set({ incoming, outgoing });
+  };
+
+  acquire() {
+    this.refs++;
+    if (this.stop) return;
+    const db = getDb();
+    if (!db) {
+      this.set({ loading: false });
+      return;
+    }
+    const mapRequests = (docs: { id: string; data: () => unknown }[]) => docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as FriendRequest);
+    const unsubs = [
+      onSnapshot(
+        query(collection(db, "friendships"), where("users", "array-contains", this.uid)),
+        () => void this.refresh(true),
+        (err) => this.set({ error: api.friendlyError(err) })
+      ),
+      onSnapshot(
+        query(collection(db, "friendRequests"), where("to", "==", this.uid), where("status", "==", "pending")),
+        (snap) => this.set({ incoming: snap.empty ? NO_REQUESTS : mapRequests(snap.docs) }),
+        (err) => __DEV__ && console.warn(`[friends] incoming listener: ${err.code}`)
+      ),
+      onSnapshot(
+        query(collection(db, "friendRequests"), where("from", "==", this.uid), where("status", "==", "pending")),
+        (snap) => this.set({ outgoing: snap.empty ? NO_REQUESTS : mapRequests(snap.docs) }),
+        (err) => __DEV__ && console.warn(`[friends] outgoing listener: ${err.code}`)
+      ),
+    ];
+    // Foreground-only fallback poll.
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const startPoll = () => {
+      if (!timer) timer = setInterval(() => void this.sync().catch(() => {}), FRIENDS_POLL_MS);
+    };
+    const stopPoll = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    if (AppState.currentState === "active" || AppState.currentState == null) startPoll();
+    const app = AppState.addEventListener("change", (st) => (st === "active" ? startPoll() : stopPoll()));
+    this.stop = () => {
+      unsubs.forEach((u) => u());
+      stopPoll();
+      app.remove();
+    };
+  }
+
+  release() {
+    this.refs = Math.max(0, this.refs - 1);
+    if (this.refs > 0) return;
+    // Linger briefly so a tab switch doesn't tear down and re-read everything.
+    setTimeout(() => {
+      if (this.refs === 0 && this.stop) {
+        this.stop();
+        this.stop = null;
+      }
+    }, 30_000);
+  }
+}
+
+const stores = new Map<string, FriendsStore>();
+const storeFor = (uid: string) => {
+  let st = stores.get(uid);
+  if (!st) stores.set(uid, (st = new FriendsStore(uid)));
+  return st;
+};
+const EMPTY: Shared = { friends: [], incoming: NO_REQUESTS, outgoing: NO_REQUESTS, loading: false, error: null };
+const noopSub = () => () => {};
+
+export function useFriends(uid: string | null) {
+  const store = uid && !DEMO ? storeFor(uid) : null;
+  const shared = useSyncExternalStore(store?.subscribe ?? noopSub, () => store?.state ?? EMPTY, () => store?.state ?? EMPTY);
+  const [localError, setError] = useState<string | null>(null);
+  const friends = DEMO ? demoFriends : shared.friends;
+  const { incoming, outgoing, loading } = shared;
+  const error = localError ?? shared.error;
+
+  // Guards a setState after the screen has gone.
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -57,90 +199,19 @@ export function useFriends(uid: string | null) {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (!uid) return;
-    try {
-      const res = await api.listFriends({});
-      if (!alive.current) return;
-      // Polled: keep identity when nothing changed so consumers don't re-render.
-      setFriends((prev) => (JSON.stringify(prev) === JSON.stringify(res.friends) ? prev : res.friends));
-      setError(null);
-    } catch (err) {
-      if (alive.current) setError(api.friendlyError(err));
-    } finally {
-      if (alive.current) setLoading(false);
-    }
-  }, [uid]);
-
   useEffect(() => {
-    if (!uid || DEMO) {
-      setLoading(false);
-      return;
-    }
-    const db = getDb();
-    if (!db) {
-      setLoading(false);
-      return;
-    }
+    if (!store) return;
+    store.acquire();
+    void store.refresh();
+    return () => store.release();
+  }, [store]);
 
-    const mapRequests = (docs: { id: string; data: () => unknown }[]) =>
-      docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as FriendRequest);
-
-    const unsubs = [
-      onSnapshot(
-        query(collection(db, "friendships"), where("users", "array-contains", uid)),
-        () => void refresh(),
-        (err) => setError(api.friendlyError(err))
-      ),
-      onSnapshot(
-        query(
-          collection(db, "friendRequests"),
-          where("to", "==", uid),
-          where("status", "==", "pending")
-        ),
-        // Reuse the shared empty array when there is nothing, so an empty
-        // snapshot is not a new object identity for every consumer.
-        (snap) => setIncoming(snap.empty ? NO_REQUESTS : mapRequests(snap.docs)),
-        (err) => __DEV__ && console.warn(`[friends] incoming listener: ${err.code}`)
-      ),
-      onSnapshot(
-        query(
-          collection(db, "friendRequests"),
-          where("from", "==", uid),
-          where("status", "==", "pending")
-        ),
-        (snap) => setOutgoing(snap.empty ? NO_REQUESTS : mapRequests(snap.docs)),
-        (err) => __DEV__ && console.warn(`[friends] outgoing listener: ${err.code}`)
-      ),
-    ];
-
-    return () => unsubs.forEach((u) => u());
-  }, [uid, refresh]);
-
-  // Same three reads as one-shots. A stalled listener otherwise leaves a new
-  // request invisible until the tab remounts.
+  const refresh = useCallback(async () => {
+    await store?.refresh(true);
+  }, [store]);
   const sync = useCallback(async () => {
-    if (!uid || DEMO) return;
-    const db = getDb();
-    if (!db) return;
-    const pending = (field: "from" | "to") =>
-      getDocs(query(collection(db, "friendRequests"), where(field, "==", uid), where("status", "==", "pending")));
-    // Never rejects: it runs from a timer and after every mutation.
-    const res = await Promise.all([pending("to"), pending("from"), refresh()]).catch((err: { code?: string }) => {
-      if (__DEV__) console.warn(`[friends] poll friendRequests: ${err?.code ?? err}`);
-      return null;
-    });
-    if (!res) return;
-    const [inc, out] = res;
-    if (!alive.current) return;
-    const sameIds = (prev: FriendRequest[], next: { id: string }[]) =>
-      prev.length === next.length && prev.every((r, i) => r.id === next[i]?.id);
-    const map = (docs: typeof inc.docs) => docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as FriendRequest);
-    setIncoming((prev) => (inc.empty ? NO_REQUESTS : sameIds(prev, inc.docs) ? prev : map(inc.docs)));
-    setOutgoing((prev) => (out.empty ? NO_REQUESTS : sameIds(prev, out.docs) ? prev : map(out.docs)));
-  }, [uid, refresh]);
-
-  usePolling(sync, FRIENDS_POLL_MS, !!uid && !DEMO);
+    await store?.sync();
+  }, [store]);
 
   /**
    * Who sent each pending request.
@@ -198,7 +269,10 @@ export function useFriends(uid: string | null) {
     }
   }, [sync]);
 
-  const clearError = useCallback(() => setError(null), []);
+  const clearError = useCallback(() => {
+    setError(null);
+    store?.set({ error: null });
+  }, [store]);
   const search = useCallback(
     (q: string) => api.searchUsers({ q }).then((r) => r.results),
     []

@@ -116,6 +116,9 @@ export default function KeyboardSheet({
             styles.sheet,
             { backgroundColor: c.elevated, borderColor: c.border, paddingBottom: keyboardUp ? 8 : insets.bottom + 16, maxHeight, transform: [{ translateY: drag }] },
             style,
+            // The keyboard covers the home indicator, so the bottom action sits right on
+            // top of it whatever padding the sheet asked for.
+            keyboardUp ? { paddingBottom: 8 } : null,
           ]}
         >
           <View {...pan.panHandlers} style={[styles.grab, headerStyle]} hitSlop={{ top: 12 }}>

@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { setWatchingGame } from "@/lib/presence";
 import { haptic as buzz } from "@/lib/motion";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -55,9 +56,15 @@ export default function GameQuickView({
   const c = useColors();
   const { game: loaded, loading, missing } = useGame(gameId);
   const game = loaded && loaded.id === gameId ? loaded : null;
-  const { balance, bets } = useApp();
+  const { balance, bets, placeBet } = useApp();
   const { leagues, activeLeagues, uid, placeLeagueBet, myLeagueBets } = useLeague();
   const { betLocked, show } = useToast();
+  // Friends see which game you're on.
+  useEffect(() => {
+    if (!gameId) return;
+    setWatchingGame(gameId);
+    return () => setWatchingGame(null);
+  }, [gameId]);
 
   const [showDetail, setShowDetail] = useState(true);
   const [pending, setPending] = useState<{
@@ -168,27 +175,50 @@ export default function GameQuickView({
         setSlipError("No line yet for this game. Check back closer to kickoff.");
         return;
       }
-      setSubmitting(true);
+      const Q = quote;
+      // Instant: the slip closes and the bet shows now; the server confirms behind it.
       setSlipError(null);
-      let failure: string | null = null;
       if (walletId === "credits") {
-        try {
-          await api.placeBet({
+        const t = (quote.side ?? pending.side) === "home" ? pending.game.homeTeam : pending.game.awayTeam;
+        const o = (quote.side ?? pending.side) === "home" ? pending.game.awayTeam : pending.game.homeTeam;
+        const ok = await placeBet({
+          gameId: pending.game.id,
+          side: quote.side ?? pending.side,
+          market: quote.market,
+          selection: quote.selection,
+          stake,
+          idempotencyKey: pending.key,
+          expectedOdds: quote.odds,
+          expectedLine: quote.line ?? undefined,
+
+          preview: {
             gameId: pending.game.id,
-            side: quote.side ?? pending.side,
-            market: quote.market,
-            selection: quote.selection,
-            stake,
-            idempotencyKey: pending.key,
-            expectedOdds: quote.odds,
-            expectedLine: quote.line ?? undefined,
-          });
-        } catch (err) {
-          failure = api.friendlyError(err);
+            sport: pending.game.sport,
+            side: (quote.side ?? pending.side),
+            market: Q.market,
+            selection: Q.selection,
+            line: Q.line ?? null,
+            label: quote.label,
+            startsAt: pending.game.startsAt,
+            voidReason: null,
+            teamName: Q.teamName || t.name,
+            teamAbbr: Q.teamAbbr || t.abbreviation,
+            teamColor: Q.teamColor || t.color,
+            opponentAbbr: Q.opponentAbbr || o.abbreviation,
+            odds: Q.odds!,
+            potentialPayout: Math.round(stake * Q.odds!),
+            opponentUid: null,
+          },
+        });
+        if (!ok) {
+          buzz.error();
+          setSlipError("Not enough credits.");
+          return;
         }
       } else {
+        const key = pending.key;
         const f = pending.follow && pending.follow.leagueId === walletId ? pending.follow : null;
-        failure = await placeLeagueBet({
+        placeLeagueBet({
           leagueId: walletId,
           gameId: pending.game.id,
           side: quote.side ?? pending.side,
@@ -201,13 +231,10 @@ export default function GameQuickView({
           lock: extras.lock,
           hidden: extras.hidden,
           ...(f ? (f.kind === "tail" ? { tailOf: f.betId } : { fadeOf: f.betId }) : {}),
+
+        }).then((why) => {
+          if (why) show({ id: `lbet_fail_${key}`, kind: "warning", title: "Bet didn't go through", body: `${why} Your league balance wasn't charged.` });
         });
-      }
-      setSubmitting(false);
-      if (failure) {
-        buzz.error();
-        setSlipError(failure);
-        return;
       }
       buzz.success();
       {
@@ -229,7 +256,7 @@ export default function GameQuickView({
       setPending(null);
       onClose();
     },
-    [pending, placeLeagueBet, onClose, wallets, betLocked]
+    [pending, placeLeagueBet, placeBet, show, onClose, wallets, betLocked]
   );
 
   if (!gameId) return null;
@@ -240,7 +267,7 @@ export default function GameQuickView({
       <KeyboardSheet visible onClose={onClose} maxHeight="40%">
         <View style={styles.missing}>
           <MaterialCommunityIcons name="calendar-remove" size={28} color={c.mutedForeground} />
-          <Text style={[styles.missingTitle, { color: c.foreground }]}>This game has been archived</Text>
+          <Text style={[styles.missingTitle, { color: c.foreground }]}>This Game Has Been Archived</Text>
           <Text style={[styles.missingBody, { color: c.mutedForeground }]}>
             Finished games drop off the board after two days. The bet keeps its result.
           </Text>
@@ -280,7 +307,7 @@ export default function GameQuickView({
           side={quote.side}
           wallets={wallets}
           defaultWallet={pending.follow?.leagueId ?? defaultWallet}
-          defaultStake={pending.follow?.stake}
+          defaultStake={pending.follow?.stake || undefined}
           context={
             pending.follow
               ? {

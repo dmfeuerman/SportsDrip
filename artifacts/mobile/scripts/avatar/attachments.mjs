@@ -211,7 +211,8 @@ export function attachmentSpecs() {
     for (const [style, seat] of Object.entries(seats)) perHair[style] = { position: [0, r4(seat - CROWN.y), 0] };
     specs.hat_crown.perHair = perHair;
   }
-  specs.acc_chain.with = chainFits();
+  const chain = chainFits();
+  for (const key of Object.keys(specs)) if (key.startsWith("acc_chain")) specs[key].with = chain;
   specs.acc_watch.with = watchFits();
   return specs;
 }

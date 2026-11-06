@@ -1,11 +1,24 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Image } from "expo-image";
+import TeamCrest from "@/components/TeamCrest";
 import { haptic as buzz } from "@/lib/motion";
-import React, { memo, useEffect, useRef } from "react";
-import { Animated, Easing, Platform, StyleSheet, Text, View } from "react-native";
+import React, { memo, useEffect, useRef, useState } from "react";
+import { quoteMarket } from "@/lib/markets";
+import { useParlay } from "@/context/ParlayContext";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
-import Reanimated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
+import Reanimated, {
+  cancelAnimation,
+  Easing as REasing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import PressableScale from "@/components/fx/PressableScale";
+import { Button } from "@/components/ui";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { useValueFlash } from "@/hooks/useMotion";
 import { formatSpread, hasSpreadLine, hasTotalLine, SPREAD_TOTAL_ODDS, type Market, type Selection } from "@/lib/markets";
@@ -38,16 +51,22 @@ interface Props {
   leagueMembers?: LeagueActionMember[];
   /** Betting closes once a game is live or final — the server rejects it too. */
   locked?: boolean;
+  /** Tapping the "League is on this" chip (opens the tail sheet). */
+  onLeaguePress?: (game: Game) => void;
+  /** Head-to-head with a friend on the picked side (opens the slip in friend mode). */
+  onChallenge?: (game: Game, side: Side) => void;
 }
 
-function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked }: Props) {
+type Pick = { side: Side; market: Market; selection: Selection; label: string };
+
+function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, onLeaguePress, onChallenge }: Props) {
   const c = useColors();
   const oddsFormat = useOddsFormat();
   const isLocked = locked ?? (game.status !== "upcoming" || !!game.disrupted);
   const priced = isPriced(game);
   const prob = fairProbabilities(game.homeTeam.odds, game.awayTeam.odds);
-  const canSpread = !isLocked && hasSpreadLine(game);
-  const canTotal = !isLocked && hasTotalLine(game);
+  const canSpread = hasSpreadLine(game);
+  const canTotal = hasTotalLine(game);
 
   const leader: Side | null =
     game.homeScore === null || game.awayScore === null || game.homeScore === game.awayScore
@@ -56,14 +75,23 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked }
         ? "home"
         : "away";
 
-  function handleBet(side: Side, market: Market = "ml", selection?: Selection) {
+  // Tap a price to highlight it, then confirm with the button below.
+  const [pick, setPick] = useState<Pick | null>(null);
+  const parlay = useParlay();
+  useEffect(() => {
+    if (isLocked) setPick(null);
+  }, [isLocked]);
+  const isPicked = (market: Market, selection: Selection) => pick?.market === market && pick.selection === selection;
+
+  function handleBet(side: Side, market: Market = "ml", selection?: Selection, label?: string) {
     if (isLocked) return;
     if (market === "ml" && !priced) {
       onOpenDetail?.(game);
       return;
     }
-    buzz.medium();
-    onBet(game, side, market, selection ?? side);
+    const sel = selection ?? side;
+    buzz.tick();
+    setPick((p) => (p && p.market === market && p.selection === sel ? null : { side, market, selection: sel, label: label ?? (side === "home" ? game.homeTeam.abbreviation : game.awayTeam.abbreviation) }));
   }
 
   return (
@@ -84,10 +112,11 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked }
 
       <View style={styles.teams}>
         <View style={styles.colHead} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Text style={[styles.colLabel, { color: c.subtleForeground }]}>TEAM</Text>
-          <Text style={[styles.colLabel, styles.colOdds, { color: c.subtleForeground }]}>MONEYLINE</Text>
+          <Text style={[styles.colLabel, { color: c.subtleForeground }]}>MONEYLINE · WHO WINS</Text>
+          <Text style={[styles.colLabel, styles.colOdds, { color: c.subtleForeground }]}>TAP TO PICK</Text>
         </View>
         <TeamRow
+          sport={game.sport}
           team={game.awayTeam}
           score={game.awayScore}
           probability={prob.away}
@@ -95,11 +124,13 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked }
           leading={leader === "away"}
           locked={isLocked}
           backed={position?.side === "away"}
+          selected={isPicked("ml", "away")}
           oddsFormat={oddsFormat}
-          onPress={() => handleBet("away", "ml", "away")}
+          onPress={() => handleBet("away", "ml", "away", `${game.awayTeam.abbreviation} to win`)}
           c={c}
         />
         <TeamRow
+          sport={game.sport}
           team={game.homeTeam}
           score={game.homeScore}
           probability={prob.home}
@@ -107,76 +138,115 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked }
           leading={leader === "home"}
           locked={isLocked}
           backed={position?.side === "home"}
+          selected={isPicked("ml", "home")}
           oddsFormat={oddsFormat}
-          onPress={() => handleBet("home", "ml", "home")}
+          onPress={() => handleBet("home", "ml", "home", `${game.homeTeam.abbreviation} to win`)}
           c={c}
         />
       </View>
 
       {priced ? <ProbabilityBar game={game} prob={prob} c={c} /> : null}
 
-      {(canSpread || canTotal) && (
-        <View style={styles.marketStrip}>
-          {canSpread && typeof game.line?.spreadHome === "number" ? (
-            <>
-              <PressableScale
-                style={[styles.marketChip, { backgroundColor: c.secondary, borderColor: c.border }]}
-                scaleTo={0.95}
-                onPress={() => handleBet("away", "spread", "away")}
-              >
-                <Text style={[styles.marketChipLabel, { color: c.foreground }]}>
-                  {game.awayTeam.abbreviation} {formatSpread(-game.line.spreadHome)}
-                </Text>
-                <Text style={[styles.marketChipOdds, { color: c.mutedForeground }]}>
-                  {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
-                </Text>
-              </PressableScale>
-              <PressableScale
-                style={[styles.marketChip, { backgroundColor: c.secondary, borderColor: c.border }]}
-                scaleTo={0.95}
-                onPress={() => handleBet("home", "spread", "home")}
-              >
-                <Text style={[styles.marketChipLabel, { color: c.foreground }]}>
-                  {game.homeTeam.abbreviation} {formatSpread(game.line.spreadHome)}
-                </Text>
-                <Text style={[styles.marketChipOdds, { color: c.mutedForeground }]}>
-                  {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
-                </Text>
-              </PressableScale>
-            </>
-          ) : null}
-          {canTotal && typeof game.line?.overUnder === "number" ? (
-            <>
-              <PressableScale
-                style={[styles.marketChip, { backgroundColor: c.secondary, borderColor: c.border }]}
-                scaleTo={0.95}
-                onPress={() => handleBet("home", "total", "over")}
-              >
-                <Text style={[styles.marketChipLabel, { color: c.foreground }]}>
-                  O {game.line.overUnder}
-                </Text>
-                <Text style={[styles.marketChipOdds, { color: c.mutedForeground }]}>
-                  {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
-                </Text>
-              </PressableScale>
-              <PressableScale
-                style={[styles.marketChip, { backgroundColor: c.secondary, borderColor: c.border }]}
-                scaleTo={0.95}
-                onPress={() => handleBet("away", "total", "under")}
-              >
-                <Text style={[styles.marketChipLabel, { color: c.foreground }]}>
-                  U {game.line.overUnder}
-                </Text>
-                <Text style={[styles.marketChipOdds, { color: c.mutedForeground }]}>
-                  {formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
-                </Text>
-              </PressableScale>
-            </>
-          ) : null}
-        </View>
-      )}
+      {canSpread && typeof game.line?.spreadHome === "number" ? (
+        <MarketGroup title="SPREAD · WIN OR LOSE BY" c={c}>
+          <MarketChip
+            label={`${game.awayTeam.abbreviation} ${formatSpread(-game.line.spreadHome)}`}
+            odds={formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+            selected={isPicked("spread", "away")}
+            disabled={isLocked}
+            onPress={() => handleBet("away", "spread", "away", `${game.awayTeam.abbreviation} ${formatSpread(-game.line!.spreadHome!)}`)}
+            c={c}
+          />
+          <MarketChip
+            label={`${game.homeTeam.abbreviation} ${formatSpread(game.line.spreadHome)}`}
+            odds={formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+            selected={isPicked("spread", "home")}
+            disabled={isLocked}
+            onPress={() => handleBet("home", "spread", "home", `${game.homeTeam.abbreviation} ${formatSpread(game.line!.spreadHome!)}`)}
+            c={c}
+          />
+        </MarketGroup>
+      ) : null}
+      {canTotal && typeof game.line?.overUnder === "number" ? (
+        <MarketGroup title="TOTAL POINTS · OVER / UNDER" c={c}>
+          <MarketChip
+            label={`Over ${game.line.overUnder}`}
+            odds={formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+            selected={isPicked("total", "over")}
+            disabled={isLocked}
+            onPress={() => handleBet("home", "total", "over", `Over ${game.line!.overUnder}`)}
+            c={c}
+          />
+          <MarketChip
+            label={`Under ${game.line.overUnder}`}
+            odds={formatOdds(SPREAD_TOTAL_ODDS, oddsFormat)}
+            selected={isPicked("total", "under")}
+            disabled={isLocked}
+            onPress={() => handleBet("away", "total", "under", `Under ${game.line!.overUnder}`)}
+            c={c}
+          />
+        </MarketGroup>
+      ) : null}
 
-      <Footer game={game} c={c} isLocked={isLocked} priced={priced} leagueMembers={leagueMembers} />
+      {pick && !isLocked ? (
+        <View style={[styles.cta, { borderColor: c.alpha(c.primary, 0.4), backgroundColor: c.primarySoft }]}>
+          <Text style={[styles.ctaText, { color: c.foreground }]} numberOfLines={1}>
+            Your Pick: <Text style={{ color: c.primary }}>{pick.label}</Text>
+          </Text>
+          <View style={styles.ctaRow}>
+            <Button
+              label="Choose Bet Amount"
+              icon="cash-multiple"
+              size="sm"
+              style={{ flex: 1.3 }}
+              accessibilityHint="Opens the bet slip to choose how much to stake"
+              onPress={() => {
+                buzz.medium();
+                onBet(game, pick.side, pick.market, pick.selection);
+                setPick(null);
+              }}
+            />
+            <Button
+              label={parlay.has(game.id, pick.market, pick.selection) ? "On Parlay" : "+ Parlay"}
+              icon="link-variant"
+              size="sm"
+              variant="secondary"
+              style={{ flex: 0.9 }}
+              accessibilityHint="Adds this pick to your parlay slip"
+              onPress={() => {
+                const q = quoteMarket(game, pick.market, pick.selection);
+                if (!q.odds) return;
+                buzz.tick();
+                parlay.add({ gameId: game.id, market: pick.market, selection: pick.selection, label: q.label || pick.label, odds: q.odds, sport: game.sport, matchup: `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`, startsAt: game.startsAt });
+                setPick(null);
+              }}
+            />
+            {onChallenge && pick.market === "ml" ? (
+              <Button
+                label="Select Friend"
+                icon="sword-cross"
+                size="sm"
+                variant="secondary"
+                style={{ flex: 1 }}
+                accessibilityHint="Pick a friend to challenge, then choose the amount"
+                onPress={() => {
+                  onChallenge(game, pick.side);
+                  setPick(null);
+                }}
+              />
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
+      <Footer
+        game={game}
+        c={c}
+        isLocked={isLocked}
+        priced={priced}
+        leagueMembers={leagueMembers}
+        onLeaguePress={onLeaguePress ? () => onLeaguePress(game) : undefined}
+      />
 
       {position && <PositionStrip game={game} position={position} c={c} />}
     </Pressable>
@@ -184,6 +254,38 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked }
 }
 
 export default memo(GameCard);
+
+function MarketGroup({ title, c, children }: { title: string; c: Colors; children: React.ReactNode }) {
+  return (
+    <View style={[styles.group, { borderTopColor: c.border }]}>
+      <Text style={[styles.colLabel, { color: c.subtleForeground }]}>{title}</Text>
+      <View style={styles.marketStrip}>{children}</View>
+    </View>
+  );
+}
+
+function MarketChip({ label, odds, selected, onPress, disabled = false, c }: { label: string; odds: string; selected: boolean; onPress: () => void; disabled?: boolean; c: Colors }) {
+  return (
+    <PressableScale
+      style={[
+        styles.marketChip,
+        selected
+          ? { backgroundColor: c.alpha(c.primary, 0.18), borderColor: c.primary, borderWidth: 2 }
+          : { backgroundColor: c.secondary, borderColor: c.alpha(c.foreground, 0.22) },
+        disabled && { opacity: 0.55 },
+      ]}
+      scaleTo={0.95}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${label} at ${odds}${selected ? ", selected" : ""}${disabled ? ", betting closed" : ""}`}
+    >
+      <Text style={[styles.marketChipLabel, { color: c.foreground }]}>{label}</Text>
+      <Text style={[styles.marketChipOdds, { color: selected ? c.primary : c.mutedForeground }]}>{odds}</Text>
+    </PressableScale>
+  );
+}
 
 function Header({ game, c }: { game: Game; c: Colors }) {
   const sportColor = c.sport(game.sport);
@@ -227,25 +329,30 @@ function Header({ game, c }: { game: Game; c: Colors }) {
 }
 
 function LiveClock({ game, c }: { game: Game; c: Colors }) {
-  const pulse = useRef(new Animated.Value(1)).current;
-
+  const reduced = useReducedMotion();
+  const pulse = useSharedValue(1);
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 0.25, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ])
+    if (reduced) {
+      pulse.value = 1;
+      return;
+    }
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(0.25, { duration: 700, easing: REasing.inOut(REasing.quad) }),
+        withTiming(1, { duration: 700, easing: REasing.inOut(REasing.quad) })
+      ),
+      -1
     );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
+    return () => cancelAnimation(pulse);
+  }, [pulse, reduced]);
+  const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
   const detail = game.clock ?? game.situation ?? kickoffLabel(game.startsAt);
 
   return (
     <View style={styles.headerRight}>
       <View style={[styles.liveBadge, { backgroundColor: c.live }]}>
-        <Animated.View style={[styles.liveDot, { backgroundColor: "#fff", opacity: pulse }]} />
+        <Reanimated.View style={[styles.liveDot, { backgroundColor: "#fff" }, dotStyle]} />
         <Text style={styles.liveText}>LIVE</Text>
       </View>
       <Text style={[styles.statusText, { color: c.foreground, flexShrink: 1 }]} numberOfLines={1}>
@@ -256,6 +363,7 @@ function LiveClock({ game, c }: { game: Game; c: Colors }) {
 }
 
 function TeamRow({
+  sport,
   team,
   score,
   probability,
@@ -263,10 +371,12 @@ function TeamRow({
   leading,
   locked,
   backed,
+  selected,
   oddsFormat,
   onPress,
   c,
 }: {
+  sport: string;
   team: TeamSide;
   score: number | null;
   probability: number;
@@ -274,13 +384,14 @@ function TeamRow({
   leading: boolean;
   locked: boolean;
   backed: boolean;
+  selected: boolean;
   oddsFormat: "decimal" | "american";
   onPress: () => void;
   c: Colors;
 }) {
   return (
     <View style={styles.teamRow}>
-      <TeamMark team={team} c={c} />
+      <TeamMark team={team} sport={sport} c={c} />
 
       <View style={styles.teamText}>
         <View style={styles.nameLine}>
@@ -319,6 +430,7 @@ function TeamRow({
           probability={probability}
           locked={locked}
           backed={backed}
+          selected={selected}
           oddsFormat={oddsFormat}
           onPress={onPress}
           c={c}
@@ -338,10 +450,10 @@ function NoLineTile({ locked, onPress, c }: { locked: boolean; onPress: () => vo
       onPress={onPress}
       disabled={locked}
       accessibilityRole="button"
-      accessibilityLabel={`${NO_LINE}. Opens the game`}
+      accessibilityLabel={locked ? "Lines closed" : `${NO_LINE}. Opens the game`}
     >
-      <Text style={[styles.noLine, { color: c.mutedForeground }]}>No line</Text>
-      <Text style={[styles.oddsProb, { color: c.subtleForeground }]}>yet</Text>
+      <Text style={[styles.noLine, { color: c.mutedForeground }]}>{locked ? "Lines" : "No Line"}</Text>
+      <Text style={[styles.oddsProb, { color: c.subtleForeground }]}>{locked ? "closed" : "yet"}</Text>
     </PressableScale>
   );
 }
@@ -351,6 +463,7 @@ function OddsButton({
   probability,
   locked,
   backed,
+  selected,
   oddsFormat,
   onPress,
   c,
@@ -359,6 +472,7 @@ function OddsButton({
   probability: number;
   locked: boolean;
   backed: boolean;
+  selected: boolean;
   oddsFormat: "decimal" | "american";
   onPress: () => void;
   c: Colors;
@@ -378,8 +492,9 @@ function OddsButton({
         style={[
           styles.oddsBtn,
           {
-            backgroundColor: backed ? c.primary : c.secondary,
-            borderColor: backed ? c.primary : c.border,
+            backgroundColor: backed ? c.primary : selected ? c.alpha(c.primary, 0.18) : c.secondary,
+            borderColor: backed || selected ? c.primary : c.alpha(c.foreground, 0.22),
+            borderWidth: selected ? 2 : 1,
             opacity: locked && !backed ? 0.55 : 1,
           },
         ]}
@@ -387,7 +502,8 @@ function OddsButton({
         onPress={onPress}
         disabled={locked}
         accessibilityRole="button"
-        accessibilityLabel={odds > 1 ? `Back ${team.name} at ${formatOdds(odds, oddsFormat)}, ${formatPercent(probability)} chance` : `Your pick: ${team.name}`}
+        accessibilityState={{ selected }}
+        accessibilityLabel={odds > 1 ? `Pick ${team.name} at ${formatOdds(odds, oddsFormat)}, ${formatPercent(probability)} chance` : `Your pick: ${team.name}`}
       >
         <Reanimated.View pointerEvents="none" style={[styles.oddsFlash, flash.style]} />
         <View style={styles.oddsLine}>
@@ -404,22 +520,10 @@ function OddsButton({
   );
 }
 
-function TeamMark({ team, c }: { team: TeamSide; c: Colors }) {
-  if (team.logoUrl) {
-    return (
-      <Image
-        source={{ uri: team.logoUrl }}
-        style={styles.logo}
-        contentFit="contain"
-        transition={120}
-        cachePolicy="memory-disk"
-      />
-    );
-  }
+/** Team colour + abbreviation. Official logos aren't shown (trademarked). */
+function TeamMark({ team, sport, c: _c }: { team: TeamSide; sport: string; c: Colors }) {
   return (
-    <View style={[styles.logo, styles.logoFallback, { backgroundColor: c.alpha(team.color, 0.22), borderColor: team.color }]}>
-      <Text style={[styles.logoText, { color: team.color }]}>{team.abbreviation.slice(0, 3)}</Text>
-    </View>
+    <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={28} sport={sport} />
   );
 }
 
@@ -467,14 +571,17 @@ function Footer({
   isLocked,
   priced,
   leagueMembers,
+  onLeaguePress,
 }: {
   game: Game;
   c: Colors;
   isLocked: boolean;
   priced: boolean;
   leagueMembers?: LeagueActionMember[];
+  onLeaguePress?: () => void;
 }) {
   const noLine = !priced && game.status === "upcoming" && !game.disrupted;
+  const modelLine = priced && game.oddsSource === "model" && game.status === "upcoming";
   const bits: string[] = [];
   if (game.line?.spread) bits.push(game.line.spread);
   if (game.line?.overUnder) bits.push(`O/U ${game.line.overUnder}`);
@@ -482,12 +589,19 @@ function Footer({
   if (game.venue && game.status === "upcoming") bits.push(game.venue);
 
   const hasLeagueAction = !!leagueMembers && leagueMembers.length > 0;
-  if (bits.length === 0 && !isLocked && !noLine && !hasLeagueAction) return null;
+  if (bits.length === 0 && !isLocked && !noLine && !modelLine && !hasLeagueAction) return null;
 
   return (
     <View style={styles.footer}>
       {hasLeagueAction && (
-        <View style={[styles.leagueOnChip, { backgroundColor: c.leagueSoft, borderColor: c.alpha(c.league, 0.45) }]}>
+        <Pressable
+          onPress={onLeaguePress}
+          disabled={!onLeaguePress}
+          hitSlop={6}
+          accessibilityRole={onLeaguePress ? "button" : undefined}
+          accessibilityLabel="See who in your league is on this game"
+          style={[styles.leagueOnChip, { backgroundColor: c.leagueSoft, borderColor: c.alpha(c.league, 0.45) }]}
+        >
           <View style={styles.avatarStack}>
             {leagueMembers.slice(0, 3).map((m, idx) => (
               <View
@@ -506,13 +620,23 @@ function Footer({
               ? `${leagueMembers[0]!.displayName} on this`
               : `${leagueMembers.length} in league on this`}
           </Text>
-        </View>
+        </Pressable>
       )}
       <Text style={[styles.meta, { color: c.subtleForeground, flex: 1 }]} numberOfLines={1}>
         {bits.join("   ")}
       </Text>
       {isLocked && game.status === "live" && (
-        <Text style={[styles.meta, { color: c.mutedForeground }]}>Betting closed</Text>
+        <Text style={[styles.meta, { color: c.mutedForeground }]}>Betting Closed</Text>
+      )}
+      {modelLine && (
+        <View
+          accessible
+          accessibilityLabel="SportDrip model line. No sportsbook line yet."
+          style={[styles.noLinePill, { backgroundColor: c.alpha(c.accent, 0.14) }]}
+        >
+          <MaterialCommunityIcons name="chart-bell-curve-cumulative" size={11} color={c.accent} />
+          <Text style={[styles.noLinePillText, { color: c.accent }]}>Model Line</Text>
+        </View>
       )}
       {noLine && (
         <View style={[styles.noLinePill, { backgroundColor: c.alpha(c.warning, 0.14) }]}>
@@ -558,22 +682,22 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: "auto", flexShrink: 0, maxWidth: "62%" },
   sportChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999, flexShrink: 0 },
-  sportText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
+  sportText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   // Long season labels ("Premier League · Regular Season") truncate instead of pushing the status off-screen.
   meta: { flex: 1, flexShrink: 1, minWidth: 0, fontSize: 11, fontFamily: "Inter_400Regular" },
   statusText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   liveBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
-  liveText: { color: "#fff", fontSize: 10, fontFamily: "Inter_900Black", letterSpacing: 0.8 },
+  liveText: { color: "#fff", fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 0.8 },
   colHead: { flexDirection: "row", alignItems: "center", marginBottom: -4 },
-  colLabel: { flex: 1, fontSize: 9, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  colLabel: { flex: 1, fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
   colOdds: { flex: 0, width: 80, textAlign: "center" },
 
   teams: { gap: 10 },
   teamRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   logo: { width: 30, height: 30, borderRadius: 8 },
   logoFallback: { alignItems: "center", justifyContent: "center", borderWidth: 1 },
-  logoText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  logoText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   teamText: { flex: 1, gap: 2 },
   nameLine: { flexDirection: "row", alignItems: "center", gap: 6 },
   rank: { fontSize: 11, fontFamily: "Inter_700Bold" },
@@ -587,15 +711,19 @@ const styles = StyleSheet.create({
   oddsFlash: { position: "absolute", top: -1, left: -1, right: -1, bottom: -1, borderRadius: 10, borderWidth: 2 },
   oddsLine: { flexDirection: "row", alignItems: "center" },
   oddsValue: { fontSize: 15, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
-  oddsProb: { fontSize: 10, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
+  oddsProb: { fontSize: 11, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
   noLine: { fontSize: 12, fontFamily: "Inter_700Bold" },
   noLinePill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
-  noLinePillText: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.2 },
+  noLinePillText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.2 },
 
   marketStrip: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  marketChip: { flex: 1, minWidth: 74, borderWidth: 1, borderRadius: 9, paddingVertical: 6, paddingHorizontal: 8, alignItems: "center", gap: 1 },
-  marketChipLabel: { fontSize: 11, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
-  marketChipOdds: { fontSize: 10, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
+  group: { gap: 6, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
+  cta: { gap: 8, borderWidth: 1, borderRadius: 12, padding: 10 },
+  ctaText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  ctaRow: { flexDirection: "row", gap: 8 },
+  marketChip: { flex: 1, minWidth: 74, borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 8, alignItems: "center", gap: 1 },
+  marketChipLabel: { fontSize: 13, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
+  marketChipOdds: { fontSize: 11, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
 
   bar: { flexDirection: "row", height: 4, borderRadius: 2, overflow: "hidden" },
 
@@ -603,8 +731,8 @@ const styles = StyleSheet.create({
   leagueOnChip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   avatarStack: { flexDirection: "row", alignItems: "center" },
   avatarPip: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  avatarPipText: { color: "#fff", fontSize: 8, fontFamily: "Inter_800ExtraBold" },
-  leagueOnText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  avatarPipText: { color: "#fff", fontSize: 11, fontFamily: "Inter_800ExtraBold" },
+  leagueOnText: { fontSize: 11, fontFamily: "Inter_700Bold" },
 
   position: { flexDirection: "row", alignItems: "center", gap: 7, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   positionText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },

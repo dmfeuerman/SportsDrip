@@ -151,7 +151,7 @@ export default function BetBreakdownModal({
                 </Text>
               ) : null}
             </View>
-            <CloseButton onPress={onClose} label="Close breakdown" />
+            <CloseButton onPress={onClose} label="Close Breakdown" />
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
   scoreTeam: { fontSize: 12, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.6 },
   scoreNum: { fontSize: 28, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"] },
   scoreCenter: { alignItems: "center", gap: 2 },
-  scoreFinal: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  scoreFinal: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
   scoreVs: { fontSize: 16, fontFamily: "Inter_700Bold" },
   tiles: { flexDirection: "row", gap: 8 },
   oddsText: { fontSize: 16, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },

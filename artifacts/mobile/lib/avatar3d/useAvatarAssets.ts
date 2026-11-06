@@ -5,7 +5,7 @@ import type { CatalogItem } from "@/types/catalog";
 import { assetEntry, baseEntry } from "./assets";
 import type { AppearanceParts, GarmentSource } from "./avatarRig";
 import { loadAsset, peekAsset, type AssetRef } from "./loader";
-import { resolveOutfit, type OutfitPiece, type ResolvedOutfit } from "./outfit";
+import { pieceLook, resolveOutfit, type OutfitPiece, type ResolvedOutfit } from "./outfit";
 import { facialHairAssetKey, hairAssetKey } from "./spec";
 
 export function useResolvedOutfit(equipped: Equipped, catalog: Map<string, CatalogItem>): ResolvedOutfit {
@@ -96,7 +96,7 @@ export function useAvatarAssets(avatar: AvatarConfig, outfit: ResolvedOutfit): A
     return { base: b, parts: parts ?? { hair: null, facialHair: null }, garments: g, status: complete ? "ready" : "loading" };
   });
 
-  const sig = outfit.pieces.map((p) => `${p.slot}:${p.template ?? p.url}@${p.version ?? ""}:${p.primary}:${p.secondary}:${p.attach ? JSON.stringify(p.attach) : ""}:${p.hides?.join("+") ?? "-"}:${p.layer}`).join(",");
+  const sig = outfit.pieces.map((p) => `${p.slot}:${pieceLook(p)}:${p.attach ? JSON.stringify(p.attach) : ""}:${p.hides?.join("+") ?? "-"}:${p.layer}`).join(",");
   const keys = partKeys(avatar);
   useEffect(() => {
     let alive = true;

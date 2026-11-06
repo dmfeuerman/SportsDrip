@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import PreseasonCard, { PredictionsCard } from "@/components/PreseasonCard";
+import { useOptimisticReaction } from "@/hooks/useOptimisticReaction";
 import { haptic as buzz } from "@/lib/motion";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
@@ -15,6 +17,10 @@ import LoanCard from "@/components/LoanCard";
 import Shimmer from "@/components/fx/Shimmer";
 import MemberAvatar from "@/components/MemberAvatar";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
+import BetChatCard from "@/components/chat/BetChatCard";
+import BracketFill from "@/components/BracketFill";
+import CoopGoalCard from "@/components/CoopGoalCard";
+import TauntCard from "@/components/chat/TauntCard";
 import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
 import TeamChips from "@/components/TeamChips";
 import { useChat } from "@/context/ChatContext";
@@ -35,11 +41,13 @@ import {
   StatTile,
   TabStrip,
   useBottomPad,
+  ActionChip,
 } from "@/components/ui";
+import * as api from "@/lib/api";
 import {
   BANK_PRINCIPAL_CAP_MULTIPLIER,
   cadenceLabel,
-  isLeagueClosed,
+  isLeagueClosed, isLeagueStarted, leagueStartsAt,
   LEAGUE_MODES,
   MATCHUP_CADENCES,
   periodNoun,
@@ -62,6 +70,7 @@ import {
   type ReactionEmoji,
 } from "@/constants/leagueTypes";
 import { useApp } from "@/context/AppContext";
+import { useToast } from "@/context/ToastContext";
 import { useLeague, useLeagueDetail } from "@/context/LeagueContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
@@ -75,7 +84,7 @@ import { inviteLink, inviteMessage } from "@/lib/invites";
 import { flatInterest, loanSnapshot, prizeSplit, type Standing } from "@/lib/loanMath";
 import { weekKey } from "@/lib/markets";
 import { formatOdds, type OddsFormat } from "@/lib/odds";
-import { markChatSeen, useChatSeen, useOddsFormat } from "@/lib/settings";
+import { markChatSeen, useChatSeen, useOddsFormat, useUnseenCount } from "@/lib/settings";
 
 type Tab = "standings" | "bets" | "bank" | "feed" | "info";
 
@@ -116,7 +125,7 @@ export default function LeagueDetailScreen() {
       <View style={[styles.container, { backgroundColor: c.background }]}>
         <ScreenHeader back title="League" />
         <View style={{ padding: 16 }}>
-          <EmptyState icon="trophy-broken" title="League not found" body="You may have left it, or it's still loading." action="All leagues" onAction={() => router.navigate("/(tabs)/leagues")} />
+          <EmptyState icon="trophy-broken" title="League Not Found" body="You may have left it, or it's still loading." action="All Leagues" onAction={() => router.navigate("/(tabs)/leagues")} />
         </View>
       </View>
     );
@@ -134,9 +143,11 @@ export default function LeagueDetailScreen() {
       (league.stimulusEnabled && league.stimulus && league.stimulus.expiresAt > detail.now && uid && !league.stimulus.votes.includes(uid) ? 1 : 0);
 
   const chatOpen = tab === "feed";
+  const started = isLeagueStarted(league, detail.now);
+  const startLabel = new Date(leagueStartsAt(league)).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
   const invite = () => {
-    if (closed) return;
+    if (closed || started) return;
     trackEvent("share_card_tapped", { surface: "league_invite", league_id: league.id });
     Share.share({
       message: inviteMessage(league),
@@ -155,9 +166,19 @@ export default function LeagueDetailScreen() {
             ? `League chat · ${league.memberIds.length} member${league.memberIds.length === 1 ? "" : "s"}`
             : closed
               ? "Closed · read-only"
-              : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left · code ${league.code}`
+              : !started
+                ? `Starts ${startLabel} · code ${league.code}`
+                : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
         }
-        right={closed ? <Pill label="Closed" tone="neutral" icon="lock-outline" /> : <IconButton icon="account-plus-outline" label="Invite" onPress={invite} />}
+        right={
+          closed ? (
+            <Pill label="Closed" tone="neutral" icon="lock-outline" />
+          ) : started ? (
+            <Pill label="Roster Locked" tone="neutral" icon="account-lock-outline" />
+          ) : (
+            <IconButton icon="account-plus-outline" label="Invite" onPress={invite} />
+          )
+        }
       >
         {/* Chat gets the whole screen: no league switcher or stat tiles above it. */}
         {!chatOpen && leagues.length > 1 && (
@@ -176,13 +197,13 @@ export default function LeagueDetailScreen() {
               <Text style={[styles.heroOf, { color: c.mutedForeground }]}> /{detail.standings.length}</Text>
             </Text>
           </StatTile>
-          <StatTile label={league.mode === "pickem" ? "Points" : league.mode === "survivor" ? "Status" : league.mode === "matchups" ? "H2H record" : "Net worth"}>
+          <StatTile label={league.mode === "pickem" || league.mode === "bracket" ? "Points" : league.mode === "survivor" ? "Status" : league.mode === "matchups" ? "H2H record" : "Net worth"}>
             {league.mode === "matchups" ? (
               <Text style={[styles.heroRank, { color: c.foreground }]}>
                 {myMember?.h2h?.w ?? 0}–{myMember?.h2h?.l ?? 0}
                 {myMember?.h2h?.t ? `–${myMember.h2h.t}` : ""}
               </Text>
-            ) : league.mode === "pickem" ? (
+            ) : league.mode === "pickem" || league.mode === "bracket" ? (
               <Text style={[styles.heroRank, { color: c.foreground }]}>
                 {myMember?.pickPoints ?? 0} pts
               </Text>
@@ -236,19 +257,29 @@ export default function LeagueDetailScreen() {
               <Card style={styles.closedBanner} accessibilityLabel="This league is closed. You can view its history, but nothing can be changed.">
                 <MaterialCommunityIcons name="lock-outline" size={18} color={c.mutedForeground} />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={[styles.cardTitle, { color: c.foreground }]}>League closed</Text>
+                  <Text style={[styles.cardTitle, { color: c.foreground }]}>League Closed</Text>
                   <Text style={[styles.muted, { color: c.mutedForeground }]}>
                     {ended ? "The season is over." : "The season is over — final results are being tallied."} Standings, bets, loans and the feed are view-only.
                   </Text>
                 </View>
               </Card>
             )}
-            {!closed && params.created && league.memberIds.length === 1 && tab === "standings" && (
+            {ended && (
+              <ActionChip
+                label="Your Season Wrapped"
+                icon="gift-outline"
+                tone="league"
+                onPress={() => router.push({ pathname: "/wrapped/[id]", params: { id: league.id } } as never)}
+              />
+            )}
+            {!closed && !started && tab === "standings" && <PreseasonCard league={league} uid={uid} onInvite={invite} />}
+            {!closed && !started && params.created && league.memberIds.length === 1 && tab === "standings" && (
               <Card tone="league" style={{ gap: 8 }}>
-                <Text style={[styles.cardTitle, { color: c.foreground }]}>League created</Text>
+                <Text style={[styles.cardTitle, { color: c.foreground }]}>League Created</Text>
                 <Text style={[styles.muted, { color: c.mutedForeground }]}>Share code {league.code} or invite friends below. Everyone starts with {league.startingLeagueTokens.toLocaleString()} tokens.</Text>
               </Card>
             )}
+            {tab === "standings" && !closed && <CoopGoalCard league={league} uid={uid} />}
             {tab === "standings" && (
               <StandingsTab
                 league={league}
@@ -280,10 +311,11 @@ export default function LeagueDetailScreen() {
           {!closed && (
             <View style={[styles.dock, { backgroundColor: c.background, borderTopColor: c.border, paddingBottom: bottom - 12 }]}>
               <Button
-                label={`Bet with ${myTokens.toLocaleString()} league tokens`}
-                icon="ticket-outline"
+                label={started ? `Bet with ${myTokens.toLocaleString()} league tokens` : `Betting opens ${startLabel}`}
+                icon={started ? "ticket-outline" : "lock-clock"}
                 variant="league"
                 size="lg"
+                disabled={!started}
                 onPress={() => router.navigate({ pathname: "/(tabs)/games", params: { wallet: league.id } })}
               />
             </View>
@@ -394,6 +426,7 @@ function StandingsTab({
   const openedInfo = opened ? info(opened) : undefined;
   const latestReport = reports[0];
   const latestMatchup = matchups[0];
+  const matchupsNew = useUnseenCount(`league.${league.id}.matchups`, latestMatchup ? [latestMatchup.week] : [], subView === "matchups");
 
   return (
     <View style={{ gap: 10 }}>
@@ -419,7 +452,7 @@ function StandingsTab({
         onChange={setSubView}
         options={[
           { value: "table", label: "Standings" },
-          { value: "matchups", label: league.mode === "matchups" ? "Matchups" : "H2H Matchups", badge: latestMatchup?.pairs.length || undefined },
+          { value: "matchups", label: league.mode === "matchups" ? "Matchups" : "H2H Matchups", badge: matchupsNew || undefined },
           { value: "locks", label: "Locks 🔒" },
         ]}
       />
@@ -509,13 +542,13 @@ function StandingsTab({
                 <View style={[styles.champStats, { borderTopColor: c.alpha(GOLD, 0.25) }]}>
                   <View style={{ flex: 1.4 }}>
                     <Text style={[styles.champK, { color: c.subtleForeground }]}>
-                      {league.mode === "pickem" ? "PICK POINTS" : league.mode === "survivor" ? "SURVIVOR" : league.mode === "matchups" ? "H2H RECORD" : "NET WORTH"}
+                      {league.mode === "pickem" || league.mode === "bracket" ? "PICK POINTS" : league.mode === "survivor" ? "SURVIVOR" : league.mode === "matchups" ? "H2H RECORD" : "NET WORTH"}
                     </Text>
                     {league.mode === "matchups" ? (
                       <Text style={[styles.champV, { color: c.foreground }]}>
                         {L.m?.h2h?.w ?? 0}–{L.m?.h2h?.l ?? 0}{L.m?.h2h?.t ? `–${L.m.h2h.t}` : ""}
                       </Text>
-                    ) : league.mode === "pickem" ? (
+                    ) : league.mode === "pickem" || league.mode === "bracket" ? (
                       <Text style={[styles.champV, { color: c.foreground }]}>{L.m?.pickPoints ?? 0} pts</Text>
                     ) : league.mode === "survivor" ? (
                       <Text style={[styles.champV, { color: L.m?.eliminated ? c.negative : c.positive }]}>
@@ -563,6 +596,8 @@ function StandingsTab({
                       {R.name}
                     </Text>
                     {R.you && <Pill label="YOU" tone="league" />}
+                    {R.m?.achievementCount ? <Pill label={`⭐${R.m.achievementCount}`} tone="warning" /> : null}
+                    {p?.ladder?.tier ? <Pill label={p.ladder.tier} tone="accent" icon="stairs-up" /> : null}
                     {league.mode === "survivor" && (
                       <Pill
                         label={R.m?.eliminated ? `Out ${R.m.eliminatedWeek ?? ""}`.trim() : "Alive"}
@@ -572,7 +607,7 @@ function StandingsTab({
                   </View>
                   <TeamChips teams={p?.favoriteTeams} compact max={3} />
                   <Text style={[styles.memberSub, { color: c.mutedForeground }]} numberOfLines={2}>
-                    {league.mode === "pickem" ? `${R.m?.pickPoints ?? 0} pick pts · ` : ""}
+                    {league.mode === "pickem" || league.mode === "bracket" ? `${R.m?.pickPoints ?? 0} pick pts · ` : ""}
                     {league.mode === "matchups" ? `H2H ${R.m?.h2h?.w ?? 0}–${R.m?.h2h?.l ?? 0}${R.m?.h2h?.t ? `–${R.m.h2h.t}` : ""} · ` : ""}
                     {s.tokens.toLocaleString()} tokens
                     {s.debt > 0 ? ` · owes ${s.debt.toLocaleString()}` : ""}
@@ -620,16 +655,33 @@ function StandingsTab({
 
 function MatchupsSection({ league, matchups, uid }: { league: League; matchups: LeagueMatchupDoc[]; uid: string | null }) {
   const c = useColors();
+  const { profile } = useApp();
+  const { show } = useToast();
+  const [sentTaunt, setSentTaunt] = useState<Record<string, boolean>>({});
+  const danceMove = profile?.moves?.[0] ?? "cheer";
+  const sendDance = async (matchupId: string, receiverUid: string) => {
+    buzz.tick();
+    try {
+      await api.sendTaunt({ scope: "league", leagueId: league.id, matchupId, receiverUid, moveId: danceMove });
+      setSentTaunt((m) => ({ ...m, [`${matchupId}_${receiverUid}`]: true }));
+    } catch (e) {
+      show({ kind: "warning", title: "Couldn't send", body: api.friendlyError(e) });
+    }
+  };
   const nameOf = (id: string | null, fallback?: string) => {
     if (!id) return "BYE";
     if (id === uid) return "You";
     return league.members[id]?.displayName ?? fallback ?? "Player";
   };
+  const stars = (id: string | null) => {
+    const n = id ? league.members[id]?.achievementCount : 0;
+    return n ? ` ⭐${n} ` : "";
+  };
   if (matchups.length === 0) {
     return (
       <EmptyState
         icon="sword-cross"
-        title="No matchups yet"
+        title="No Matchups Yet"
         body={`${MATCHUP_CADENCES.find((m) => m.value === (league.matchupCadence ?? "weekly"))?.desc ?? "New opponent every Monday"} at 9am ET: members are paired head-to-head on net profit for the round. The top seeds meet in a playoff in the final round.`}
       />
     );
@@ -651,16 +703,28 @@ function MatchupsSection({ league, matchups, uid }: { league: League; matchups: 
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={[styles.memberName, { color: p.winnerUid === p.aUid ? c.positive : c.foreground }]}>
                   {nameOf(p.aUid, p.aName)} {p.winnerUid === p.aUid ? "✓" : ""}
+                  {stars(p.aUid)}
                 </Text>
                 {p.aDelta !== null ? <Amount value={p.aDelta} currency="league" size="sm" signed tone={p.aDelta >= 0 ? "positive" : "negative"} /> : null}
               </View>
               <Text style={[styles.muted, { color: c.subtleForeground }]}>{p.bracket === "playoff" ? "PLAYOFF" : "vs"}</Text>
               <View style={{ flex: 1, alignItems: "flex-end", gap: 2 }}>
                 <Text style={[styles.memberName, { color: p.winnerUid === p.bUid ? c.positive : c.foreground }]}>
+                  {stars(p.bUid)}
                   {p.winnerUid === p.bUid ? "✓ " : ""}{nameOf(p.bUid, p.bName)}
                 </Text>
                 {p.bDelta !== null && p.bUid ? <Amount value={p.bDelta} currency="league" size="sm" signed tone={p.bDelta >= 0 ? "positive" : "negative"} /> : null}
               </View>
+              {uid && p.winnerUid === uid && p.bUid ? (
+                <ActionChip
+                  label={sentTaunt[`${w.week}_${p.aUid === uid ? p.bUid : p.aUid}`] ? "Sent" : "Send a dance"}
+                  icon="human-handsup"
+                  chevron={false}
+                  tone="league"
+                  disabled={!!sentTaunt[`${w.week}_${p.aUid === uid ? p.bUid : p.aUid}`]}
+                  onPress={() => void sendDance(w.week, p.aUid === uid ? p.bUid! : p.aUid)}
+                />
+              ) : null}
             </View>
           ))}
         </Card>
@@ -676,12 +740,12 @@ function InvitePanel({ league, onShare }: { league: League; onShare: () => void 
   const { friends } = useFriends(profile?.uid ?? null);
   const [sent, setSent] = useState<Record<string, "busy" | "sent" | string>>({});
   const candidates = friends.filter((f) => !league.memberIds.includes(f.uid)).slice(0, 8);
-  if (isLeagueClosed(league)) return null;
+  if (isLeagueClosed(league) || isLeagueStarted(league)) return null;
 
   return (
     <Card style={{ gap: 10 }}>
       <View style={styles.inline}>
-        <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Invite friends</Text>
+        <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Invite Friends</Text>
         <Button size="sm" variant="secondary" icon="share-variant" label={league.code} onPress={onShare} />
       </View>
       {candidates.length === 0 ? (
@@ -768,7 +832,8 @@ function BetsTab({
       leagueId,
       name: b.displayName,
       side: kind === "tail" ? b.side : b.side === "home" ? "away" : "home",
-      stake: b.stake,
+      // Never copy another member's stake (guardrail 3); the slip prefills your own.
+      stake: 0,
       sourceTeamAbbr: b.teamAbbr,
     });
     setQuickGame(b.gameId);
@@ -857,7 +922,9 @@ function BetsTab({
                 {b.lockWeek || b.lock ? <Pill label="LOCK" tone="accent" icon="lock" /> : null}
               </View>
               <Text style={[styles.memberSub, { color: c.mutedForeground }]}>
-                {b.stake.toLocaleString()} at {formatOdds(b.odds, fmt)} → {b.potentialPayout.toLocaleString()}
+                {b.uid === uid
+                  ? `${b.stake.toLocaleString()} at ${formatOdds(b.odds, fmt)} → ${b.potentialPayout.toLocaleString()}`
+                  : `at ${formatOdds(b.odds, fmt)}`}
               </Text>
               {b.followOfName ? (
                 <Text style={[styles.memberSub, { color: c.subtleForeground }]} numberOfLines={1}>
@@ -882,7 +949,7 @@ function BetsTab({
             ) : (
               <View style={styles.followRow}>
                 <Pressable
-                  accessibilityLabel={`Tail ${b.displayName}: back ${b.teamAbbr} with ${b.stake.toLocaleString()}`}
+                  accessibilityLabel={`Tail ${b.displayName}: back ${b.teamAbbr}`}
                   onPress={() => startFollow(b, "tail")}
                   hitSlop={6}
                   style={({ pressed }) => [styles.followBtn, { backgroundColor: c.leagueSoft, borderColor: c.alpha(c.league, 0.55), opacity: pressed ? 0.75 : 1 }]}
@@ -908,10 +975,7 @@ function BetsTab({
               reactions={b.reactions}
               reactors={b.reactors}
               uid={uid}
-              onToggle={(emoji) => {
-                if (!leagueId) return;
-                void reactToItem(leagueId, "bet", b.id, emoji);
-              }}
+              onToggle={(emoji) => (leagueId ? reactToItem(leagueId, "bet", b.id, emoji) : false)}
             />
             {isCreator && leagueId && b.status === "pending" && upcoming && (
               <Pressable
@@ -958,13 +1022,14 @@ function BetsTab({
       {(league.mode === "pickem" || league.mode === "survivor") && (
         <ModePicksCard league={league} picks={picks} uid={uid} closed={!leagueId} />
       )}
+      {league.mode === "bracket" && <BracketFill league={league} uid={uid} />}
 
       <ParlaysSection league={league} parlays={parlays} uid={uid} closed={!leagueId} fmt={fmt} />
 
       {bets.length === 0 ? (
         <EmptyState
           icon="ticket-outline"
-          title="No league bets yet"
+          title="No League Bets Yet"
           body="Bets placed with this league's tokens show up here — everyone's, so you can see who's swinging big."
           action={leagueId ? "Make the first pick" : undefined}
           onAction={leagueId ? () => router.navigate({ pathname: "/(tabs)/games", params: { wallet: leagueId } }) : undefined}
@@ -1235,7 +1300,7 @@ function ParlaysSection({
               </Text>
             ) : null}
             <Text style={[styles.memberSub, { color: c.mutedForeground }]}>
-              {riders.length} rider{riders.length === 1 ? "" : "s"} ({riders.map((r) => `${r.name} · ${r.stake.toLocaleString()}`).join(", ")})
+              {riders.length} rider{riders.length === 1 ? "" : "s"} ({riders.map((r) => (r.uid === uid ? `${r.name} · ${r.stake.toLocaleString()}` : r.name)).join(", ")})
             </Text>
             {!closed && p.status === "open" && (
               <View style={styles.inline}>
@@ -1269,7 +1334,7 @@ function ParlaysSection({
                   <Button
                     size="sm"
                     variant="primary"
-                    label="Lock ticket"
+                    label="Lock Ticket"
                     loading={busy === `lock_${p.id}`}
                     onPress={async () => {
                       setBusy(`lock_${p.id}`);
@@ -1296,20 +1361,20 @@ function ReactionBar({
   reactions?: Record<string, number>;
   reactors?: Record<string, string>;
   uid: string | null;
-  onToggle: (emoji: ReactionEmoji) => void;
+  onToggle: (emoji: ReactionEmoji) => unknown;
 }) {
   const c = useColors();
-  const myReaction = uid ? reactors?.[uid] : undefined;
+  const optimistic = useOptimisticReaction(reactors, uid, reactions);
   return (
     <View style={styles.reactionRow}>
       {REACTION_EMOJIS.map((emoji) => {
-        const count = reactions?.[emoji] ?? 0;
-        const mine = myReaction === emoji;
+        const count = optimistic.counts[emoji] ?? 0;
+        const mine = optimistic.mine === emoji;
         return (
           <Pressable
             key={emoji}
             accessibilityRole="button"
-            onPress={() => onToggle(emoji)}
+            onPress={() => void optimistic.toggle(emoji, (e) => onToggle(e as ReactionEmoji))}
             style={[
               styles.reactionChip,
               {
@@ -1376,7 +1441,7 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
   return (
     <View style={{ gap: 12 }}>
       <Card style={{ gap: 10 }}>
-        <Text style={[styles.cardTitle, { color: c.foreground }]}>Your finances</Text>
+        <Text style={[styles.cardTitle, { color: c.foreground }]}>Your Finances</Text>
         <View style={styles.hero}>
           <StatTile label="Tokens">
             <Amount value={tokens} currency="league" size="sm" animate />
@@ -1384,10 +1449,30 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
           <StatTile label="Owed">
             <Amount value={totals.owed} currency="league" size="sm" tone={totals.owed ? "debt" : "neutral"} />
           </StatTile>
-          <StatTile label="Net worth">
+          <StatTile label="Net Worth">
             <Amount value={me?.netWorth ?? tokens} currency="league" size="sm" />
           </StatTile>
         </View>
+        {tokens === 0 && activeMine.length === 0 && !closed && uid && !league.members[uid]?.resetUsed ? (
+          <ActionChip
+            label={`Fresh start: reset to ${Math.floor(league.startingLeagueTokens * 0.25).toLocaleString()} (once per league)`}
+            icon="restart"
+            chevron={false}
+            tone="league"
+            disabled={busy}
+            onPress={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await api.requestReset({ leagueId: league.id });
+              } catch (e) {
+                setErr(api.friendlyError(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+        ) : null}
         {activeMine.length > 0 && (
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
             {totals.principal.toLocaleString()} principal outstanding · {totals.charged.toLocaleString()} flat interest, {totals.paid.toLocaleString()} of it paid.
@@ -1436,7 +1521,7 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
         <Card style={{ gap: 10 }}>
           <View style={styles.inline}>
             <MaterialCommunityIcons name="bank-outline" size={18} color={c.league} />
-            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>League bank</Text>
+            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>League Bank</Text>
             <Pill label={`${league.bankInterestRate}% flat`} tone="league" />
           </View>
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
@@ -1482,7 +1567,7 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
         <Card style={{ gap: 10 }}>
           <View style={styles.inline}>
             <MaterialCommunityIcons name="bank-off-outline" size={18} color={c.mutedForeground} />
-            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>League bank is closed</Text>
+            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>League Bank Is Closed</Text>
           </View>
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
             {isCreator
@@ -1508,7 +1593,7 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
         </Card>
       ) : null}
 
-      {mine.length > 0 && <SectionHeader title="What you owe" />}
+      {mine.length > 0 && <SectionHeader title="What You Owe" />}
       {mine.map((l) => (
         <LoanCard key={l.id} loan={l} now={asOf} viewer="borrower" tokens={tokens} onRepay={closed ? undefined : (amt) => repayLoan(league.id, l.id, amt)} />
       ))}
@@ -1542,7 +1627,7 @@ function StimulusCard({ league, uid, now }: { league: League; uid: string | null
     <Card style={{ gap: 10 }}>
       <View style={styles.inline}>
         <MaterialCommunityIcons name="cash-plus" size={18} color={c.positive} />
-        <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Stimulus vote</Text>
+        <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Stimulus Vote</Text>
         {open ? <Pill label={`${open.votes.length}/${needed} yes`} tone="positive" /> : null}
       </View>
       {open ? (
@@ -1640,7 +1725,7 @@ function PeerMarket({ league, loans, uid, tokens }: { league: League; loans: Lea
     <View style={{ gap: 10 }}>
       {canRequest ? (
         <>
-          <SectionHeader title="Loans from friends" />
+          <SectionHeader title="Loans From Friends" />
           <Text style={[styles.muted, { color: c.mutedForeground }]}>
             Name your amount and a flat return. A friend funds it from their own tokens, or counters. Borrow 100 at 10% and they get back 110 — never more.
           </Text>
@@ -1652,7 +1737,7 @@ function PeerMarket({ league, loans, uid, tokens }: { league: League; loans: Lea
           />
         </>
       ) : (
-        <SectionHeader title="Open loan requests" />
+        <SectionHeader title="Open Loan Requests" />
       )}
       {canRequest && show && (
         <Card style={{ gap: 8 }}>
@@ -1665,7 +1750,7 @@ function PeerMarket({ league, loans, uid, tokens }: { league: League; loans: Lea
           ) : null}
           <TextInput style={[styles.field, { color: c.foreground, borderColor: c.border, backgroundColor: c.secondary }]} value={msg} onChangeText={setMsg} placeholder="Note (optional)" placeholderTextColor={c.subtleForeground} maxLength={80} />
           <Button
-            label="Post request"
+            label="Post Request"
             variant="league"
             loading={busy === "req"}
             disabled={amt < 10 || amt > max || !(r > 0 && r <= 50)}
@@ -1763,6 +1848,8 @@ function FeedTab({
   const [replyQuote, setReplyQuote] = useState<ReplyQuote | null>(null);
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [profileUid, setProfileUid] = useState<string | null>(null);
+  const [quickGame, setQuickGame] = useState<string | null>(null);
+  const [follow, setFollow] = useState<FollowIntent | null>(null);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView> | null>(null);
 
   useEffect(() => {
@@ -1865,21 +1952,32 @@ function FeedTab({
                       )}
                     </View>
                     <Text style={[styles.feedText, { color: c.foreground }]}>{chatText(m.text)}</Text>
-                    {attached && (
+                    {m.kind === "taunt" ? (
+                      <TauntCard taunt={m} />
+                    ) : m.kind === "bet" ? (
+                      <BetChatCard
+                        message={m}
+                        uid={uid}
+                        leagueId={league.id}
+                        now={now}
+                        onTail={(gameId, intent) => {
+                          if (closed) return;
+                          setFollow(intent);
+                          setQuickGame(gameId);
+                        }}
+                      />
+                    ) : attached && !attached.hidden ? (
                       <View style={[styles.parlayBox, { borderColor: c.border, backgroundColor: c.secondary }]}>
                         <Text style={[styles.memberSub, { color: c.foreground }]}>
-                          🎟 {attached.label ?? attached.teamAbbr} · {attached.stake.toLocaleString()} @ {formatOdds(attached.odds, fmt)}
+                          🎟 {attached.label ?? attached.teamAbbr} @ {formatOdds(attached.odds, fmt)}
                         </Text>
                       </View>
-                    )}
+                    ) : null}
                     <ReactionBar
                       reactions={m.reactions}
                       reactors={m.reactors}
                       uid={uid}
-                      onToggle={(emoji) => {
-                        if (closed) return;
-                        void reactToItem(league.id, "message", m.id, emoji);
-                      }}
+                      onToggle={(emoji) => (closed ? false : reactToItem(league.id, "message", m.id, emoji))}
                     />
                   </Card>
                 </View>
@@ -1967,6 +2065,15 @@ function FeedTab({
         leagueId={league.id}
         onClose={() => setProfileUid(null)}
       />
+      <GameQuickView
+        gameId={quickGame}
+        onClose={() => {
+          setQuickGame(null);
+          setFollow(null);
+        }}
+        defaultWallet={league.id}
+        follow={follow}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -2017,7 +2124,8 @@ function InfoTab({
   const rows: Array<[string, string]> = [
     ["Status", closed ? "Closed" : "Active"],
     ["Format", LEAGUE_MODES.find((m) => m.value === (league.mode ?? "bankroll"))?.label ?? "Bankroll"],
-    ...(closed ? [] : [["Invite code", league.code] as [string, string]]),
+    ...(closed || isLeagueStarted(league) ? [] : [["Invite code", league.code] as [string, string]]),
+    [isLeagueStarted(league) ? "Started" : "Starts", new Date(leagueStartsAt(league)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })],
     ["Starting tokens", league.startingLeagueTokens.toLocaleString()],
     ["Buy-in", league.buyIn > 0 ? `${league.buyIn.toLocaleString()} credits` : "Free"],
     ["Prize pot", `${league.pot.toLocaleString()} credits`],
@@ -2032,21 +2140,22 @@ function InfoTab({
 
   return (
     <View style={{ gap: 12 }}>
-      {!closed && (
+      {!closed && !isLeagueStarted(league) && (
         <Card style={styles.qrCard}>
           <InviteQR value={inviteLink(league.code)} size={168} accessibilityLabel={`QR code to join ${league.name}, code ${league.code}`} />
           <View style={{ flex: 1, gap: 6 }}>
-            <Text style={[styles.cardTitle, { color: c.foreground }]}>Scan to join</Text>
+            <Text style={[styles.cardTitle, { color: c.foreground }]}>Scan to Join</Text>
             <Text style={[styles.muted, { color: c.mutedForeground }]}>
               Point a phone camera at this to open {league.name} in SportDrip{league.buyIn > 0 ? ` (${league.buyIn.toLocaleString()}-credit buy-in)` : ""}.
             </Text>
             <Text style={[styles.qrCode, { color: c.foreground }]} selectable>
               {league.code}
             </Text>
-            <Button size="sm" variant="secondary" icon="share-variant" label="Share link" onPress={onInvite} />
+            <Button size="sm" variant="secondary" icon="share-variant" label="Share Link" onPress={onInvite} />
           </View>
         </Card>
       )}
+      <PredictionsCard league={league} />
       <Card style={{ padding: 0 }}>
         {rows.map(([k, v], i) => (
           <View key={k} style={[styles.infoRow, i < rows.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }]}>
@@ -2093,7 +2202,7 @@ function InfoTab({
           ) : null}
           {editRulesMsg ? <Text style={[styles.memberSub, { color: editRulesMsg === "Saved" ? c.positive : c.negative }]}>{editRulesMsg}</Text> : null}
           <Button
-            label="Save rules"
+            label="Save Rules"
             variant="secondary"
             loading={editRulesBusy}
             onPress={async () => {
@@ -2114,7 +2223,7 @@ function InfoTab({
       {isCreator && !closed && (
         <Card style={{ gap: 10 }}>
           <View style={styles.inline}>
-            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Bank settings</Text>
+            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Bank Settings</Text>
             <Switch value={enabled} onValueChange={setEnabled} trackColor={{ false: c.border, true: c.league }} accessibilityLabel="Bank open" />
           </View>
           {enabled && (
@@ -2123,7 +2232,7 @@ function InfoTab({
           <Text style={[styles.memberSub, { color: c.subtleForeground }]}>Changes apply to new loans. Existing loans keep the terms they were taken at.</Text>
           {saved ? <Text style={[styles.memberSub, { color: saved === "Saved" ? c.positive : c.negative }]}>{saved}</Text> : null}
           <Button
-            label="Save bank settings"
+            label="Save Bank Settings"
             variant="secondary"
             loading={saving}
             disabled={enabled && !(Number.parseFloat(rate) >= 0.5 && Number.parseFloat(rate) <= 50)}
@@ -2141,7 +2250,7 @@ function InfoTab({
         <Card style={{ gap: 8 }}>
           <View style={styles.inline}>
             <MaterialCommunityIcons name="cash-plus" size={18} color={c.positive} />
-            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Stimulus votes</Text>
+            <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Stimulus Votes</Text>
             <Switch
               value={stimOn}
               disabled={stimBusy}
@@ -2209,7 +2318,7 @@ function InfoTab({
           {isCreator && league.memberIds.length < 2 && (
             <Button label="End season now & pay out" icon="flag-checkered" variant="secondary" onPress={() => { setDlgErr(null); setConfirm("end"); }} />
           )}
-          <Button label="Leave league" icon="exit-to-app" variant="destructive" onPress={() => { setDlgErr(null); setConfirm("leave"); }} />
+          <Button label="Leave League" icon="exit-to-app" variant="destructive" onPress={() => { setDlgErr(null); setConfirm("leave"); }} />
         </View>
       )}
 
@@ -2275,9 +2384,9 @@ const styles = StyleSheet.create({
   followText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   reactionRow: { flexDirection: "row", gap: 5, flexWrap: "wrap" },
   reactionChip: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
-  reactionCount: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  reactionCount: { fontSize: 11, fontFamily: "Inter_700Bold" },
   miniAction: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
-  miniActionText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  miniActionText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   parlayBox: { borderRadius: 12, borderWidth: 1, padding: 10, gap: 6 },
   qrCard: { flexDirection: "row", alignItems: "center", gap: 14, flexWrap: "wrap" },
   qrCode: { fontSize: 20, fontFamily: "Inter_800ExtraBold", letterSpacing: 4 },
@@ -2306,7 +2415,7 @@ const styles = StyleSheet.create({
   champMain: { flexDirection: "row", alignItems: "center", gap: 14 },
   champName: { fontSize: 22, fontFamily: "Inter_900Black", letterSpacing: -0.4, flexShrink: 1 },
   champStats: { flexDirection: "row", alignItems: "flex-end", gap: 12, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12 },
-  champK: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginBottom: 2 },
+  champK: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginBottom: 2 },
   champV: { fontSize: 18, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
   dock: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
 });

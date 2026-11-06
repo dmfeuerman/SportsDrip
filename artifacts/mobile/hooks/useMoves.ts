@@ -1,4 +1,4 @@
-import { collection, onSnapshot } from "firebase/firestore";
+import { subscribeBundle } from "@/lib/bundles";
 import { useEffect, useMemo, useState } from "react";
 import { isFreeMove, MOVE_LIBRARY, type MoveInfo, type MoveRarity } from "@/constants/moves";
 import { getDb } from "@/lib/firebase";
@@ -36,10 +36,11 @@ export function useMoves() {
       setLoading(false);
       return;
     }
-    return onSnapshot(
-      collection(db, "moves"),
-      (snap) => {
-        setDocs(new Map(snap.docs.map((d) => [d.id, d.data() as MoveDoc])));
+    return subscribeBundle(
+      db,
+      "moves",
+      (items) => {
+        setDocs(new Map(items.map(({ id, ...d }) => [id, d as unknown as MoveDoc])));
         setLoading(false);
       },
       () => setLoading(false)
@@ -51,7 +52,8 @@ export function useMoves() {
     return MOVE_LIBRARY.map((m) => {
       const free = isFreeMove(m.id);
       const d = docs?.get(m.id);
-      const listed = docs ? !!d && d.available !== false && !(d.releaseAt && d.releaseAt > now) : true;
+      // No listing doc = sold at the built-in price (the server falls back the same way).
+      const listed = !d || (d.available !== false && !(d.releaseAt && d.releaseAt > now));
       return {
         ...m,
         name: d?.name ?? m.name,

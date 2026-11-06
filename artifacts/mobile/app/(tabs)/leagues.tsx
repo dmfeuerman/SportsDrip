@@ -1,3 +1,5 @@
+import BackToLevels from "@/components/BackToLevels";
+import { TourTarget } from "@/components/tour/TourTarget";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams } from "expo-router";
@@ -47,12 +49,13 @@ export default function LeaguesScreen() {
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
       <ScreenHeader
+        leading={<BackToLevels />}
         title="Leagues"
         subtitle={active.length ? `${active.length} running` : "Season-long competitions with friends"}
         right={
           <>
-            <Button label="Join" size="sm" variant="secondary" icon="key-variant" onPress={() => setShowJoin(true)} />
-            <Button label="New" size="sm" icon="plus" onPress={() => setShowCreate(true)} />
+            <TourTarget id="leagues.join"><Button label="Join" size="sm" variant="secondary" icon="key-variant" onPress={() => setShowJoin(true)} /></TourTarget>
+            <TourTarget id="leagues.new"><Button label="New" size="sm" icon="plus" onPress={() => setShowCreate(true)} /></TourTarget>
           </>
         }
       />
@@ -63,9 +66,9 @@ export default function LeaguesScreen() {
         keyExtractor={(r, i) => (r.kind === "league" ? r.s.league.id : `h${i}`)}
         contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
         showsVerticalScrollIndicator={false}
-        renderItem={({ item }) =>
+        renderItem={({ item, index }) =>
           item.kind === "header" ? (
-            <SectionHeader title={item.title} />
+            index === 0 ? <TourTarget id="leagues.list"><SectionHeader title={item.title} /></TourTarget> : <SectionHeader title={item.title} />
           ) : (
             <LeagueCard s={item.s} latest={latest[item.s.league.id]?.text} />
           )
@@ -73,17 +76,19 @@ export default function LeaguesScreen() {
         ListEmptyComponent={
           ready ? (
             <View style={{ gap: 12 }}>
+              <TourTarget id="leagues.list">
               <EmptyState
                 icon="trophy-outline"
-                title="No leagues yet"
+                title="No Leagues Yet"
                 body="Everyone starts a season with the same stack of league tokens. Bet them, borrow from the bank or each other, and the best net worth when the clock runs out takes the pot."
-                action="Start a league"
+                action="Start a League"
                 onAction={() => setShowCreate(true)}
-                secondary="Join with a code"
+                secondary="Join With a Code"
                 onSecondary={() => setShowJoin(true)}
               />
+              </TourTarget>
               <Card>
-                <Text style={[styles.howTitle, { color: c.foreground }]}>How leagues work</Text>
+                <Text style={[styles.howTitle, { color: c.foreground }]}>How Leagues Work</Text>
                 {[
                   ["shield-star", "League tokens are separate from your credits."],
                   ["scale-balance", "Ranked on net worth: tokens, plus what you're owed, minus what you owe."],
@@ -105,8 +110,8 @@ export default function LeaguesScreen() {
         visible={showCreate}
         onClose={() => setShowCreate(false)}
         yourTokens={balance}
-        onConfirm={async (name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled) => {
-          const res = await createLeague({ name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled });
+        onConfirm={async (name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled, bracketTemplateId, startsAt) => {
+          const res = await createLeague({ name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled, bracketTemplateId, startsAt });
           if ("error" in res) return res.error;
           buzz.success();
           router.push({ pathname: "/league/[id]", params: { id: res.leagueId, created: "1" } });
@@ -209,7 +214,7 @@ const styles = StyleSheet.create({
   rankBig: { fontSize: 30, lineHeight: 34, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"], letterSpacing: -0.6 },
   rankOf: { fontSize: 12, fontFamily: "Inter_500Medium" },
   cardStats: { flexDirection: "row", gap: 12 },
-  k: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginBottom: 2 },
+  k: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginBottom: 2 },
   v: { fontSize: 15, fontFamily: "Inter_700Bold" },
   track: { height: 4, borderRadius: 2, overflow: "hidden" },
   fill: { height: 4, borderRadius: 2 },

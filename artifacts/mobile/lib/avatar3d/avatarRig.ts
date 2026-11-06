@@ -5,7 +5,8 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 import type { AvatarConfig } from "../../types/avatar";
 import { mergeAttach, resolveAttach, type AttachSpec } from "./attach";
 import { BODY_REGIONS, SLOT_LAYER, type BodyRegion } from "./avatarRules";
-import type { OutfitPiece, ResolvedOutfit } from "./outfit";
+import { pieceLook, type OutfitPiece, type ResolvedOutfit } from "./outfit";
+import { applyPattern, PATTERN_MATERIALS, withPatternSpace, type PatternUniforms } from "./patterns";
 import { buildDanceClip, isDanceId, type DanceFace } from "./dances";
 import { buildReactionClips, type ReactionKind } from "./reactions";
 import type { HairMode } from "./spec";
@@ -55,6 +56,8 @@ interface BoundGarment {
   piece: OutfitPiece;
   meshes: THREE.Object3D[];
   mats: THREE.Material[];
+  /** Per-instance geometry copies (patterned meshes carry their rest-pose coordinates). */
+  geos: THREE.BufferGeometry[];
   rigid: RigidHolder[];
   hides: BodyRegion[];
 }
@@ -287,7 +290,7 @@ export class AvatarRig {
       if (!wanted.has(slot as OutfitPiece["slot"])) this.dropGarment(slot);
     }
     for (const { piece, gltf } of sources) {
-      const sig = `${piece.template ?? piece.url}@${piece.version ?? ""}|${piece.primary}|${piece.secondary ?? ""}|${piece.attach ? JSON.stringify(piece.attach) : ""}|${piece.hides?.join("+") ?? "-"}|${piece.layer}`;
+      const sig = `${pieceLook(piece)}|${piece.attach ? JSON.stringify(piece.attach) : ""}|${piece.hides?.join("+") ?? "-"}|${piece.layer}`;
       if (this.garments.get(piece.slot)?.sig === sig) continue;
       this.dropGarment(piece.slot);
       this.garments.set(piece.slot, { sig, piece, ...this.bindGarment(gltf, piece) });
@@ -304,8 +307,15 @@ export class AvatarRig {
     if (!piece.secondary) s.copy(p).lerp(new THREE.Color("#ffffff"), 0.75);
     const meshes: THREE.Object3D[] = [];
     const mats: THREE.Material[] = [];
+    const geos: THREE.BufferGeometry[] = [];
     const rigid: RigidHolder[] = [];
     const tinted = new Map<THREE.Material, THREE.Material>();
+    const patterned = new Map<THREE.Material, PatternUniforms>();
+    const pattern = piece.pattern ?? null;
+    const metal = piece.metal ? new THREE.Color(piece.metal) : null;
+    // Motif colours: the pattern's own, else the item's secondary; a third falls back to a darker ground.
+    const pc1 = pattern?.color ? new THREE.Color(pattern.color) : s.clone();
+    const pc2 = pattern?.color2 ? new THREE.Color(pattern.color2) : p.clone().lerp(pc1, 0.5).multiplyScalar(0.55);
     const meta = (gltf.scene.userData?.sdAvatar ?? {}) as GarmentMeta;
     const spec = mergeAttach(meta.attach ?? null, piece.attach ?? null);
     const hides = (piece.hides ?? meta.hides ?? []).filter((r): r is BodyRegion => BODY_REGIONS.includes(r as BodyRegion));
@@ -330,6 +340,11 @@ export class AvatarRig {
           const ph = c as THREE.MeshPhysicalMaterial;
           if (ph.isMeshPhysicalMaterial && ph.sheen > 0) ph.sheenColor.copy(ph.color).lerp(new THREE.Color("#ffffff"), 0.35);
         }
+        if (metal && srcMat.name === "metal") (c as THREE.MeshStandardMaterial).color.copy(metal);
+        const dark = PATTERN_MATERIALS[srcMat.name];
+        if (pattern && dark !== undefined) {
+          patterned.set(c, applyPattern(c, pattern, pc1.clone().multiplyScalar(dark), pc2.clone().multiplyScalar(dark)));
+        }
         if (skinned) {
           // Outer layers win ties. Constant bias only: a slope-scaled factor pulls an inner layer's
           // edge-on faces (a waistband's top seen past a tee) millimetres forward, through the layer over it.
@@ -342,6 +357,15 @@ export class AvatarRig {
         mat = c;
       }
       m.material = mat;
+      const pu = patterned.get(mat);
+      if (pu) {
+        // Rest-pose coordinates for the shader, through the mesh's transform in its own file.
+        const { geometry, range } = withPatternSpace(src.geometry, src.matrixWorld);
+        m.geometry = geometry;
+        geos.push(geometry);
+        const r = pu.uSdRange.value;
+        r.set(Math.min(r.x, range.x), Math.max(r.y, range.y));
+      }
       m.castShadow = true;
       m.receiveShadow = true;
       if (skinned) {
@@ -372,7 +396,7 @@ export class AvatarRig {
       }
       holder.add(m);
     }
-    return { meshes, mats, rigid, hides };
+    return { meshes, mats, geos, rigid, hides };
   }
 
   /** The rig node a rigid part's parent in its own file corresponds to. */
@@ -416,6 +440,7 @@ export class AvatarRig {
     if (!g) return;
     for (const m of g.meshes) m.removeFromParent();
     for (const mat of g.mats) mat.dispose();
+    for (const geo of g.geos) geo.dispose();
     this.garments.delete(slot);
   }
 

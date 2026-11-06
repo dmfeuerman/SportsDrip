@@ -1,9 +1,12 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { EXPERIMENTS, useExperiment } from "@/lib/experiments";
+import { liveActivitySupported } from "@/modules/live-activity";
+import { celebrate } from "@/lib/celebrate";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Modal, Platform, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
-import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import Burst from "@/components/fx/Burst";
 import ResultRecap from "@/components/ResultRecap";
@@ -15,9 +18,11 @@ import { useCatalog } from "@/hooks/useCatalog";
 import { useNotifications, type AppNotification } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
 import { trace } from "@/lib/devtrace";
+import { OVERLAY, useOverlayTurn } from "@/lib/overlayTurns";
 import { haptic, REWARD_RARITY } from "@/lib/motion";
 import { useShake } from "@/hooks/useMotion";
-import { formatOdds } from "@/lib/odds";
+import { formatOdds, untilKickoff } from "@/lib/odds";
+import { useGames } from "@/hooks/useGames";
 import { useOddsFormat } from "@/lib/settings";
 import { shareViewOrText } from "@/lib/shareCard";
 
@@ -44,7 +49,26 @@ export default function ResultPopupHost() {
   useEffect(() => {
     if (armed && popup) trace("popup", `showing ${popup.type} (${waiting} more waiting)`);
   }, [armed, popup?.id]);
-  if (!armed) return null;
+  // Every result (and the recap) goes through one at a time, then hands over to level-ups etc.
+  const myTurn = useOverlayTurn("results", armed && (recap.length > 0 || !!popup), OVERLAY.results);
+  // Between two results, a beat so the next Modal doesn't present while the last is still closing.
+  const [gapFor, setGapFor] = useState<string | null>(null);
+  const shownId = recap.length ? "recap" : popup?.id ?? null;
+  const [lastShown, setLastShown] = useState<string | null>(null);
+  useEffect(() => {
+    if (!shownId || shownId === lastShown) return;
+    if (lastShown === null) {
+      setLastShown(shownId);
+      return;
+    }
+    setGapFor(shownId);
+    const t = setTimeout(() => {
+      setGapFor(null);
+      setLastShown(shownId);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [shownId, lastShown]);
+  if (!armed || !myTurn || (gapFor && gapFor === shownId)) return null;
   // Bets that settled while the app was closed: one recap first, then anything newer one by one.
   if (recap.length) {
     return (
@@ -118,9 +142,20 @@ function ResultPopup({
   const fired = useRef(false);
   const { style: shakeStyle, shake } = useShake();
   const { profile } = useApp();
+  // Widget promo after a win (widget_promo_v1, read D30 by intent-to-treat), iOS dev builds only.
+  const widgetArm = useExperiment(EXPERIMENTS.widgetPromo, profile?.uid);
+  const widgetPromo = widgetArm === "treatment" && liveActivitySupported();
   const { byId } = useCatalog();
-  // A stable id per popup, so the reaction plays once when it opens.
-  const [reactionId] = useState(() => Date.now());
+  // Keep the session going: this team's next game, else the next game on the board.
+  const { games } = useGames();
+  const nextUp = (() => {
+    if (!bet) return null;
+    const t = Date.now();
+    const open = games.filter((g) => g.status === "upcoming" && g.startsAt > t && g.id !== bet.gameId).sort((a, b) => a.startsAt - b.startsAt);
+    const same = open.find((g) => (!bet.sport || g.sport === bet.sport) && (g.homeTeam.abbreviation === bet.teamAbbr || g.awayTeam.abbreviation === bet.teamAbbr));
+    const g = same ?? open[0];
+    return g ? { game: g, sameTeam: !!same } : null;
+  })();
   // Mount the 3D stage once the modal is up, not in the same frame as it.
   const [stageOn, setStageOn] = useState(false);
   useEffect(() => {
@@ -151,12 +186,15 @@ function ResultPopup({
   const my = bet ? (bet.side === "home" ? bet.finalHomeScore : bet.finalAwayScore) : null;
   const their = bet ? (bet.side === "home" ? bet.finalAwayScore : bet.finalHomeScore) : null;
 
+  const fx = celebrate("bet_win", { big });
   return (
     <Modal visible transparent animationType="none" onRequestClose={onDismiss} statusBarTranslucent>
       <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.scrim, { backgroundColor: c.overlay }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} accessibilityLabel="Dismiss" />
         {/* Confetti for a win — gold for a big one. */}
-        {won ? <Burst colors={big ? REWARD_RARITY.epic.confetti : [c.positive, "#FFFFFF", c.accent, c.positive]} count={big ? 64 : 36} power={big ? 1.5 : 1.05} originY={0.42} /> : null}
+        {won && fx.burst ? (
+          <Burst colors={big ? REWARD_RARITY.epic.confetti : [c.positive, "#FFFFFF", c.accent, c.positive]} count={fx.burst.count} power={fx.burst.power} duration={fx.burst.duration} originY={0.42} />
+        ) : null}
         <Animated.View style={[styles.shell, shakeStyle]}>
         <View ref={cardRef} collapsable={false} style={{ width: "100%", alignItems: "center" }}>
         <Animated.View
@@ -169,16 +207,12 @@ function ResultPopup({
           {/* Your character reacts to the result: fist pumps for a win, hands to the face for a loss. */}
           {won || lost ? (
             <View style={[styles.stage, { backgroundColor: soft }]}>
+              {/* A still of the character, animated in 2D. A live 3D stage here meant a second GL
+                  context starting inside a Modal while Home's was still setting up — that froze iOS. */}
               {stageOn ? (
-                <AvatarDisplay
-                  avatar={profile?.avatar}
-                  equipped={profile?.equipped}
-                  catalog={byId}
-                  size="lg"
-                  interactive={false}
-                  focus="reaction"
-                  reaction={{ kind: won ? "win" : "loss", id: reactionId }}
-                />
+                <ReactionStill won={won}>
+                  <AvatarDisplay avatar={profile?.avatar} equipped={profile?.equipped} catalog={byId} size="hero" interactive={false} />
+                </ReactionStill>
               ) : null}
               <View style={[styles.stageBadge, { backgroundColor: c.elevated, borderColor: c.alpha(accent, 0.5) }]}>
                 <MaterialCommunityIcons name={won ? (big ? "trophy" : "check-decagram") : "close-octagon-outline"} size={18} color={accent} />
@@ -222,7 +256,7 @@ function ResultPopup({
 
           {bet && (
             <View style={styles.rows}>
-              <Row label="Your pick" value={`${bet.teamName} · ${formatOdds(bet.odds, fmt)}`} />
+              <Row label="Your Pick" value={`${bet.teamName} · ${formatOdds(bet.odds, fmt)}`} />
               <Row label={friend ? "Your stake" : "Stake"} value={bet.stake.toLocaleString()} />
               {friend ? <Row label="Pot" value={bet.payout.toLocaleString()} /> : null}
               <Row label={won ? "Paid out" : friend ? `Went to ${friend}` : "Returned"} value={(won ? bet.payout : friend ? bet.payout : 0).toLocaleString()} />
@@ -237,6 +271,19 @@ function ResultPopup({
             </View>
           )}
 
+          {nextUp ? (
+            <Button
+              label={`${nextUp.sameTeam ? (won ? "Run It Back" : "Get It Back") : "Next Up"}: ${nextUp.game.awayTeam.abbreviation} @ ${nextUp.game.homeTeam.abbreviation} ${untilKickoff(nextUp.game.startsAt)}`}
+              icon={nextUp.sameTeam ? "replay" : "arrow-right-circle-outline"}
+              variant="league"
+              style={{ alignSelf: "stretch", marginTop: 10 }}
+              onPress={() => {
+                onDismissAll();
+                // Home opens the game's bet sheet from this param.
+                router.navigate({ pathname: "/(tabs)", params: { game: nextUp.game.id } });
+              }}
+            />
+          ) : null}
           <View style={styles.actions}>
             {won && (
               <Button
@@ -269,12 +316,17 @@ function ResultPopup({
             <Button label={won ? "Collect" : "Got it"} style={{ flex: 1 }} onPress={onDismiss} haptic={false} shimmer={won} />
           </View>
           {bet && (won || lost) ? <SocialFollowUp n={n} won={won} friend={friend} onDismiss={onDismiss} /> : null}
+          {won && widgetPromo ? (
+            <Text style={[styles.widgetPromo, { color: c.mutedForeground }]}>
+              Tip: add the SportDrip widget to your Home Screen to see your week at a glance.
+            </Text>
+          ) : null}
           {waiting > 0 && (
             <View style={[styles.more, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
               <Text style={[styles.moreText, { color: c.mutedForeground }]}>
                 {waiting} more result{waiting > 1 ? "s" : ""}
               </Text>
-              <ActionChip label="Skip all" chevron={false} onPress={onDismissAll} />
+              <ActionChip label="Skip All" chevron={false} onPress={onDismissAll} />
             </View>
           )}
         </Animated.View>
@@ -345,7 +397,26 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Win: the character hops; loss: it sags and sways. Pure 2D, no GL. */
+function ReactionStill({ won, children }: { won: boolean; children: React.ReactNode }) {
+  const y = useSharedValue(0);
+  const r = useSharedValue(0);
+  const s = useSharedValue(0.9);
+  useEffect(() => {
+    s.value = withSpring(1, { damping: 10, stiffness: 160 });
+    if (won) {
+      y.value = withRepeat(withSequence(withTiming(-14, { duration: 220, easing: Easing.out(Easing.quad) }), withTiming(0, { duration: 260, easing: Easing.in(Easing.quad) })), 3);
+    } else {
+      y.value = withTiming(8, { duration: 500 });
+      r.value = withRepeat(withSequence(withTiming(-3, { duration: 450 }), withTiming(3, { duration: 450 })), 2, true);
+    }
+  }, [won, y, r, s]);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }, { rotate: `${r.value}deg` }, { scale: s.value }] }));
+  return <Animated.View style={[StyleSheet.absoluteFill, style]}>{children}</Animated.View>;
+}
+
 const styles = StyleSheet.create({
+  widgetPromo: { fontSize: 12, lineHeight: 16, fontFamily: "Inter_500Medium", textAlign: "center", marginTop: 8 },
   scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
   shell: { width: "100%", maxWidth: 380, alignItems: "center" },
   card: {
@@ -369,7 +440,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, lineHeight: 27, fontFamily: "Inter_900Black", textAlign: "center", letterSpacing: -0.6 },
   score: { fontSize: 13, fontFamily: "Inter_500Medium", textAlign: "center" },
   hero: { marginHorizontal: 16, marginTop: 14, borderRadius: 16, paddingVertical: 14, alignItems: "center", gap: 2 },
-  heroLabel: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.2 },
+  heroLabel: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.2 },
   rows: { paddingHorizontal: 20, paddingTop: 14, gap: 7 },
   row: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   rowLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },

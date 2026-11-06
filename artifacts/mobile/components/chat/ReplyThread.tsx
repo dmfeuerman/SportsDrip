@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
   quoteRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   quoteRowRight: { justifyContent: "flex-end" },
   miniAvatar: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  miniAvatarText: { fontSize: 9, fontFamily: "Inter_700Bold" },
+  miniAvatarText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   quoteBubble: {
     borderRadius: 16,
     borderWidth: 1,
@@ -358,8 +358,8 @@ const styles = StyleSheet.create({
   threadReplyRow: { flexDirection: "row", alignItems: "flex-end", gap: 6, paddingVertical: 2 },
   threadReplyRowMine: { justifyContent: "flex-end" },
   replyAvatar: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  replyAvatarText: { fontSize: 10, fontFamily: "Inter_700Bold" },
-  replySenderName: { fontSize: 10, fontFamily: "Inter_600SemiBold", marginLeft: 4 },
+  replyAvatarText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  replySenderName: { fontSize: 11, fontFamily: "Inter_600SemiBold", marginLeft: 4 },
   replyBubble: {
     borderRadius: 16,
     paddingHorizontal: 12,

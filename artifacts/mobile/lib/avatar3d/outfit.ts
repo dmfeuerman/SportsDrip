@@ -7,6 +7,7 @@
 import type { AttachSpec } from "./attach";
 import type { AvatarConfig, BodyRegion, Equipped, HairMode, ItemLike, Slot } from "./avatarRules";
 import { HAIR_MODE_PRIORITY, hairModeOf, hidesOf, layerOf, SLOTS, templateFor } from "./avatarRules";
+import { normalizePattern, patternKey, type PatternSpec } from "./patternSpec";
 
 export interface OutfitItem extends ItemLike {
   color: string;
@@ -15,6 +16,10 @@ export interface OutfitItem extends ItemLike {
   attach?: AttachSpec | null;
   /** Bumped whenever a remote asset's file changes, so caches re-download it. */
   assetVersion?: number | null;
+  /** Procedural print on the main fabric (patterns.ts). */
+  pattern?: PatternSpec | null;
+  /** Colour of the template's metal parts (chain links, watch case, crown). */
+  metalColor?: string | null;
 }
 
 export interface OutfitPiece {
@@ -33,6 +38,19 @@ export interface OutfitPiece {
   layer: number;
   /** Cache-busting version of a remote asset. */
   version?: number | null;
+  pattern?: PatternSpec | null;
+  metal?: string | null;
+}
+
+/**
+ * Everything about how a piece looks, as a string: asset, colours, pattern,
+ * metal. Unpatterned pieces keep the key they always had, so cached
+ * thumbnails and portraits stay valid.
+ */
+export function pieceLook(p: OutfitPiece): string {
+  const base = `${p.template ?? p.url}@${p.version ?? ""}|${p.primary}|${p.secondary ?? ""}`;
+  const extra = `${patternKey(p.pattern)}${p.metal ? `~${p.metal.toLowerCase()}` : ""}`;
+  return extra ? `${base}|${extra}` : base;
 }
 
 export interface ResolvedOutfit {
@@ -46,6 +64,8 @@ export interface ResolvedOutfit {
 export function pieceFor(item: OutfitItem): OutfitPiece | null {
   const template = templateFor(item);
   if (!template && !item.assetUrl) return null;
+  const pattern = normalizePattern(item.pattern);
+  const metal = typeof item.metalColor === "string" && /^#[0-9a-f]{6}$/i.test(item.metalColor) ? item.metalColor : null;
   return {
     slot: item.slot,
     itemId: item.id,
@@ -57,6 +77,8 @@ export function pieceFor(item: OutfitItem): OutfitPiece | null {
     hides: hidesOf(item),
     layer: layerOf(item),
     ...(!template && item.assetVersion ? { version: item.assetVersion } : {}),
+    ...(pattern ? { pattern } : {}),
+    ...(metal ? { metal } : {}),
   };
 }
 
@@ -95,7 +117,7 @@ export function lookKey(avatar: AvatarConfig, outfit: ResolvedOutfit, framing: s
   ].join("|");
   const o = [...outfit.pieces]
     .sort((x, y) => x.slot.localeCompare(y.slot))
-    .map((p) => `${p.slot}:${p.template ?? p.url}@${p.version ?? ""}:${p.primary.toLowerCase()}:${(p.secondary ?? "").toLowerCase()}${p.attach ? `:${JSON.stringify(p.attach)}` : ""}:${p.hides?.join("+") ?? "-"}:${p.layer}`)
+    .map((p) => `${p.slot}:${p.template ?? p.url}@${p.version ?? ""}:${p.primary.toLowerCase()}:${(p.secondary ?? "").toLowerCase()}${p.attach ? `:${JSON.stringify(p.attach)}` : ""}:${p.hides?.join("+") ?? "-"}:${p.layer}${p.pattern || p.metal ? `:${patternKey(p.pattern)}~${p.metal ?? ""}` : ""}`)
     .join(",");
   return `${framing}#${hash(`${a}/${o}`)}`;
 }

@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React from "react";
+import { router, useNavigation } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
+import React, { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import AvatarBackdrop from "@/components/avatar/AvatarBackdrop";
 import { Pressable } from "@/components/fx/Tap";
@@ -16,14 +17,14 @@ import { haptic } from "@/lib/motion";
 type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
 const EARN: Array<{ icon: Icon; label: string; xp: string; to?: string }> = [
-  { icon: "trophy-outline", label: "Win a bet", xp: `${XP.betWin}+ XP`, to: "/(tabs)/games" },
-  { icon: "sword-cross", label: "Win a friend challenge", xp: `${XP.challengeWin} XP`, to: "/challenges" },
-  { icon: "shield-star-outline", label: "Win a league bet", xp: `${XP.leagueBetWin} XP`, to: "/(tabs)/leagues" },
-  { icon: "podium-gold", label: "Finish in the money in a league", xp: `${XP.leaguePayout} XP` },
-  { icon: "shopping-outline", label: "Buy from the Drip Shop", xp: `1 XP / ${XP.purchasePer} credits`, to: "/shop" },
-  { icon: "gift-outline", label: "Open a prize box", xp: `${XP.prizeBox} XP`, to: "/prizes" },
-  { icon: "account-plus-outline", label: "Add a friend", xp: `${XP.newFriend} XP`, to: "/(tabs)/friends" },
-  { icon: "account-heart-outline", label: "Invite a friend with your code", xp: `${XP.referrer} XP`, to: "/(tabs)/friends" },
+  { icon: "trophy-outline", label: "Win a Bet", xp: `${XP.betWin}+ XP`, to: "/(tabs)/games" },
+  { icon: "sword-cross", label: "Win a Friend Challenge", xp: `${XP.challengeWin} XP`, to: "/challenges" },
+  { icon: "shield-star-outline", label: "Win a League Bet", xp: `${XP.leagueBetWin} XP`, to: "/(tabs)/leagues" },
+  { icon: "podium-gold", label: "Finish in the Money in a League", xp: `${XP.leaguePayout} XP` },
+  { icon: "shopping-outline", label: "Buy From the Drip Shop", xp: `1 XP / ${XP.purchasePer} credits`, to: "/shop" },
+  { icon: "gift-outline", label: "Open a Prize Box", xp: `${XP.prizeBox} XP`, to: "/(tabs)" },
+  { icon: "account-plus-outline", label: "Add a Friend", xp: `${XP.newFriend} XP`, to: "/(tabs)/friends" },
+  { icon: "account-heart-outline", label: "Invite a Friend With Your Code", xp: `${XP.referrer} XP`, to: "/(tabs)/friends" },
 ];
 
 /**
@@ -38,6 +39,20 @@ export default function LevelsScreen() {
   const tier = levelTier(progress.level);
   const toNext = progress.maxed ? 0 : progress.needed - progress.into;
   const next = nextAfter(progress.level);
+
+  // Leaving Levels (back button, swipe, Android back) always lands on Home,
+  // wherever it was opened from.
+  const navigation = useNavigation();
+  const [leaving, setLeaving] = useState(false);
+  const allowLeave = usePreventRemove(!leaving, ({ data }) => {
+    setLeaving(true);
+    allowLeave();
+    const type = (data.action as { type?: string }).type;
+    if (type === "GO_BACK" || type === "POP") {
+      router.dismissTo("/(tabs)");
+      router.navigate("/(tabs)");
+    } else navigation.dispatch(data.action as never);
+  });
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
@@ -72,7 +87,7 @@ export default function LevelsScreen() {
               key={e.label}
               accessibilityRole={e.to ? "button" : undefined}
               disabled={!e.to}
-              onPress={() => e.to && router.push(e.to as never)}
+              onPress={() => e.to && router.push({ pathname: e.to, params: { from: "levels" } } as never)}
               style={({ pressed }) => [
                 styles.earnRow,
                 i < EARN.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border },
@@ -84,6 +99,7 @@ export default function LevelsScreen() {
               </View>
               <Text style={[styles.earnLabel, { color: c.foreground }]}>{e.label}</Text>
               <Text style={[styles.earnXp, { color: c.primary }]}>{e.xp}</Text>
+              {e.to ? <MaterialCommunityIcons name="chevron-right" size={18} color={c.mutedForeground} /> : null}
             </Pressable>
           ))}
         </Card>
@@ -92,7 +108,7 @@ export default function LevelsScreen() {
           {REFERRAL.referrerCredits.toLocaleString()}.
         </Text>
 
-        <SectionHeader title="Level road" />
+        <SectionHeader title="Level Road" />
         {rows.map((r) => {
           const reached = progress.level >= r.level;
           const isNext = r.level === progress.level + 1;
@@ -172,6 +188,6 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, maxWidth: "100%" },
   chipText: { fontSize: 12, fontFamily: "Inter_600SemiBold", flexShrink: 1 },
-  chipTag: { fontSize: 9, fontFamily: "Inter_900Black", letterSpacing: 0.6 },
-  nextTag: { fontSize: 10, fontFamily: "Inter_900Black", letterSpacing: 0.8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, overflow: "hidden" },
+  chipTag: { fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 0.6 },
+  nextTag: { fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 0.8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, overflow: "hidden" },
 });

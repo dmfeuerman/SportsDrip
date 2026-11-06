@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import TeamCrest from "@/components/TeamCrest";
 import React, { memo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import PressableScale from "@/components/fx/PressableScale";
@@ -68,13 +69,13 @@ function ChallengeCard({
       </View>
 
       <View style={styles.versus}>
-        <Fighter who="You" team={view.myTeam} stake={view.myStake} score={showScore ? myScore : null} align="left" c={c} />
+        <Fighter sport={ch.sport} who="You" team={view.myTeam} stake={view.myStake} score={showScore ? myScore : null} align="left" c={c} />
         <View style={[styles.pot, { borderColor: c.alpha(c.accent, 0.45), backgroundColor: c.alpha(c.accent, 0.08) }]}>
           {live ? <LiveDot size={6} /> : <MaterialCommunityIcons name="sword-cross" size={14} color={c.accent} />}
           <Text style={[styles.potValue, { color: c.foreground }]}>{ch.pot.toLocaleString()}</Text>
           <Text style={[styles.potLabel, { color: c.mutedForeground }]}>POT</Text>
         </View>
-        <Fighter who={view.friendName} team={view.theirTeam} stake={view.theirStake} score={showScore ? theirScore : null} align="right" c={c} />
+        <Fighter sport={ch.sport} who={view.friendName} team={view.theirTeam} stake={view.theirStake} score={showScore ? theirScore : null} align="right" c={c} />
       </View>
 
       {ch.message ? (
@@ -101,7 +102,7 @@ function ChallengeCard({
       ) : null}
       {ch.status === "pending" && view.isCreator && !kicked ? (
         <View style={styles.actions}>
-          <Button label="Withdraw challenge" variant="ghost" size="sm" onPress={onCancel} loading={busy === "cancel"} disabled={!!busy} />
+          <Button label="Withdraw Challenge" variant="ghost" size="sm" onPress={onCancel} loading={busy === "cancel"} disabled={!!busy} />
         </View>
       ) : null}
     </PressableScale>
@@ -109,6 +110,7 @@ function ChallengeCard({
 }
 
 function Fighter({
+  sport,
   who,
   team,
   stake,
@@ -116,6 +118,7 @@ function Fighter({
   align,
   c,
 }: {
+  sport: string | null;
   who: string;
   team: ChallengeTeam;
   stake: number;
@@ -130,11 +133,7 @@ function Fighter({
         {who.toUpperCase()}
       </Text>
       <View style={[styles.teamRow, right && { flexDirection: "row-reverse" }]}>
-        <View style={[styles.teamDot, { backgroundColor: c.alpha(team.color, 0.25), borderColor: team.color }]}>
-          <Text style={[styles.teamAbbr, { color: c.foreground }]} numberOfLines={1}>
-            {team.abbreviation}
-          </Text>
-        </View>
+        <TeamCrest abbr={team.abbreviation} color={team.color} size={40} sport={sport} />
         {score !== null ? <Text style={[styles.score, { color: c.foreground }]}>{score}</Text> : null}
       </View>
       <Text style={[styles.stake, { color: c.cardForeground }]}>{stake.toLocaleString()} in</Text>
@@ -169,7 +168,7 @@ function statusOf(
             detail: `Waiting on ${v.friendName} · kicks off ${untilKickoff(ch.startsAt, now)}. Your ${v.myStake.toLocaleString()} is in escrow and comes back if they pass.`,
           }
         : {
-            label: "Your call",
+            label: "Your Call",
             tone: "warning",
             icon: "bell-ring-outline",
             detail: `Put in ${v.myStake.toLocaleString()} on ${v.myTeam.abbreviation} (${v.myOdds.toFixed(2)}x) to win the ${ch.pot.toLocaleString()} pot. Answer before kickoff, ${untilKickoff(ch.startsAt, now)}.`,
@@ -206,7 +205,7 @@ const styles = StyleSheet.create({
   pills: { flexDirection: "row", gap: 6 },
   versus: { flexDirection: "row", alignItems: "center", gap: 10 },
   fighter: { flex: 1, gap: 4 },
-  who: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
+  who: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   teamRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   teamDot: { minWidth: 44, height: 44, borderRadius: 22, borderWidth: 1.5, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
   teamAbbr: { fontSize: 13, fontFamily: "Inter_800ExtraBold" },
@@ -214,7 +213,7 @@ const styles = StyleSheet.create({
   stake: { fontSize: 12, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
   pot: { alignItems: "center", borderWidth: 1.5, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6, minWidth: 78, gap: 1 },
   potValue: { fontSize: 18, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"] },
-  potLabel: { fontSize: 9, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  potLabel: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
   message: { fontSize: 13, fontFamily: "Inter_500Medium", fontStyle: "italic", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   detail: { fontSize: 12, lineHeight: 17, fontFamily: "Inter_500Medium" },
   actions: { flexDirection: "row", gap: 10, justifyContent: "flex-end" },

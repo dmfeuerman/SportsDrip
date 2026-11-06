@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import React, { useEffect, useState } from "react";
+import { OVERLAY, useOverlayTurn } from "@/lib/overlayTurns";
 import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { Button, CloseButton, Pill } from "@/components/ui";
@@ -22,126 +23,176 @@ interface Slide {
 const SLIDES: Slide[] = [
   {
     key: "betting",
-    badge: "SPORTSBOOK & TOKENS",
+    badge: "PICKS & CREDITS",
     icon: "lightning-bolt",
     tone: "money",
     title: "Two Wallets: Credits & League Tokens",
-    subtitle: "Your personal Credits bankroll buys drip and backs 1v1 challenges. League Tokens power seasonal competition.",
+    subtitle: "Credits are your personal bankroll for picks, drip and 1v1 challenges. League Tokens only live inside a league season.",
     bullets: [
       {
-        icon: "lightning-bolt",
-        title: "Credits Wallet",
-        desc: "Start with 1,000 credits. Open timed Bronze, Silver, and Gold prize boxes and keep daily streaks alive for bonus credits.",
+        icon: "gift-outline",
+        title: "Free Daily Bet",
+        desc: "Every day you get a free 100-credit pick on any upcoming game — you keep the winnings, it costs you nothing.",
       },
       {
         icon: "scoreboard-outline",
-        title: "Moneylines, Spreads & Totals",
-        desc: "Back NFL, NBA, MLB, NHL, NCAAF, NCAAB, and Soccer games. Live scores and win probabilities update automatically.",
+        title: "Moneylines, Spreads, Totals & Parlays",
+        desc: "Back NFL, NBA, MLB, NHL, NCAAF, NCAAB and Soccer. Stack legs into a parlay from the bet slip.",
       },
       {
         icon: "ticket-confirmation-outline",
-        title: "Interactive Result Breakdowns",
-        desc: "Tap any settled bet or recent result card on Home, Activity, or Player Profiles for a full ticket breakdown.",
+        title: "Result Breakdowns",
+        desc: "Tap any settled bet on Home, Activity or a Player Profile for the full ticket.",
+      },
+    ],
+  },
+  {
+    key: "streaks",
+    badge: "STREAKS & QUESTS",
+    icon: "fire",
+    tone: "accent",
+    title: "Keep the Streak Alive",
+    subtitle: "Make at least one pick each day (ET) to grow your streak and boost your Prize Box payouts.",
+    bullets: [
+      {
+        icon: "snowflake",
+        title: "Freezes & Repairs",
+        desc: "Every 7 streak days banks a freeze that covers one missed day. No freeze? Make 2 picks the next day to repair it.",
+      },
+      {
+        icon: "account-multiple-check",
+        title: "Friend Streaks 🔥",
+        desc: "Pick on the same day as a friend to build a shared streak. The count shows next to their name on the Friends tab.",
+      },
+      {
+        icon: "flag-checkered",
+        title: "Weekly Quests",
+        desc: "A fresh mix of effort, social and skill quests every week. Complete them for XP toward your next level.",
+      },
+    ],
+  },
+  {
+    key: "progress",
+    badge: "LEVELS & LADDER",
+    icon: "star-circle",
+    tone: "positive",
+    title: "Level Up & Climb",
+    subtitle: "Everything you do earns XP. Levels unlock exclusive gear, and your weekly results move you up the ladder.",
+    bullets: [
+      {
+        icon: "stairs-up",
+        title: "Weekly Ladder",
+        desc: "Compete against a group of similar players each week — finish high to promote from Bronze toward Diamond.",
+      },
+      {
+        icon: "ticket-percent-outline",
+        title: "Season Pass",
+        desc: "Season XP fills your pass track. Claim each tier's reward as you reach it.",
+      },
+      {
+        icon: "trophy-award",
+        title: "Trophies",
+        desc: "Unlock achievements and pin your favorite trophy to the top of your profile.",
       },
     ],
   },
   {
     key: "leagues",
-    badge: "SEASONAL LEAGUES",
+    badge: "LEAGUES",
     icon: "trophy",
     tone: "league",
     title: "Compete in Custom Leagues",
-    subtitle: "Everyone starts a season with the same stack of League Tokens. Best net worth when the clock runs out wins the pot.",
+    subtitle: "Everyone starts with the same League Tokens. Best net worth when the season ends wins.",
     bullets: [
       {
         icon: "podium",
-        title: "Bankroll, Pick'em & Survivor",
-        desc: "Run a classic Bankroll season, Weekly Pick'em (1 pt per win), or Survivor Pool where one loss knocks you out.",
+        title: "Bankroll, H2H, Pick'em, Survivor & Bracket",
+        desc: "Pick the format: classic bankroll, weekly head-to-head matchups, Pick'em, Survivor, or a Bracket challenge.",
       },
       {
         icon: "lock",
         title: "Lock of the Week & Group Parlays",
-        desc: "Lock one pick per week for a 1.5x boost on the Lock leaderboard, or build a multi-leg Group Parlay with league-mates.",
+        desc: "Lock one pick a week for a boost, or build a multi-leg Group Parlay with league-mates.",
       },
       {
-        icon: "account-multiple-plus",
-        title: "Tail or Fade Picks",
-        desc: "Spot a league-mate's pick in the feed and tap Tail to ride with them or Fade to take the opposite side.",
-      },
-    ],
-  },
-  {
-    key: "loans",
-    badge: "LEAGUE BANK & LOANS",
-    icon: "bank-outline",
-    tone: "debt",
-    title: "Borrow, Lend & Manage Net Worth",
-    subtitle: "Running low on league tokens mid-season? Tap the Loans tab inside any league to stay in the action.",
-    bullets: [
-      {
-        icon: "bank",
-        title: "League Bank Loans",
-        desc: "Borrow league tokens from the automated League Bank at the commissioner's flat interest rate.",
-      },
-      {
-        icon: "handshake-outline",
-        title: "Peer-to-Peer Loan Market",
-        desc: "Request a loan from league-mates at your proposed rate, counter-offer, or fund another player's bailout.",
-      },
-      {
-        icon: "scale-balance",
-        title: "Net Worth Standings",
-        desc: "Rankings count your tokens plus what you're owed, minus what you owe — repay before season's end to climb.",
-      },
-    ],
-  },
-  {
-    key: "chat",
-    badge: "CHAT & REPLIES",
-    icon: "message-text-outline",
-    tone: "accent",
-    title: "Direct Messages, League Chat & Replies",
-    subtitle: "Real-time conversations with friends and league rooms, with inline reply threads on every message and bet result.",
-    bullets: [
-      {
-        icon: "forum-outline",
-        title: "Direct & League Chat Rooms",
-        desc: "Message friends 1-on-1 or talk smack in your league chat room with newest messages anchored above the input bar.",
-      },
-      {
-        icon: "reply-outline",
-        title: "Win/Loss Reply Threads",
-        desc: "Tap Reply on any player's win/loss result card or chat message to quote the parent item in an indented thread.",
-      },
-      {
-        icon: "bell-ring-outline",
-        title: "Smart Chat Alerts",
-        desc: "Instant banner notifications alert you only for real incoming DMs and league chat messages — never system noise.",
+        icon: "bank-outline",
+        title: "League Bank & Loans",
+        desc: "Low on tokens? Borrow from the League Bank or a league-mate — repay before the season ends to climb.",
       },
     ],
   },
   {
     key: "social",
-    badge: "CHALLENGES & LOCKER",
-    icon: "sword-cross",
-    tone: "positive",
-    title: "1v1 Friend Challenges & 3D Drip",
-    subtitle: "Tap any friend across Friends, Standings, or Chat to view their 3D character and challenge or invite them.",
+    badge: "FRIENDS & CREW",
+    icon: "account-group",
+    tone: "accent",
+    title: "Talk Trash, Tail & Challenge",
+    subtitle: "Your crew's picks, wins and losses show up in the feed and chat as they happen.",
     bullets: [
       {
-        icon: "sword-cross",
-        title: "Challenge & Invite from Any Profile",
-        desc: "Open a friend's profile to launch a direct 1v1 bet challenge or invite them straight into one of your active leagues.",
+        icon: "account-multiple-plus",
+        title: "Tail, Fade & React",
+        desc: "Ride a friend's pick, take the other side, or react — and send a taunt when they lose.",
       },
       {
-        icon: "tshirt-crew-outline",
-        title: "3D Locker & Drip Shop",
-        desc: "Customize your character's body, face, hair, jerseys, kicks, chains, and celebration dance moves.",
+        icon: "sword-cross",
+        title: "1v1 Challenges",
+        desc: "Open any friend's profile to challenge them head-to-head or invite them into a league.",
+      },
+      {
+        icon: "forum-outline",
+        title: "DMs & League Chat",
+        desc: "Message friends 1-on-1 or talk smack in your league room, with reply threads on every message.",
+      },
+    ],
+  },
+  {
+    key: "drip",
+    badge: "PRIZES & DRIP SHOP",
+    icon: "tshirt-crew-outline",
+    tone: "money",
+    title: "Earn Rewards, Dress the Part",
+    subtitle: "Spend credits on 3D gear, dance moves and backgrounds for your character.",
+    bullets: [
+      {
+        icon: "treasure-chest",
+        title: "Prize Boxes",
+        desc: "Start Bronze, Silver and Gold boxes, open them when the timer's up, and spin for credits. Your streak adds a bonus.",
+      },
+      {
+        icon: "star-four-points",
+        title: "Featured & Leaving Soon",
+        desc: "The Drip Shop spotlights featured items and limited drops — grab them before the timer runs out.",
+      },
+      {
+        icon: "gift-outline",
+        title: "Gift a Friend",
+        desc: "Open any item and tap Gift to send it straight to a friend's wardrobe.",
+      },
+    ],
+  },
+  {
+    key: "help",
+    badge: "YOU'RE SET",
+    icon: "help-circle-outline",
+    tone: "positive",
+    title: "Play Your Way",
+    subtitle: "Credits and League Tokens are virtual and have no cash value.",
+    bullets: [
+      {
+        icon: "shield-check-outline",
+        title: "Healthy-Play Limits",
+        desc: "Set a daily pick limit or take a break anytime from Settings. Alerts and quiet hours live there too.",
+      },
+      {
+        icon: "bell-ring-outline",
+        title: "Smart Alerts",
+        desc: "Lock reminders before kickoff, live sweat alerts and results — capped so we never spam you.",
       },
       {
         icon: "help-circle-outline",
         title: "Re-open Anytime",
-        desc: "Tap the ? info button in the top navigation bar whenever you want to revisit this guide.",
+        desc: "Tap the ? button on Home or the Locker, or Settings → App Walkthrough, to revisit this guide.",
       },
     ],
   },
@@ -168,7 +219,9 @@ export default function AppWalkthroughModal({ autoTrigger = false }: { autoTrigg
     if (visible) setIndex(0);
   }, [visible]);
 
-  if (!visible) return null;
+  // Opened from Help: show now. Auto-shown on first run: wait its turn behind results and level-ups.
+  const myTurn = useOverlayTurn("walkthrough", visible && !open, OVERLAY.walkthrough);
+  if (!visible || (!open && !myTurn)) return null;
 
   const slide = SLIDES[index] ?? SLIDES[0]!;
   const isLast = index === SLIDES.length - 1;
@@ -214,7 +267,7 @@ export default function AppWalkthroughModal({ autoTrigger = false }: { autoTrigg
             <Text style={[styles.stepCounter, { color: c.mutedForeground }]}>
               {index + 1} / {SLIDES.length}
             </Text>
-            <CloseButton onPress={handleClose} label="Close guide" />
+            <CloseButton onPress={handleClose} label="Close Guide" />
           </View>
 
           {/* Slide Hero */}

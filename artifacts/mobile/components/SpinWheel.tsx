@@ -24,6 +24,7 @@ import Shimmer from "@/components/fx/Shimmer";
 import { Button, CloseButton } from "@/components/ui";
 import type { BoxTier } from "@/lib/api";
 import { BOX_DISPLAY } from "@/constants/prizeTypes";
+import { CHARGE_MS } from "@/components/PrizeBox";
 import { useColors } from "@/hooks/useColors";
 import { useBreathe, useShake } from "@/hooks/useMotion";
 import { EASE, haptic, REWARD_RARITY, rewardRarity, SPRING } from "@/lib/motion";
@@ -39,12 +40,16 @@ interface Props {
   rewardCredits: number | null;
   error: string | null;
   onClose: () => void;
+  /** Opening: the box rattles in the middle of the overlay until the server's result is in. */
+  charging?: boolean;
 }
 
 const SIZE = 290;
 const C = SIZE / 2;
 const R = SIZE / 2 - 14;
 const SPIN_MS = 5600;
+/** Even deceleration: the last quarter-turn takes ~1/5 of the spin, not most of it. */
+const WHEEL_EASE = Easing.bezier(0.2, 0.6, 0.35, 1);
 const WIND_MS = 420;
 
 function arcPath(index: number, slice: number): string {
@@ -68,11 +73,9 @@ function textPos(index: number, slice: number) {
  *
  *  1. Anticipation — the wheel sits in a pulsing halo; it winds back a
  *     notch, then launches.
- *  2. The spin — a long bezier deceleration (EASE.wheel) so most of the time
- *     is spent crawling over the last few pegs. The pointer flicks and the
- *     phone ticks on every peg it passes, from the UI thread. It stops just
- *     inside the winning wedge on the side nearest a bigger prize — a near
- *     miss, every time there's one to be had.
+ *  2. The spin — an even bezier deceleration (WHEEL_EASE). The pointer flicks
+ *     and the phone ticks on every peg it passes, from the UI thread. It stops
+ *     near the centre of the winning wedge — no staged near misses.
  *  3. The reveal — beams, a confetti burst and a shake coloured by how good
  *     the prize was for this box (blue common, purple rare, gold epic), the
  *     amount rolling up, and a Collect button.
@@ -80,7 +83,7 @@ function textPos(index: number, slice: number) {
  * Skip jumps straight to the reveal; the credits are already in the ledger
  * either way, so closing at any point loses nothing.
  */
-export default function SpinWheel({ visible, tier, rewardCredits, error, onClose }: Props) {
+export default function SpinWheel({ visible, tier, rewardCredits, error, onClose, charging = false }: Props) {
   const c = useColors();
   const reduced = useReducedMotion();
   const display = BOX_DISPLAY[tier];
@@ -125,13 +128,15 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
     // Wedges showing the awarded amount. If the display table ever drifts from
     // the server's, the wheel still lands and the reveal shows the real number.
     const wins = display.segments.map((s, i) => (s.credits === rewardCredits ? i : -1)).filter((i) => i >= 0);
-    const winner = wins.length ? wins[Math.floor(Math.random() * wins.length)]! : 0;
-    // Near miss: the pointer ends just inside the winner, on the edge next to
-    // a bigger prize. The wheel turns clockwise, so the pointer moves from
-    // wedge winner+1 into winner and on toward winner−1.
-    const next = display.segments[(winner - 1 + n) % n]!.credits;
-    const passed = display.segments[(winner + 1) % n]!.credits;
-    const f = next > rewardCredits ? 0.1 + Math.random() * 0.06 : passed > rewardCredits ? 0.84 + Math.random() * 0.06 : 0.35 + Math.random() * 0.3;
+    // Prefer a winning wedge that isn't next to the top prize (no staged near-miss).
+    const top = Math.max(...display.segments.map((s) => s.credits));
+    const nearTop = (i: number) =>
+      rewardCredits !== top && (display.segments[(i + 1) % n]!.credits === top || display.segments[(i - 1 + n) % n]!.credits === top);
+    const safe = wins.filter((i) => !nearTop(i));
+    const pool = safe.length ? safe : wins;
+    const winner = pool.length ? pool[Math.floor(Math.random() * pool.length)]! : 0;
+    // Land near the winning wedge's centre (± jitter), never on an edge next to a bigger prize.
+    const f = 0.5 + (Math.random() - 0.5) * 0.4;
     const land = (360 - (winner + f) * slice + 3600) % 360;
     const from = rot.value % 360;
     target.current = rot.value - from + 7 * 360 + land;
@@ -144,7 +149,7 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
     }
     rot.value = withSequence(
       withTiming(rot.value - 16, { duration: WIND_MS, easing: Easing.inOut(Easing.quad) }),
-      withTiming(target.current, { duration: SPIN_MS, easing: EASE.wheel }, (done) => {
+      withTiming(target.current, { duration: SPIN_MS, easing: WHEEL_EASE }, (done) => {
         if (done) scheduleOnRN(reveal);
       })
     );
@@ -158,10 +163,10 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
 
   // Launch as soon as the server result is in: one tap ("Open!") on the box, not two.
   useEffect(() => {
-    if (!visible || rewardCredits === null || phase !== "ready") return;
+    if (!visible || charging || rewardCredits === null || phase !== "ready") return;
     const t = setTimeout(start, 350);
     return () => clearTimeout(t);
-  }, [visible, rewardCredits, phase, start]);
+  }, [visible, charging, rewardCredits, phase, start]);
 
   const rarity = rewardCredits !== null ? rewardRarity(rewardCredits, table) : "common";
   const look = REWARD_RARITY[rarity];
@@ -202,7 +207,9 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
             {phase === "reveal" || error ? <CloseButton onPress={onClose} /> : null}
           </View>
 
-          {error ? (
+          {charging ? (
+            <ChargingBox tier={tier} />
+          ) : error ? (
             <View style={styles.errorWrap}>
               <MaterialCommunityIcons name="alert-circle-outline" size={40} color={c.destructive} />
               <Text style={[styles.errorText, { color: c.destructive }]}>{error}</Text>
@@ -281,7 +288,47 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
   );
 }
 
+/** The box, big and rattling harder and harder while it opens (CHARGE_MS), over the dimmed screen. */
+function ChargingBox({ tier }: { tier: BoxTier }) {
+  const display = BOX_DISPLAY[tier];
+  const c = useColors();
+  const reduced = useReducedMotion();
+  const rattle = useSharedValue(0);
+  const grow = useSharedValue(0.6);
+  useEffect(() => {
+    grow.value = withSpring(1, { damping: 11, stiffness: 170 });
+    if (reduced) return;
+    let alive = true;
+    const t0 = Date.now();
+    const step = () => {
+      if (!alive) return;
+      const k = Math.min(1, (Date.now() - t0) / CHARGE_MS);
+      const amp = 4 + 14 * k;
+      rattle.value = withSequence(withTiming(amp, { duration: 45 }), withTiming(-amp, { duration: 90 }), withTiming(0, { duration: 45 }));
+      if (k > 0.4) haptic.tick();
+      setTimeout(step, 190 - 90 * k);
+    };
+    step();
+    return () => {
+      alive = false;
+    };
+  }, [reduced, rattle, grow]);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: grow.value }, { rotate: `${rattle.value}deg` }] }));
+  return (
+    <View style={styles.chargeWrap} accessibilityLabel={`Opening the ${display.label}`}>
+      <Animated.View style={[styles.chargeTile, { backgroundColor: display.color + "22", borderColor: display.color, shadowColor: display.glowColor }, style]}>
+        <Text style={styles.chargeEmoji}>{display.emoji}</Text>
+      </Animated.View>
+      <Text style={[styles.chargeText, { color: c.mutedForeground }]}>Opening…</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  chargeWrap: { alignItems: "center", justifyContent: "center", paddingVertical: 36, gap: 18 },
+  chargeTile: { width: 170, height: 170, borderRadius: 36, borderWidth: 3, alignItems: "center", justifyContent: "center", shadowOpacity: 0.7, shadowRadius: 30, shadowOffset: { width: 0, height: 0 } },
+  chargeEmoji: { fontSize: 96 },
+  chargeText: { fontSize: 15, fontFamily: "Inter_700Bold" },
   overlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
   sheet: { borderRadius: 26, borderWidth: 1.5, padding: 20, alignItems: "center", gap: 14, width: "100%", maxWidth: 400, overflow: "hidden" },
   headRow: { flexDirection: "row", alignItems: "center", alignSelf: "stretch", justifyContent: "center", minHeight: 36 },

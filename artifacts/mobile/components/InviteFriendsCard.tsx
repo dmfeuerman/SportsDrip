@@ -85,7 +85,7 @@ export default function InviteFriendsCard() {
           ) : loading ? (
             <ActivityIndicator size="small" color={c.mutedForeground} style={{ alignSelf: "flex-start", marginTop: 4 }} />
           ) : (
-            <Text style={[styles.sub, { color: c.mutedForeground }]}>Unavailable offline</Text>
+            <Text style={[styles.sub, { color: c.mutedForeground }]}>Unavailable Offline</Text>
           )}
         </View>
         <Button label="Share" icon="share-variant" onPress={share} disabled={!code} style={{ alignSelf: "stretch", justifyContent: "center" }} />
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
   sub: { fontSize: 12, fontFamily: "Inter_500Medium", lineHeight: 17, marginTop: 2 },
   codeRow: { flexDirection: "row", gap: 10, alignItems: "stretch" },
   codeBox: { flex: 1, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
-  codeLabel: { fontSize: 9, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.2 },
+  codeLabel: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.2 },
   code: { fontSize: 22, fontFamily: "Inter_900Black", letterSpacing: 4, fontVariant: ["tabular-nums"] },
   stat: { fontSize: 12, fontFamily: "Inter_500Medium" },
 });

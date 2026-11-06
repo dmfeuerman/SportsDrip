@@ -1,3 +1,4 @@
+import BackToLevels from "@/components/BackToLevels";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -10,10 +11,14 @@ import {
   View,
 } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
+import { TourTarget } from "@/components/tour/TourTarget";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import BetModal, { type BetWallet, type SlipExtras } from "@/components/BetModal";
 import GameCard, { type MyPosition } from "@/components/GameCard";
+import FeaturedGameCard, { pickFeatured } from "@/components/FeaturedGameCard";
+import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
+import TailSheet from "@/components/TailSheet";
 import GameDetailSheet, { type DetailBet } from "@/components/GameDetailSheet";
 import SponsoredCard from "@/components/ads/SponsoredCard";
 import TokenBalance from "@/components/TokenBalance";
@@ -48,7 +53,7 @@ export default function GamesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
-  const { balance, bets, error, clearError } = useApp();
+  const { balance, bets, error, clearError, profile, placeBet } = useApp();
   const { leagues, activeLeagues, uid, placeLeagueBet, myLeagueBets } = useLeague();
   const { betLocked } = useToast();
   const { unreadCount } = useNotifications();
@@ -78,6 +83,9 @@ export default function GamesScreen() {
     friend?: boolean;
   } | null>(null);
   const [detail, setDetail] = useState<Game | null>(null);
+  const [tailGame, setTailGame] = useState<Game | null>(null);
+  const [quickGame, setQuickGame] = useState<string | null>(null);
+  const [follow, setFollow] = useState<FollowIntent | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const topPad = Platform.OS === "web" ? 24 : insets.top;
@@ -139,7 +147,7 @@ export default function GamesScreen() {
       }
     };
     if (l.length) {
-      out.push({ kind: "section", id: "sec-live", title: "Live now", live: true });
+      out.push({ kind: "section", id: "sec-live", title: "Live Now", live: true });
       l.forEach(pushGame);
     }
     let lastDay = "";
@@ -153,6 +161,13 @@ export default function GamesScreen() {
     }
     return out;
   }, [live, upcoming, sport, adsOn]);
+  const firstGameId = useMemo(() => rows.find((r): r is Extract<Row, { kind: "game" }> => r.kind === "game")?.game.id, [rows]);
+
+  const featured = useMemo(() => {
+    const favs = new Set((profile?.favoriteTeams ?? []).map((t) => `${t.sport}:${t.abbr}`));
+    const pool = upcoming.filter((g) => sport === ALL || g.sport === sport);
+    return pickFeatured(pool, boardSides, favs, Date.now());
+  }, [upcoming, sport, boardSides, profile?.favoriteTeams]);
 
   const openBetSheet = useCallback(
     (game: Game, side: Side, friend?: boolean, market?: Market, selection?: Selection) => {
@@ -217,26 +232,49 @@ export default function GamesScreen() {
         return;
       }
       const oddsVal = q.odds;
-      setSubmitting(true);
+      const Q = q;
+      // Instant: the slip closes and the bet shows now; the server confirms behind it.
       setSlipError(null);
-      let failure: string | null = null;
       if (walletId === "credits") {
-        try {
-          await api.placeBet({
+        const t = (q.side ?? pending.side) === "home" ? pending.game.homeTeam : pending.game.awayTeam;
+        const o = (q.side ?? pending.side) === "home" ? pending.game.awayTeam : pending.game.homeTeam;
+        const ok = await placeBet({
+          gameId: pending.game.id,
+          side: q.side ?? undefined,
+          market: m,
+          selection: sel,
+          expectedLine: q.line ?? undefined,
+          stake,
+          idempotencyKey: pending.key,
+          expectedOdds: oddsVal,
+
+          preview: {
             gameId: pending.game.id,
-            side: q.side ?? undefined,
-            market: m,
-            selection: sel,
-            expectedLine: q.line ?? undefined,
-            stake,
-            idempotencyKey: pending.key,
-            expectedOdds: oddsVal,
-          });
-        } catch (err) {
-          failure = api.friendlyError(err);
+            sport: pending.game.sport,
+            side: (q.side ?? pending.side),
+            market: Q.market,
+            selection: Q.selection,
+            line: Q.line ?? null,
+            label: q.label,
+            startsAt: pending.game.startsAt,
+            voidReason: null,
+            teamName: Q.teamName || t.name,
+            teamAbbr: Q.teamAbbr || t.abbreviation,
+            teamColor: Q.teamColor || t.color,
+            opponentAbbr: Q.opponentAbbr || o.abbreviation,
+            odds: Q.odds!,
+            potentialPayout: Math.round(stake * Q.odds!),
+            opponentUid: null,
+          },
+        });
+        if (!ok) {
+          buzz.error();
+          setSlipError("Not enough credits.");
+          return;
         }
       } else {
-        failure = await placeLeagueBet({
+        const key = pending.key;
+        placeLeagueBet({
           leagueId: walletId,
           gameId: pending.game.id,
           side: q.side ?? undefined,
@@ -248,13 +286,10 @@ export default function GamesScreen() {
           stake,
           idempotencyKey: `${pending.key}${walletId.slice(-4)}`,
           expectedOdds: oddsVal,
+
+        }).then((why) => {
+          if (why) show({ id: `lbet_fail_${key}`, kind: "warning", title: "Bet didn't go through", body: `${why} Your league balance wasn't charged.` });
         });
-      }
-      setSubmitting(false);
-      if (failure) {
-        buzz.error();
-        setSlipError(failure);
-        return;
       }
       buzz.success();
       {
@@ -276,7 +311,7 @@ export default function GamesScreen() {
       }
       setPending(null);
     },
-    [pending, placeLeagueBet, wallets, betLocked]
+    [pending, placeLeagueBet, placeBet, show, wallets, betLocked]
   );
 
 
@@ -318,6 +353,7 @@ export default function GamesScreen() {
         ]}
       >
         <View style={styles.headerRow}>
+          <BackToLevels />
           <Text accessibilityRole="header" style={[styles.title, { color: colors.foreground }]}>Games</Text>
           <View style={styles.headerRight}>
             {openBets > 0 && (
@@ -330,11 +366,12 @@ export default function GamesScreen() {
                 <Text style={[styles.pendingText, { color: colors.accent }]}>{openBets} open</Text>
               </Pressable>
             )}
-            <TokenBalance tokens={balance} />
+            <TourTarget id="games.balance"><TokenBalance tokens={balance} /></TourTarget>
             <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
           </View>
         </View>
 
+        <TourTarget id="games.filters">
         <FilterPills
           value={sport}
           onChange={setSport}
@@ -343,6 +380,12 @@ export default function GamesScreen() {
             ...SPORTS.map((sp) => ({ value: sp, label: sp, icon: SPORT_ICONS[sp] as never, color: SPORT_COLORS[sp] })),
           ]}
         />
+        </TourTarget>
+        {syncedAt ? (
+          <Text style={{ color: colors.subtleForeground, fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center", marginTop: 8, marginBottom: -4 }}>
+            Scores live · updated {ago(syncedAt, clock)}
+          </Text>
+        ) : null}
       </View>
 
       {target && (
@@ -374,9 +417,15 @@ export default function GamesScreen() {
         <FlatList
           data={rows}
           keyExtractor={(r) => r.id}
+          // Child 0 is the featured header when there is one, so section rows sit one further down.
           stickyHeaderIndices={rows
-            .map((r, i) => (r.kind === "section" ? i : -1))
+            .map((r, i) => (r.kind === "section" ? i + (featured ? 1 : 0) : -1))
             .filter((i) => i >= 0)}
+          ListHeaderComponent={
+            featured ? (
+              <TourTarget id="games.featured"><FeaturedGameCard game={featured} sides={boardSides.get(featured.id) ?? []} onOpen={setDetail} /></TourTarget>
+            ) : undefined
+          }
           renderItem={({ item }) =>
             item.kind === "ad" ? (
               <SponsoredCard compact style={styles.adRow} />
@@ -390,28 +439,24 @@ export default function GamesScreen() {
                 <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{item.title}</Text>
               </View>
             ) : (
+              <TourTarget id={item.game.id === firstGameId ? "games.first" : `games.g.${item.game.id}`}>
               <GameCard
                 game={item.game}
                 onBet={(g, s, m, sel) => openBetSheet(g, s, false, m, sel)}
+                onChallenge={(g, s) => openBetSheet(g, s, true)}
                 onOpenDetail={setDetail}
                 position={positions.get(item.game.id) ?? null}
                 leagueMembers={boardSides.get(item.game.id)}
+                onLeaguePress={setTailGame}
               />
+              </TourTarget>
             )
           }
           contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            syncedAt ? (
-              <Text style={{ color: colors.subtleForeground, fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center", paddingVertical: 4 }}>
-                Scores live · updated {ago(syncedAt, clock)}
-              </Text>
-            ) : undefined
-          }
           initialNumToRender={8}
           maxToRenderPerBatch={8}
           windowSize={7}
-          removeClippedSubviews
           ListEmptyComponent={
             <EmptyState
               colors={colors}
@@ -464,6 +509,26 @@ export default function GamesScreen() {
           gameSummary={`${pending.game.awayTeam.abbreviation} @ ${pending.game.homeTeam.abbreviation} · ${pending.game.sport}`}
         />
       )}
+
+      <TailSheet
+        game={tailGame}
+        members={tailGame ? boardSides.get(tailGame.id) ?? [] : []}
+        onClose={() => setTailGame(null)}
+        onFollow={(gameId, intent) => {
+          setTailGame(null);
+          setFollow(intent);
+          setQuickGame(gameId);
+        }}
+      />
+      <GameQuickView
+        gameId={quickGame}
+        onClose={() => {
+          setQuickGame(null);
+          setFollow(null);
+        }}
+        defaultWallet={follow?.leagueId}
+        follow={follow}
+      />
     </View>
   );
 }
@@ -534,7 +599,7 @@ function EmptyState({
           style={[styles.emptyBtn, { borderColor: colors.alpha(colors.primary, 0.6), backgroundColor: colors.alpha(colors.primary, 0.12) }]}
           onPress={onClearFilter}
         >
-          <Text style={[styles.emptyBtnText, { color: colors.primary }]}>Show all sports</Text>
+          <Text style={[styles.emptyBtnText, { color: colors.primary }]}>Show All Sports</Text>
         </Pressable>
       )}
     </View>

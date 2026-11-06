@@ -113,7 +113,7 @@ export default function MovesScreen() {
         </View>
 
         {/* The dance button's four slots. */}
-        <Text style={[styles.section, { color: c.foreground }]}>Your dance button</Text>
+        <Text style={[styles.section, { color: c.foreground }]}>Your Dance Button</Text>
         <View style={styles.slots}>
           {Array.from({ length: MAX_LOADOUT }, (_, i) => {
             const id = loadout[i];
@@ -156,7 +156,7 @@ export default function MovesScreen() {
         </View>
         {note ? <Text style={[styles.note, { color: c.warning }]}>{note}</Text> : null}
 
-        <Text style={[styles.section, { color: c.foreground }]}>Your moves</Text>
+        <Text style={[styles.section, { color: c.foreground }]}>Your Moves</Text>
         <View style={{ gap: 8 }}>
           {sorted.map((m) => {
             const on = loadout.includes(m.id);
@@ -229,6 +229,6 @@ const styles = StyleSheet.create({
   rowHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowName: { fontSize: 15, fontFamily: "Inter_700Bold", flexShrink: 1 },
   rowMeta: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  rarity: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  rarity: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   footer: { alignItems: "center", marginTop: 6, gap: 12 },
 });

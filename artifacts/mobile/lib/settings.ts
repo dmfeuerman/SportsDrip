@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { OddsFormat } from "@/lib/odds";
+import { canPrompt, markPromptShown } from "@/lib/promptGate";
 
 /**
  * Small per-device preferences: odds format, the last stake used per wallet,
@@ -27,6 +28,8 @@ interface Settings {
   pendingSignupMeta: PendingSignupMeta | null;
   /** Epoch ms the push pre-prompt was last shown (0 = never). */
   pushPrimerAt: number;
+  /** Badge list key ("bets.settled", ...) -> ids already seen, so their red badge clears. */
+  itemsSeen: Record<string, string[]>;
 }
 
 const KEY = "sportdrip.settings.v1";
@@ -37,6 +40,7 @@ const DEFAULTS: Settings = {
   walkthroughSeen: false,
   pendingSignupMeta: null,
   pushPrimerAt: 0,
+  itemsSeen: {},
 };
 
 let state: Settings = DEFAULTS;
@@ -55,10 +59,17 @@ function hydrate() {
     .then((raw) => {
       if (!raw) return;
       const parsed = JSON.parse(raw) as Partial<Settings>;
+      // Anything marked before the stored copy arrived is merged in, not lost.
+      const storedSeen: Record<string, number> = parsed.chatSeen && typeof parsed.chatSeen === "object" ? parsed.chatSeen : {};
+      const chatSeen = { ...storedSeen };
+      for (const [k, v] of Object.entries(state.chatSeen)) chatSeen[k] = Math.max(v, chatSeen[k] ?? 0);
+      const itemsSeen: Record<string, string[]> = parsed.itemsSeen && typeof parsed.itemsSeen === "object" ? { ...parsed.itemsSeen } : {};
+      for (const [k, ids] of Object.entries(state.itemsSeen)) itemsSeen[k] = Array.from(new Set([...(itemsSeen[k] ?? []), ...ids])).slice(-MAX_SEEN);
       state = {
         oddsFormat: parsed.oddsFormat === "american" ? "american" : "decimal",
         lastStake: parsed.lastStake && typeof parsed.lastStake === "object" ? parsed.lastStake : {},
-        chatSeen: parsed.chatSeen && typeof parsed.chatSeen === "object" ? parsed.chatSeen : {},
+        chatSeen,
+        itemsSeen,
         walkthroughSeen: Boolean(parsed.walkthroughSeen),
         pendingSignupMeta: parsed.pendingSignupMeta ?? null,
         pushPrimerAt: typeof parsed.pushPrimerAt === "number" ? parsed.pushPrimerAt : 0,
@@ -106,10 +117,12 @@ const PRIMER_COOLDOWN_MS = 7 * 24 * 3600_000;
 /** The push pre-prompt shows at most once a week (and never once iOS has an answer). */
 export function pushPrimerDue(now = Date.now()): boolean {
   hydrate();
-  return now - state.pushPrimerAt > PRIMER_COOLDOWN_MS;
+  // One system prompt per session, none after a decline (lib/promptGate).
+  return now - state.pushPrimerAt > PRIMER_COOLDOWN_MS && canPrompt("push");
 }
 export function markPushPrimerShown(now = Date.now()): void {
   hydrate();
+  markPromptShown("push");
   persist({ ...state, pushPrimerAt: now });
 }
 
@@ -136,6 +149,41 @@ export function useChatSeen(chatId: string | undefined): number {
     () => (chatId ? state.chatSeen[chatId] ?? 0 : 0),
     () => 0
   );
+}
+
+const MAX_SEEN = 600;
+const NO_IDS: string[] = [];
+
+/** Records these ids as seen under `key` (a badge's list). */
+export function markItemsSeen(key: string, ids: string[]): void {
+  hydrate();
+  const prev = state.itemsSeen[key] ?? NO_IDS;
+  const have = new Set(prev);
+  const fresh = ids.filter((id) => !have.has(id));
+  if (!fresh.length) return;
+  persist({ ...state, itemsSeen: { ...state.itemsSeen, [key]: [...prev, ...fresh].slice(-MAX_SEEN) } });
+}
+
+/**
+ * Red-badge count for a list: items not yet seen. While `viewing` is true the
+ * current items are marked seen, so the badge clears once you've looked.
+ */
+export function useUnseenCount(key: string, ids: string[], viewing: boolean): number {
+  const seen = useSyncExternalStore(
+    subscribe,
+    () => state.itemsSeen[key] ?? NO_IDS,
+    () => NO_IDS
+  );
+  const idsKey = ids.join("|");
+  useEffect(() => {
+    if (viewing && ids.length) markItemsSeen(key, ids);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewing, key, idsKey]);
+  return useMemo(() => {
+    const s = new Set(seen);
+    return ids.filter((id) => !s.has(id)).length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seen, idsKey]);
 }
 
 export function useAllChatSeen(): Record<string, number> {

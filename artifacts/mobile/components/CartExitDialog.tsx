@@ -32,7 +32,7 @@ export default function CartExitDialog({
       body={`${listNames(items.map((i) => i.name))} ${one ? "is" : "are"} in your cart. Check out now, or leave and ${one ? "it stays" : "they stay"} in your cart until you clear ${one ? "it" : "them"} at checkout.`}
       actions={[
         { label: `Checkout · ${total.toLocaleString()}`, icon: "cart", onPress: onCheckout },
-        { label: "Leave for now", variant: "secondary", onPress: onLeave },
+        { label: "Leave for Now", variant: "secondary", onPress: onLeave },
       ]}
       cancelLabel="Cancel"
       onCancel={onCancel}

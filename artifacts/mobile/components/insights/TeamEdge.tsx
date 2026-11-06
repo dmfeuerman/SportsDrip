@@ -45,9 +45,9 @@ export default function TeamEdge({ game, side }: { game: Game; side: Side }) {
         style={styles.head}
       >
         <MaterialCommunityIcons name="chart-timeline-variant" size={15} color={c.accent} />
-        <Text style={[styles.title, { color: c.foreground }]}>Before you lock it in</Text>
+        <Text style={[styles.title, { color: c.foreground }]}>Before You Lock It In</Text>
         {loading && !data ? <ActivityIndicator size="small" color={c.mutedForeground} /> : null}
-        <Text style={[styles.link, { color: c.accent }]}>{open ? "Less" : "More"}</Text>
+        <Text style={[styles.link, { color: c.accent }]}>{open ? "Show Less" : "Show More"}</Text>
         <MaterialCommunityIcons name={open ? "chevron-up" : "chevron-down"} size={16} color={c.accent} />
       </Pressable>
 
@@ -67,7 +67,7 @@ export default function TeamEdge({ game, side }: { game: Game; side: Side }) {
 
       {open ? (
         <Animated.View entering={FadeIn.duration(180)}>
-          <ScrollView style={{ maxHeight: 210 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={styles.more}>
+          <ScrollView style={{ maxHeight: 210 }} nestedScrollEnabled showsVerticalScrollIndicator persistentScrollbar contentContainerStyle={styles.more}>
             {market !== null || model !== null ? (
               <Line icon="scale-balance" c={c}>
                 {market !== null
@@ -155,8 +155,8 @@ const styles = StyleSheet.create({
   link: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   facts: { flexDirection: "row", gap: 8 },
   fact: { flex: 1, gap: 3 },
-  factLabel: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
-  factHint: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  factLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
+  factHint: { fontSize: 11, fontFamily: "Inter_500Medium" },
   value: { fontSize: 14, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   more: { gap: 8, paddingTop: 2 },
   line: { flexDirection: "row", gap: 8 },

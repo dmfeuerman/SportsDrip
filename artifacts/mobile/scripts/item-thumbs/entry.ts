@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { AvatarRig, addStudioLights, fitDepthRange } from "../../lib/avatar3d/avatarRig";
-import { pieceFor, hash } from "../../lib/avatar3d/outfit";
+import { pieceFor, hash, pieceLook } from "../../lib/avatar3d/outfit";
 import { normalizeRig } from "../../lib/avatar3d/rigNames";
 import { CAMERA_FOV, PORTRAIT_SIZE } from "../../lib/avatar3d/spec";
 import { DEFAULT_BASE } from "../../lib/avatar3d/avatarRules";
@@ -64,7 +64,7 @@ async function renderItem(item: any) {
     gl.render(scene, camera);
     ctx.clearRect(0, 0, out.width, out.height);
     ctx.drawImage(canvas, 0, 0, out.width, out.height);
-    const key = hash(`${piece.template ?? piece.url}@${piece.version ?? ""}|${piece.primary}|${piece.secondary ?? ""}`);
+    const key = hash(pieceLook(piece));
     return { id: item.id, key, data: out.toDataURL("image/webp", 0.92) };
   } finally {
     rig.root.removeFromParent();

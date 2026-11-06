@@ -17,6 +17,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import AppWalkthroughModal from "@/components/AppWalkthroughModal";
+import TourHost from "@/components/tour/TourHost";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AdsProvider } from "@/context/AdsContext";
 import { AppProvider, useApp } from "@/context/AppContext";
@@ -31,11 +32,14 @@ import { normalizeInviteCode, savePendingInvite, takePendingInvite } from "@/lib
 import { normalizeReferralCode, savePendingReferral } from "@/lib/referrals";
 import { startStallWatch, trace } from "@/lib/devtrace";
 import ResultPopupHost from "@/components/ResultPopup";
+import { PresenceBeat } from "@/lib/presence";
 import EngagementWatchers from "@/components/EngagementWatchers";
 import InviteToastHost from "@/components/InviteToastHost";
 import LevelUpHost from "@/components/LevelUpHost";
 import ToastHost from "@/components/ToastHost";
+import GlobalHosts from "@/components/GlobalHosts";
 import { ToastProvider } from "@/context/ToastContext";
+import { ParlayProvider } from "@/context/ParlayContext";
 import AvatarPortraitStudio from "@/components/avatar/AvatarPortraitStudio";
 import { LeagueProvider } from "@/context/LeagueContext";
 import { NotificationProvider } from "@/context/NotificationContext";
@@ -114,6 +118,7 @@ function AppShell() {
           <AdsProvider uid={uid} active={!!uid && !needsOnboarding}>
             <CartProvider>
               <ToastProvider>
+              <ParlayProvider>
                 <ChatProvider>
                   <AvatarPortraitStudio />
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
@@ -122,10 +127,11 @@ function AppShell() {
                     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="messages" options={{ animation: "slide_from_right" }} />
                     <Stack.Screen name="bets" />
-                    <Stack.Screen name="prizes" />
                     <Stack.Screen name="shop" />
                     <Stack.Screen name="moves" options={{ animation: "slide_from_right" }} />
                     <Stack.Screen name="levels" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="trophies" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
                     <Stack.Screen name="customize" options={{ animation: "slide_from_bottom" }} />
                     <Stack.Screen name="checkout" options={{ animation: "slide_from_right" }} />
                     <Stack.Screen name="activity" />
@@ -136,12 +142,16 @@ function AppShell() {
                   </Stack>
                   <AppWalkthroughModal autoTrigger={inMainApp} />
                   {uid ? <ResultPopupHost /> : null}
+                  {uid ? <PresenceBeat uid={uid} /> : null}
                   {uid ? <InviteToastHost /> : null}
                   {uid ? <EngagementWatchers /> : null}
                   {uid && inMainApp ? <LevelUpHost /> : null}
                   {__DEV__ && hasDevFlags && uid && inMainApp ? <DevFlagsRunner uid={uid} /> : null}
                   <ToastHost />
+                  {uid ? <GlobalHosts /> : null}
+                  {uid && inMainApp ? <TourHost /> : null}
                 </ChatProvider>
+              </ParlayProvider>
               </ToastProvider>
             </CartProvider>
           </AdsProvider>

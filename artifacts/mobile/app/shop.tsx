@@ -8,6 +8,7 @@ import {
   FlatList,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -18,6 +19,11 @@ import AvatarDisplay from "@/components/AvatarDisplay";
 import CartButton from "@/components/CartButton";
 import { SLOT_FOCUS } from "@/lib/avatar3d/spec";
 import ClothingCard from "@/components/ClothingCard";
+import DripShopHighlights from "@/components/DripShopHighlights";
+import StarterKitCard from "@/components/StarterKitCard";
+import { TourTarget } from "@/components/tour/TourTarget";
+import { STARTER_ITEMS } from "@/lib/tour/tours";
+import GiftSheet from "@/components/GiftSheet";
 import MoveCard from "@/components/MoveCard";
 import BackgroundCard from "@/components/BackgroundCard";
 import AvatarBackdrop from "@/components/avatar/AvatarBackdrop";
@@ -27,7 +33,7 @@ import { MAX_LOADOUT } from "@/constants/moves";
 import { useApp } from "@/context/AppContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import CartExitDialog from "@/components/CartExitDialog";
-import { BackButton, CloseButton, FilterPills } from "@/components/ui";
+import { BackButton, Button, CloseButton, FilterPills } from "@/components/ui";
 import { useCartItems } from "@/hooks/useCartItems";
 import { useCart } from "@/context/CartContext";
 import { useColors } from "@/hooks/useColors";
@@ -77,7 +83,7 @@ export default function ShopScreen() {
     setBackground,
   } = useApp();
   const { backgrounds } = useBackgrounds();
-  const { items, byId, loading, error: catalogError } = useCatalog();
+  const { items, featured, leavingSoon, byId, loading, error: catalogError } = useCatalog();
   const { moves } = useMoves();
   const cart = useCart();
   const navigation = useNavigation();
@@ -85,6 +91,7 @@ export default function ShopScreen() {
   const [slot, setSlot] = useState<Tab>(params.tab === "moves" ? MOVES : params.tab === "backgrounds" ? BACKDROPS : ALL);
   const [bgPreview, setBgPreview] = useState<StoreBackground | null>(null);
   const [preview, setPreview] = useState<CatalogItem | null>(null);
+  const [gift, setGift] = useState<CatalogItem | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [movePreview, setMovePreview] = useState<StoreMove | null>(null);
   const [play, setPlay] = useState<{ id: string; n: number } | null>(null);
@@ -142,17 +149,17 @@ export default function ShopScreen() {
     [loadout, setLoadout]
   );
 
-  // Everything you could own, cheapest first; level rewards sorted by level at the end.
+  // Everything you could own, cheapest first. Level-reward scenes are buyable now or free at their level.
   const backgroundList = useMemo(
     () =>
       backgrounds
         .filter((b) => b.forSale || b.levelReward || ownedBackgrounds.has(b.id))
-        .sort((a, b) => (a.levelReward ?? 0) - (b.levelReward ?? 0) || a.price - b.price),
+        .sort((a, b) => a.price - b.price),
     [backgrounds, ownedBackgrounds]
   );
   const bgLocked = useCallback(
     (b: StoreBackground) =>
-      !ownedBackgrounds.has(b.id) && (!!b.levelReward || (!!b.levelRequired && b.levelRequired > progress.level)),
+      !ownedBackgrounds.has(b.id) && ((!!b.levelRequired && b.levelRequired > progress.level) || !(b.price > 0)),
     [ownedBackgrounds, progress.level]
   );
 
@@ -243,6 +250,19 @@ export default function ShopScreen() {
 
   const slotTabs: Tab[] = [ALL, ...SLOT_ORDER, MOVES, BACKDROPS];
 
+  // The free starter kit: offered at the top until it's all owned. Adding it also
+  // sets the look checkout puts on, so buying it means wearing it.
+  const starterMissing = useMemo(
+    () => STARTER_ITEMS.filter((id) => !owned.has(id)).map((id) => byId.get(id)).filter((i): i is CatalogItem => !!i),
+    [owned, byId]
+  );
+  const addStarterKit = useCallback(() => {
+    buzz.medium();
+    for (const it of starterMissing) if (!cart.has(it.id)) cart.add(it.id);
+    const base = cart.draft ?? { avatar, equipped };
+    cart.setDraft({ avatar: base.avatar, equipped: { ...base.equipped, ...Object.fromEntries(starterMissing.map((i) => [i.slot, i.id])) } });
+  }, [starterMissing, cart, avatar, equipped]);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View
@@ -259,16 +279,17 @@ export default function ShopScreen() {
               {slot === MOVES
                 ? `${ownedMoves.size} moves owned · ${loadout.length} of ${MAX_LOADOUT} on your dance button`
                 : slot === BACKDROPS
-                  ? `${ownedBackgrounds.size} backgrounds owned · Level ${progress.level}`
+                  ? `${ownedBackgrounds.size} scenes owned · Level ${progress.level}`
                   : `${owned.size} ${owned.size === 1 ? "item" : "items"} owned`}
             </Text>
           </View>
           <View style={styles.headerActions}>
-            <CartButton from="shop" />
-            <TokenBalance tokens={balance} />
+            <TourTarget id="shop.cart"><CartButton from="shop" /></TourTarget>
+            <TourTarget id="shop.balance"><TokenBalance tokens={balance} /></TourTarget>
           </View>
         </View>
 
+        <TourTarget id="shop.filters">
         <FilterPills<Tab>
           value={slot}
           onChange={(t) => {
@@ -277,10 +298,22 @@ export default function ShopScreen() {
           }}
           options={slotTabs.map((t) => ({
             value: t,
-            label: t === ALL ? "All" : t === MOVES ? "Moves" : t === BACKDROPS ? "Backgrounds" : SLOT_LABELS[t],
+            label: t === ALL ? "All" : t === MOVES ? "Moves" : t === BACKDROPS ? "Scenes" : SLOT_LABELS[t],
             icon: (t === ALL ? "hanger" : t === MOVES ? "human-handsup" : t === BACKDROPS ? "image-filter-hdr" : SLOT_ICONS[t]) as never,
           }))}
         />
+        </TourTarget>
+
+        <TourTarget id="shop.customize">
+        <Button
+          label="Customize Character"
+          icon="account-edit-outline"
+          variant="secondary"
+          size="sm"
+          onPress={() => router.push("/customize")}
+          style={{ marginHorizontal: 16, marginTop: 10 }}
+        />
+        </TourTarget>
       </View>
 
       {(error || catalogError) && (
@@ -351,6 +384,7 @@ export default function ShopScreen() {
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
+        <TourTarget id="shop.list" style={{ flex: 1 }}>
         <FlatList
           key="items"
           data={filtered}
@@ -360,6 +394,18 @@ export default function ShopScreen() {
           initialNumToRender={8}
           windowSize={7}
           removeClippedSubviews
+          ListHeaderComponent={
+            <>
+              {starterMissing.length ? (
+                <TourTarget id="shop.starterKit">
+                  <StarterKitCard items={starterMissing} inCart={starterMissing.every((i) => cart.has(i.id))} onAdd={addStarterKit} />
+                </TourTarget>
+              ) : null}
+              {slot === ALL ? (
+                <DripShopHighlights featured={featured} leavingSoon={leavingSoon} owned={owned} onPress={setPreview} />
+              ) : null}
+            </>
+          }
           renderItem={({ item }) => (
             <ClothingCard
               item={item}
@@ -377,13 +423,14 @@ export default function ShopScreen() {
           ListEmptyComponent={
             <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <MaterialCommunityIcons name="hanger" size={32} color={colors.mutedForeground} />
-              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Nothing here yet</Text>
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Nothing Here Yet</Text>
               <Text style={[styles.emptyBody, { color: colors.mutedForeground }]}>
                 New drops land in this category soon.
               </Text>
             </View>
           }
         />
+        </TourTarget>
       )}
 
       {/* Preview sheet (§18) */}
@@ -457,10 +504,27 @@ export default function ShopScreen() {
                 </Text>
               )}
             </Pressable>
+            {!preview.levelReward && items.some((i) => i.id === preview.id) ? (
+              <Button
+                label={`Gift to a friend · ${preview.price.toLocaleString()}`}
+                icon="gift-outline"
+                variant="secondary"
+                size="sm"
+                disabled={balance < preview.price}
+                onPress={() => {
+                  const it = preview;
+                  setPreview(null);
+                  setGift(it);
+                }}
+                style={{ marginTop: 8 }}
+              />
+            ) : null}
             <CloseButton onPress={() => setPreview(null)} style={styles.previewClose} />
           </View>
         )}
       </Modal>
+
+      <GiftSheet item={gift} onClose={() => setGift(null)} />
 
       <CartExitDialog
         visible={leaveAsk}
@@ -522,14 +586,14 @@ export default function ShopScreen() {
                   ) : (
                     <Text style={[styles.previewBtnText, { color: colors.primaryForeground }]}>
                       {on
-                        ? "In use"
+                        ? "In Use"
                         : mine
-                          ? "Use this background"
-                          : bgPreview.levelReward
-                            ? `Unlocks free at level ${bgPreview.levelReward}`
-                            : locked
-                              ? `Reach level ${bgPreview.levelRequired} to buy`
-                              : `Buy for ${bgPreview.price.toLocaleString()}`}
+                          ? "Use This Scene"
+                          : locked
+                            ? bgPreview.levelReward
+                              ? `Unlocks Free at Level ${bgPreview.levelReward}`
+                              : `Reach Level ${bgPreview.levelRequired} to Buy`
+                            : `Buy for ${bgPreview.price.toLocaleString()}${bgPreview.levelReward ? ` · or Free at Lv ${bgPreview.levelReward}` : ""}`}
                     </Text>
                   )}
                 </Pressable>
@@ -621,6 +685,11 @@ export default function ShopScreen() {
 }
 
 const styles = StyleSheet.create({
+  charRow: { gap: 6, marginTop: 10 },
+  charLabel: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  charChips: { gap: 6, paddingRight: 16 },
+  charChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1 },
+  charChipText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   container: { flex: 1 },
   header: { borderBottomWidth: 1, paddingBottom: 12, gap: 10 },
   headerRow: {
@@ -669,7 +738,7 @@ const styles = StyleSheet.create({
   previewName: { flex: 1, fontSize: 19, fontFamily: "Inter_700Bold" },
   replay: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   rarity: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1 },
-  rarityText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  rarityText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   previewDesc: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: -6 },
   previewBtn: { paddingVertical: 15, borderRadius: 14, alignItems: "center", marginTop: 4 },
   previewBtnText: { fontSize: 16, fontFamily: "Inter_700Bold" },

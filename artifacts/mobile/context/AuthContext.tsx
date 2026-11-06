@@ -4,17 +4,31 @@ import {
   User,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
-  signInAnonymously,
   signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  type Auth,
+  type AuthProvider as FirebaseAuthProvider,
   signOut as firebaseSignOut,
 } from "firebase/auth";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { firebaseConfigured, getFirebaseAuth } from "@/lib/firebase";
 import { unregisterPush } from "@/lib/push";
-import { appleCredential, googleCredential, signOutSocial } from "@/lib/socialAuth";
+import { appleCredential, googleCredential, SignInCancelled, signOutSocial } from "@/lib/socialAuth";
+
+/** Web: popup, falling back to a full-page redirect when the browser blocks popups. */
+async function webSignIn(auth: Auth, provider: FirebaseAuthProvider) {
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (e) {
+    const code = (e as { code?: string })?.code ?? "";
+    if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") throw new SignInCancelled();
+    if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") return signInWithRedirect(auth, provider);
+    throw e;
+  }
+}
 import { setPendingSignupMeta, type PendingSignupMeta } from "@/lib/settings";
 
 interface AuthContextType {
@@ -24,7 +38,6 @@ interface AuthContextType {
   signUp: (email: string, password: string, meta?: PendingSignupMeta) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
-  signInWithSSO: (provider: "google" | "apple" | "guest") => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -67,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     provider.addScope("profile");
     provider.addScope("email");
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      await signInWithPopup(auth, provider);
+      await webSignIn(auth, provider);
       return;
     }
     await signInWithCredential(auth, await googleCredential());
@@ -80,18 +93,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     provider.addScope("email");
     provider.addScope("name");
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      await signInWithPopup(auth, provider);
+      await webSignIn(auth, provider);
       return;
     }
     await signInWithCredential(auth, await appleCredential());
-  }
-
-  async function signInWithSSO(provider: "google" | "apple" | "guest") {
-    if (provider === "google") return signInWithGoogle();
-    if (provider === "apple") return signInWithApple();
-    const auth = getFirebaseAuth();
-    if (!auth) throw new Error("Firebase not configured");
-    await signInAnonymously(auth);
   }
 
   async function signOut() {
@@ -113,7 +118,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signInWithGoogle,
         signInWithApple,
-        signInWithSSO,
         signOut,
       }}
     >
