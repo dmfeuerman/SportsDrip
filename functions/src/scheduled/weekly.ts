@@ -1,4 +1,5 @@
-import { onSchedule } from "firebase-functions/v2/scheduler";
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onSchedule } from "../lib/onlineSchedule";
 import { sendWidgetRefresh } from "../lib/widgetRefresh";
 import { logger } from "firebase-functions";
 import { db, FieldValue } from "../lib/economy";

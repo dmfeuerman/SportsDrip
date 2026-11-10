@@ -26,6 +26,8 @@ export { giftItem } from "./callable/gifts";
 export { offerFriendLoan, repayFriendLoan, requestFriendLoan, respondFriendLoan, sendCredits } from "./callable/friendMoney";
 export { claimWinBackBox } from "./callable/winBack";
 export { claimTutorialGift } from "./callable/tutorial";
+export { makeFlashPick } from "./callable/flash";
+export { streakWager } from "./callable/streakWager";
 export { purchaseMove, setMoveLoadout } from "./callable/moves";
 export { purchaseBackground, setBackground } from "./callable/backgrounds";
 export { getReferralCode, checkReferralCode, syncProgression } from "./callable/referrals";

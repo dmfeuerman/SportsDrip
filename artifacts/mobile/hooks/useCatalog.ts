@@ -16,6 +16,17 @@ import { useNow } from "@/hooks/useNow";
  * document, retired ones included — a friend still wearing last season's
  * jacket must still render in it.
  */
+/**
+ * Store order: buyable items cheapest first, then level-reward items last in
+ * level order, so a free-to-earn crown never sorts to the top as a "free" item.
+ */
+export function storeOrder(a: { price: number; levelReward?: number | null }, b: { price: number; levelReward?: number | null }) {
+  const al = a.levelReward ?? 0;
+  const bl = b.levelReward ?? 0;
+  if (al || bl) return al && bl ? al - bl : al ? 1 : -1;
+  return a.price - b.price;
+}
+
 export function useCatalog() {
   const [all, setAll] = useState<CatalogItem[]>(DEMO ? demoCatalog : []);
   const [loading, setLoading] = useState(!DEMO);
@@ -65,7 +76,7 @@ export function useCatalog() {
     // show in the grid while purchaseItem would reject them.
     return all
       .filter((i) => (staticShop && i.rotation ? i.available !== false : windowState(i, now) === "on_sale"))
-      .sort((a, b) => a.price - b.price);
+      .sort(storeOrder);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [all, minute, staticShop]);
 

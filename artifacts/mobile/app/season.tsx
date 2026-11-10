@@ -1,3 +1,4 @@
+import BannerSlot from "@/components/ads/BannerSlot";
 import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
@@ -113,6 +114,7 @@ export default function SeasonScreen() {
             </Card>
           );
         })}
+        <BannerSlot />
       </ScrollView>
     </View>
   );

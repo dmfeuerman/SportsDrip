@@ -1,3 +1,6 @@
+import FlashPickCard from "@/components/FlashPickCard";
+import { useExitBreakpoint } from "@/context/AdsContext";
+import SponsoredCard from "@/components/ads/SponsoredCard";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ONLINE_MS, setWatchingGame, usePresence } from "@/lib/presence";
 import { useFriends } from "@/hooks/useFriends";
@@ -37,6 +40,7 @@ type Tab = "live" | "matchup";
 type Position = { key: string; bet: TicketBet; wallet: string | null };
 
 export default function GameCenterScreen() {
+  useExitBreakpoint("game_detail_exit");
   const c = useColors();
   const fmt = useOddsFormat();
   const bottom = useBottomPad(false);
@@ -164,6 +168,7 @@ export default function GameCenterScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.primary} />}
       >
         <Scoreboard game={game} now={now} c={c} fmt={fmt} />
+        <FlashPickCard game={game} />
 
         {positions.length > 0 && <Positions game={game} positions={positions} c={c} fmt={fmt} />}
         {duels.length > 0 && <Duels game={game} duels={duels} c={c} fmt={fmt} />}
@@ -187,6 +192,8 @@ export default function GameCenterScreen() {
             <MatchupInsights game={game} insights={insights.data} loading={insights.loading} error={insights.error} onRetry={() => void insights.reload()} />
           </Animated.View>
         )}
+
+        <SponsoredCard style={{ marginTop: 12 }} />
 
         <Text style={[styles.footer, { color: c.subtleForeground }]}>
           {[

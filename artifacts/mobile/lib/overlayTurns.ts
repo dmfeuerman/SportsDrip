@@ -80,4 +80,4 @@ export function useOverlayBusy(): boolean {
 }
 
 /** Priorities: what the player just earned first. */
-export const OVERLAY = { results: 30, levelUp: 20, ladder: 10, walkthrough: 0 } as const;
+export const OVERLAY = { results: 30, creditsEarned: 26, xpGain: 24, levelUp: 20, ladder: 10, walkthrough: 0 } as const;

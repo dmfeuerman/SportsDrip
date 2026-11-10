@@ -2,7 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.winBack = void 0;
 exports.sendWinBacks = sendWinBacks;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const notify_1 = require("../lib/notify");
@@ -48,7 +49,7 @@ async function sendWinBacks(now = Date.now()) {
     }
     return sent;
 }
-exports.winBack = (0, scheduler_1.onSchedule)({ schedule: "every day 12:00", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.winBack = (0, onlineSchedule_1.onSchedule)({ schedule: "every day 12:00", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const n = await sendWinBacks(Date.now());
     if (n > 0)
         firebase_functions_1.logger.info("winBack sent", { count: n });

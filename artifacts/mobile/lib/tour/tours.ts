@@ -129,7 +129,6 @@ export const HOME_TOUR: Tour = {
     { route: "/", target: "home.level", title: "Your level", body: "Winning, buying and inviting friends earns XP. Every level pays credits and unlocks gear. Tap the bar to see what's next." },
     { route: "/", target: "home.help", title: "Tutorials", body: "Press ? anytime to replay any of these walkthroughs." },
     { route: "/", target: "home.chat", title: "Chat", body: "Your league chats and DMs. A red badge means something new." },
-    { route: "/", target: "home.activity", title: "Activity", body: "Results, friend requests, loans and invites. Tap any item to jump to it." },
     { route: "/", target: "home.next", title: "Next up", body: "The single most useful thing to do right now — a game about to start, a free pick, a box to open." },
     { route: "/", target: "home.wallet", title: "Your wallet", body: "Credits are your bankroll for picks and drip. In Play is what's riding; Could Return is what you win if they all hit." },
     { route: "/", target: "home.bets", title: "My Bets", body: "Your open picks. Results pop up the moment a game goes final." },
@@ -242,11 +241,12 @@ export const FRIENDS_TOUR: Tour = {
   description: "Find friends, chat and challenge them.",
   icon: "account-group-outline",
   steps: [
-    { target: "tab:friends", press: true, title: "Open Friends", body: "SportDrip is better with your crew.", doneWhen: at("/friends") },
-    { route: "/friends", target: "friends.search", title: "Find people", body: "Search by username to add a friend." },
-    { route: "/friends", target: "friends.chat", title: "Chat", body: "Message friends directly — trash talk encouraged." },
-    { route: "/friends", target: "friends.challenges", title: "Challenges", body: "Bet a friend head to head on a game. The winner takes the pot." },
-    { route: "/friends", target: "friends.invite", title: "Invite friends", body: "Share your code. You both get bonus credits when they join." },
+    { target: "tab:leagues", press: true, title: "Open Leagues", body: "Friends live next to your leagues.", doneWhen: at("/leagues") },
+    { route: "/leagues", target: "leagues.seg", press: true, pressLabel: "Tap Friends", title: "Friends", body: "Switch to Friends. It's better with your crew.", advanceOn: "leagues:friends" },
+    { route: "/leagues", target: "friends.search", title: "Find people", body: "Search by username to add a friend." },
+    { route: "/leagues", target: "friends.chat", title: "Chat", body: "Message friends directly — trash talk encouraged." },
+    { route: "/leagues", target: "friends.challenges", title: "Challenges", body: "Bet a friend head to head on a game. The winner takes the pot." },
+    { route: "/leagues", target: "friends.invite", title: "Invite friends", body: "Share your code. You both get bonus credits when they join." },
   ],
 };
 

@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { onSchedule } from "firebase-functions/v2/scheduler";
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onSchedule } from "../lib/onlineSchedule";
 import { logger } from "firebase-functions";
 import { z } from "zod";
 import { db, FieldValue, requireAuth } from "../lib/economy";

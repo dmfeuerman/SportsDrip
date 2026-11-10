@@ -3,7 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ladderClose = exports.ladderOpen = void 0;
 exports.openLadderWeek = openLadderWeek;
 exports.closeLadderWeek = closeLadderWeek;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const experiments_1 = require("../lib/experiments");
@@ -114,10 +115,10 @@ async function closeLadderWeek(now = Date.now()) {
     }
     return moved;
 }
-exports.ladderOpen = (0, scheduler_1.onSchedule)({ schedule: "30 9 * * 1", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540, memory: "1GiB" }, async () => {
+exports.ladderOpen = (0, onlineSchedule_1.onSchedule)({ schedule: "30 9 * * 1", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540, memory: "1GiB" }, async () => {
     firebase_functions_1.logger.info("ladder open", { cohorts: await openLadderWeek() });
 });
-exports.ladderClose = (0, scheduler_1.onSchedule)({ schedule: "30 23 * * 0", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540, memory: "1GiB" }, async () => {
+exports.ladderClose = (0, onlineSchedule_1.onSchedule)({ schedule: "30 23 * * 0", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540, memory: "1GiB" }, async () => {
     firebase_functions_1.logger.info("ladder close", { moved: await closeLadderWeek() });
 });
 //# sourceMappingURL=ladder.js.map

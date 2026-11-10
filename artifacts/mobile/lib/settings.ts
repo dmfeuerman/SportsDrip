@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { DEFAULT_THEME, isThemeId, type ThemeId } from "@/constants/colors";
 import type { OddsFormat } from "@/lib/odds";
 import { canPrompt, markPromptShown } from "@/lib/promptGate";
 
@@ -21,6 +22,10 @@ export interface PendingSignupMeta {
 
 interface Settings {
   oddsFormat: OddsFormat;
+  /** The side a new player called during sign-up; placed as their first bet once the starter kit is done. */
+  firstPick: { gameId: string; side: "home" | "away" } | null;
+  /** Colour scheme (constants/colors SCHEMES). */
+  theme: ThemeId;
   /** walletId ("credits" or a league id) -> last stake placed from it. */
   lastStake: Record<string, number>;
   /** leagueId or dmThreadId -> epoch ms the chat/feed was last opened. */
@@ -38,6 +43,8 @@ interface Settings {
 const KEY = "sportdrip.settings.v1";
 const DEFAULTS: Settings = {
   oddsFormat: "decimal",
+  theme: DEFAULT_THEME,
+  firstPick: null,
   lastStake: {},
   chatSeen: {},
   walkthroughSeen: false,
@@ -70,6 +77,8 @@ function hydrate() {
       for (const [k, ids] of Object.entries(state.itemsSeen)) itemsSeen[k] = Array.from(new Set([...(itemsSeen[k] ?? []), ...ids])).slice(-MAX_SEEN);
       state = {
         oddsFormat: parsed.oddsFormat === "american" ? "american" : "decimal",
+        theme: isThemeId(parsed.theme) ? parsed.theme : DEFAULT_THEME,
+        firstPick: state.firstPick ?? (parsed.firstPick && typeof parsed.firstPick === "object" ? parsed.firstPick : null),
         lastStake: parsed.lastStake && typeof parsed.lastStake === "object" ? parsed.lastStake : {},
         chatSeen,
         itemsSeen,
@@ -108,6 +117,26 @@ export function setOddsFormat(oddsFormat: OddsFormat): void {
   hydrate();
   if (state.oddsFormat === oddsFormat) return;
   persist({ ...state, oddsFormat });
+}
+
+export const getFirstPick = () => state.firstPick;
+export function setFirstPick(firstPick: Settings["firstPick"]): void {
+  hydrate();
+  persist({ ...state, firstPick });
+}
+
+export function useThemeId(): ThemeId {
+  return useSyncExternalStore(
+    subscribe,
+    () => state.theme,
+    () => DEFAULTS.theme
+  );
+}
+
+export function setThemeId(theme: ThemeId): void {
+  hydrate();
+  if (state.theme === theme) return;
+  persist({ ...state, theme });
 }
 
 export function toggleOddsFormat(): OddsFormat {

@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
+import SponsoredCard from "@/components/ads/SponsoredCard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
@@ -26,7 +27,6 @@ import { Button, IconButton } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useChallenges } from "@/context/ChallengeContext";
 import { useChat } from "@/context/ChatContext";
-import { useNotifications } from "@/context/NotificationContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { useFriends } from "@/hooks/useFriends";
@@ -35,7 +35,8 @@ import type { PublicUser } from "@/lib/api";
 /** Stable empty result set. A fresh `[]` is a new identity every render. */
 const EMPTY_RESULTS: PublicUser[] = [];
 
-export default function FriendsScreen() {
+/** The friends list: search, requests, chat and challenges. `embedded` drops the screen header chrome (it lives inside the Leagues tab). */
+export default function FriendsPanel({ embedded = false }: { embedded?: boolean }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -64,12 +65,11 @@ export default function FriendsScreen() {
   const clock = useNow(60_000);
   const params = useLocalSearchParams<{ open?: string }>();
   const [busy, setBusy] = useState<string | null>(null);
-  const { unreadCount } = useNotifications();
   const { incoming: challengeInbox, live: challengesLive, headToHead } = useChallenges();
   const challengesNew = useUnseenCount("challenges.inbox", challengeInbox.map((ch) => ch.id), false);
   const { unreadChatCount, unreadForFriend } = useChat();
 
-  const topPad = Platform.OS === "web" ? 24 : insets.top;
+  const topPad = embedded ? -4 : Platform.OS === "web" ? 24 : insets.top;
   const bottomPad = Platform.OS === "web" ? 100 : insets.bottom + 84;
 
   // Debounced search. Two characters minimum, matching the callable's floor.
@@ -115,7 +115,7 @@ export default function FriendsScreen() {
   }, [senders, results, friends]);
   const selected = selectedUid ? known.get(selectedUid) ?? null : null;
 
-  // Deep link from an invite / friend notification: /(tabs)/friends?open=<uid>
+  // Deep link from an invite / friend notification: /(tabs)/leagues?seg=friends&open=<uid>
   useEffect(() => {
     if (params.open) {
       setSelectedUid(params.open);
@@ -166,8 +166,12 @@ export default function FriendsScreen() {
         ]}
       >
         <View style={styles.titleRow}>
-          <BackToLevels />
-          <Text style={[styles.title, { color: colors.foreground, flex: 1 }]}>Friends</Text>
+          {embedded ? <View style={{ flex: 1 }} /> : (
+            <>
+              <BackToLevels />
+              <Text style={[styles.title, { color: colors.foreground, flex: 1 }]}>Friends</Text>
+            </>
+          )}
           <View style={styles.actionRow}>
             <TourTarget id="friends.chat">
             <IconButton
@@ -185,7 +189,6 @@ export default function FriendsScreen() {
               onPress={() => router.push("/challenges")}
             />
             </TourTarget>
-            <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
           </View>
         </View>
         <TourTarget id="friends.search">
@@ -237,6 +240,7 @@ export default function FriendsScreen() {
       )}
 
       <FlatList
+        ListFooterComponent={<SponsoredCard compact style={{ marginVertical: 12 }} />}
         data={searching_ui ? results : friends}
         keyExtractor={(u) => u.uid}
         contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}

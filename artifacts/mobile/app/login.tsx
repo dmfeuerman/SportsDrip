@@ -21,6 +21,7 @@ import { ActionChip, CloseButton } from "@/components/ui";
 import { setPendingSignupMeta } from "@/lib/settings";
 import AgeMonthPickerModal from "@/components/AgeMonthPickerModal";
 import TermsCheckbox from "@/components/TermsCheckbox";
+import HouseLogo from "@/components/brand/HouseLogo";
 import { AGE_LOCKED_MESSAGE, ageBlocked, passesAgeGate, useAgeGateLocked } from "@/lib/ageGate";
 
 
@@ -200,13 +201,7 @@ export default function LoginScreen() {
         >
           {/* Logo */}
           <View style={s.logoWrap}>
-            <View style={[s.logoCircle, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "55" }]}>
-              <MaterialCommunityIcons name="lightning-bolt" size={44} color={colors.primary} />
-            </View>
-            <Text style={[s.appName, { color: colors.foreground }]}>SportDrip</Text>
-            <Text style={[s.tagline, { color: colors.mutedForeground }]}>
-              Bet. Earn. Drip.
-            </Text>
+            <HouseLogo size={96} tagline="Free sports bets with friends" />
           </View>
 
           {/* Card */}

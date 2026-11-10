@@ -17,6 +17,7 @@ import {
   MOUTH_SHAPES,
   NOSE_SHAPES,
   SKIN_TONES,
+  randomAvatar,
 } from "@/constants/avatarOptions";
 import { MOVE_LIBRARY } from "@/constants/moves";
 import { useColors } from "@/hooks/useColors";
@@ -201,6 +202,17 @@ export default function CharacterDesigner({ avatar, onChange, catalog, displayNa
               icon={picked.has(step.key) ? "arrow-right" : undefined}
               disabled={!picked.has(step.key)}
               onPress={() => advance(phase.i)}
+            />
+            <Button
+              label="Randomize & finish"
+              icon="dice-multiple-outline"
+              variant="ghost"
+              onPress={() => {
+                clearTimer();
+                buzz.success();
+                onChange({ ...randomAvatar(), ...Object.fromEntries([...picked].map((k) => [k, avatar[k]])) });
+                setPhase({ kind: "finale" });
+              }}
             />
           </Animated.View>
         ) : null}

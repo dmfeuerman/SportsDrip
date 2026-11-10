@@ -13,7 +13,7 @@ export function openSocialNotification(n: AppNotification) {
   } else if (n.type === "level_up") {
     router.navigate("/levels" as never);
   } else if (n.type === "friend_request" || n.type === "friend_accepted" || n.type === "referral_bonus") {
-    router.navigate({ pathname: "/(tabs)/friends", params: n.data?.fromUid ? { open: n.data.fromUid } : {} });
+    router.navigate({ pathname: "/(tabs)/leagues", params: n.data?.fromUid ? { seg: "friends", open: n.data.fromUid } : { seg: "friends" } });
   } else if (n.leagueId && (n.type.startsWith("loan_") || n.type.startsWith("stimulus_"))) {
     router.navigate({ pathname: "/league/[id]", params: { id: n.leagueId, tab: "bank" } });
   } else if ((n.type === "bet_tailed" || n.type === "bet_faded") && n.leagueId) {

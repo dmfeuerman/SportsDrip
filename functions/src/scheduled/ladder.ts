@@ -1,4 +1,5 @@
-import { onSchedule } from "firebase-functions/v2/scheduler";
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onSchedule } from "../lib/onlineSchedule";
 import { logger } from "firebase-functions";
 import { db, FieldValue } from "../lib/economy";
 import { assignArm, EXPERIMENTS, type ExperimentsDoc } from "../lib/experiments";

@@ -3,7 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.birthdayGifts = exports.birthdayRef = exports.BIRTHDAY_GIFT = void 0;
 exports.nyMonthYear = nyMonthYear;
 exports.sendBirthdayGifts = sendBirthdayGifts;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const notify_1 = require("../lib/notify");
@@ -76,7 +77,7 @@ async function sendBirthdayGifts(now = Date.now()) {
     return paid;
 }
 /** 09:00 ET on the 1st of every month. */
-exports.birthdayGifts = (0, scheduler_1.onSchedule)({ schedule: "0 9 1 * *", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.birthdayGifts = (0, onlineSchedule_1.onSchedule)({ schedule: "0 9 1 * *", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const n = await sendBirthdayGifts(Date.now());
     firebase_functions_1.logger.info("birthday gifts paid", { count: n });
 });

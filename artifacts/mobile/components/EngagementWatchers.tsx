@@ -12,6 +12,8 @@ import { SPORT_ICONS } from "@/constants/leagueTypes";
 import { showSoonPill } from "@/lib/soonPill";
 import { openKickoffSheet } from "@/lib/kickoffSheet";
 import { useKickoffSoon } from "@/hooks/useKickoffSoon";
+import { planReminders, syncReminders } from "@/lib/localReminders";
+import { nyDayOf } from "@/lib/streakGrid";
 
 const MIN = 60_000;
 const START_SOON_MS = 15 * MIN;
@@ -36,6 +38,7 @@ export default function EngagementWatchers() {
   useBetBeforeKickoff();
   useLeagueMoves();
   useTrophyAlerts();
+  useLocalReminders();
   // useBigBets removed: a "going big" banner is keyed on someone else's stake size (guardrail 3).
   useLiveActivityTokens();
   useWidgetSnapshot();
@@ -139,6 +142,31 @@ function useBetBeforeKickoff() {
     lastShown.current = Date.now();
     fresh.forEach((g) => seen.current.add(g.id));
   }, [games, show]);
+}
+
+/** Keeps the on-device reminders (kickoff, streak, free bet) in step with your open picks. */
+function useLocalReminders() {
+  const { profile, bets } = useApp();
+  const { games } = useGames();
+  const now = useNow(10 * 60_000);
+  const uid = profile?.uid;
+  const name = profile?.displayName?.trim() || profile?.username || "Hey";
+  const streak = profile?.streak?.count ?? 0;
+  const lastDay = profile?.streak?.lastDay;
+  useEffect(() => {
+    if (!uid) return;
+    const today = nyDayOf(now);
+    const startOf = new Map(games.map((g) => [g.id, g.startsAt]));
+    const plan = planReminders({
+      now,
+      name,
+      openBets: bets.filter((b) => b.status === "pending").map((b) => ({ gameId: b.gameId, teamAbbr: b.teamAbbr, startsAt: b.startsAt ?? startOf.get(b.gameId) ?? null })),
+      streak,
+      pickedToday: lastDay === today,
+      freeBetToday: bets.some((b) => b.freeBet && b.freeDay === today && b.status !== "cancelled"),
+    });
+    void syncReminders(plan);
+  }, [uid, name, bets, games, streak, lastDay, now]);
 }
 
 /** A popup whenever a new trophy lands on the shelf (league finishes, achievements, punishments). */

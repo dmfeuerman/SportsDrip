@@ -1,3 +1,5 @@
+import { useExitBreakpoint } from "@/context/AdsContext";
+import BannerSlot from "@/components/ads/BannerSlot";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
@@ -8,7 +10,7 @@ import { Pressable } from "@/components/fx/Tap";
 import LevelBar, { LevelBadge, levelTier } from "@/components/LevelBar";
 import { replayLevelUp } from "@/components/LevelUpHost";
 import { Card, ScreenHeader, SectionHeader, useBottomPad } from "@/components/ui";
-import { REFERRAL, totalXpForLevel, XP } from "@/constants/progression";
+import { REFERRAL, scaledXp, totalXpForLevel, XP } from "@/constants/progression";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { useLevelRewards, type LevelUnlock } from "@/hooks/useLevelRewards";
@@ -16,15 +18,15 @@ import { haptic } from "@/lib/motion";
 
 type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
-const EARN: Array<{ icon: Icon; label: string; xp: string; to?: string }> = [
-  { icon: "trophy-outline", label: "Win a Bet", xp: `${XP.betWin}+ XP`, to: "/(tabs)/games" },
-  { icon: "sword-cross", label: "Win a Friend Challenge", xp: `${XP.challengeWin} XP`, to: "/challenges" },
-  { icon: "shield-star-outline", label: "Win a League Bet", xp: `${XP.leagueBetWin} XP`, to: "/(tabs)/leagues" },
-  { icon: "podium-gold", label: "Finish in the Money in a League", xp: `${XP.leaguePayout} XP` },
-  { icon: "shopping-outline", label: "Buy From the Drip Shop", xp: `1 XP / ${XP.purchasePer} credits`, to: "/shop" },
-  { icon: "gift-outline", label: "Open a Prize Box", xp: `${XP.prizeBox} XP`, to: "/(tabs)" },
-  { icon: "account-plus-outline", label: "Add a Friend", xp: `${XP.newFriend} XP`, to: "/(tabs)/friends" },
-  { icon: "account-heart-outline", label: "Invite a Friend With Your Code", xp: `${XP.referrer} XP`, to: "/(tabs)/friends" },
+const EARN: Array<{ icon: Icon; label: string; xp: (level: number) => string; to?: string }> = [
+  { icon: "trophy-outline", label: "Win a Bet", xp: (l) => `${scaledXp(XP.betWin, l)}+ XP`, to: "/(tabs)/games" },
+  { icon: "sword-cross", label: "Win a Friend Challenge", xp: (l) => `${scaledXp(XP.challengeWin, l)} XP`, to: "/challenges" },
+  { icon: "shield-star-outline", label: "Win a League Bet", xp: (l) => `${scaledXp(XP.leagueBetWin, l)} XP`, to: "/(tabs)/leagues" },
+  { icon: "podium-gold", label: "Finish in the Money in a League", xp: (l) => `${scaledXp(XP.leaguePayout, l)} XP` },
+  { icon: "shopping-outline", label: "Buy From the Drip Shop", xp: () => `1 XP / ${XP.purchasePer} credits`, to: "/shop" },
+  { icon: "gift-outline", label: "Open a Prize Box", xp: (l) => `${scaledXp(XP.prizeBox, l)} XP`, to: "/(tabs)" },
+  { icon: "account-plus-outline", label: "Add a Friend", xp: (l) => `${scaledXp(XP.newFriend, l)} XP`, to: "/(tabs)/leagues?seg=friends" },
+  { icon: "account-heart-outline", label: "Invite a Friend With Your Code", xp: (l) => `${scaledXp(XP.referrer, l)} XP`, to: "/(tabs)/leagues?seg=friends" },
 ];
 
 /**
@@ -32,6 +34,7 @@ const EARN: Array<{ icon: Icon; label: string; xp: string; to?: string }> = [
  * level pays and unlocks. Tap your medallion to replay the level-up.
  */
 export default function LevelsScreen() {
+  useExitBreakpoint("levels_exit");
   const c = useColors();
   const bottom = useBottomPad(false);
   const { progress } = useApp();
@@ -98,7 +101,7 @@ export default function LevelsScreen() {
                 <MaterialCommunityIcons name={e.icon} size={18} color={c.primary} />
               </View>
               <Text style={[styles.earnLabel, { color: c.foreground }]}>{e.label}</Text>
-              <Text style={[styles.earnXp, { color: c.primary }]}>{e.xp}</Text>
+              <Text style={[styles.earnXp, { color: c.primary }]}>{e.xp(progress.level)}</Text>
               {e.to ? <MaterialCommunityIcons name="chevron-right" size={18} color={c.mutedForeground} /> : null}
             </Pressable>
           ))}
@@ -150,6 +153,7 @@ export default function LevelsScreen() {
             </View>
           );
         })}
+        <BannerSlot />
       </ScrollView>
     </View>
   );

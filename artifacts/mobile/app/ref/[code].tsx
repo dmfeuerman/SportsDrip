@@ -14,5 +14,5 @@ export default function ReferralLink() {
   useEffect(() => {
     void clearPendingReferral();
   }, [params.code]);
-  return <Redirect href="/(tabs)/friends" />;
+  return <Redirect href={{ pathname: "/(tabs)/leagues", params: { seg: "friends" } }} />;
 }

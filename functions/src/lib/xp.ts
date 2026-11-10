@@ -1,7 +1,7 @@
 import { db, FieldValue, type Tx } from "./economy";
 import { writeNotification } from "./notify";
 import { simpleNotification } from "./notifyModel";
-import { levelFromXp, levelUpCredits } from "./progression";
+import { levelFromXp, levelUpCredits, scaledXp } from "./progression";
 import { activeSeason, SEASON_XP_REASONS } from "./seasonPass";
 
 /**
@@ -97,8 +97,9 @@ export async function grantXp(uid: string, amount: number, key: string, reason: 
     const before = (user.get("xp") as number | undefined) ?? 0;
     if (ev.exists) return none(before);
 
-    const after = before + Math.floor(amount);
     const oldLevel = levelFromXp(before);
+    amount = scaledXp(Math.floor(amount), oldLevel);
+    const after = before + amount;
     const newLevel = levelFromXp(after);
 
     // ── reads (all before the first write) ──

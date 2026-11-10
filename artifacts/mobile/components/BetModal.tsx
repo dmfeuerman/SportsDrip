@@ -4,6 +4,7 @@ import { tourEvent, tourPractice, tourStake, useTourState } from "@/lib/tour/sto
 import TeamCrest from "@/components/TeamCrest";
 import { trackEvent } from "@/lib/analytics";
 import { haptic as buzz } from "@/lib/motion";
+import EarnCreditsButton from "@/components/ads/EarnCreditsButton";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Pressable, Switch } from "@/components/fx/Tap";
@@ -611,6 +612,7 @@ export default function BetModal({
         ) : null}
         {tooSmall && <Text style={[styles.note, { color: c.negative }]}>Minimum stake is {MIN_STAKE} {unit}.</Text>}
         {tooBig && <Text style={[styles.note, { color: c.negative }]}>That's more than {wallet?.label ?? "this wallet"} holds.</Text>}
+        {tooBig && wallet?.kind === "credits" && !tourPractice() ? <EarnCreditsButton variant="row" /> : null}
         {heavy && !tooBig && <Text style={[styles.note, { color: c.warning }]}>That's over half of this wallet on one game.</Text>}
         {friendMode && quote && !quote.ok && !tooSmall ? <Text style={[styles.note, { color: c.warning }]}>{quote.reason}</Text> : null}
         {friendMode && !friendUid && friends.length > 0 ? <Text style={[styles.note, { color: c.mutedForeground }]}>Pick who you're challenging.</Text> : null}

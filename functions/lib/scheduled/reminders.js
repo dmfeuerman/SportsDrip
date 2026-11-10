@@ -3,7 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.lockReminders = exports.teamReminders = void 0;
 exports.sendLockReminders = sendLockReminders;
 exports.sendTeamReminders = sendTeamReminders;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const notify_1 = require("../lib/notify");
@@ -153,12 +154,12 @@ async function sendTeamReminders(now = Date.now()) {
     }
     return sent;
 }
-exports.teamReminders = (0, scheduler_1.onSchedule)({ schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180 }, async () => {
+exports.teamReminders = (0, onlineSchedule_1.onSchedule)({ schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180 }, async () => {
     const n = await sendTeamReminders(Date.now());
     if (n > 0)
         firebase_functions_1.logger.info("teamReminders sent", { count: n });
 });
-exports.lockReminders = (0, scheduler_1.onSchedule)({ schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180 }, async () => {
+exports.lockReminders = (0, onlineSchedule_1.onSchedule)({ schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180 }, async () => {
     const n = await sendLockReminders(Date.now());
     if (n > 0)
         firebase_functions_1.logger.info("lockReminders sent", { count: n });

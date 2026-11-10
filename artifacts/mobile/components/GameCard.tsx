@@ -547,7 +547,7 @@ function OddsButton({
           styles.oddsBtn,
           {
             backgroundColor: backed ? c.primary : selected ? c.alpha(c.primary, 0.18) : c.secondary,
-            borderColor: backed || selected ? c.primary : c.alpha(c.foreground, 0.22),
+            borderColor: backed || selected ? c.primary : c.alpha(c.foreground, 0.1),
             borderWidth: selected ? 2 : 1,
             opacity: locked && !backed ? 0.55 : 1,
           },
@@ -564,7 +564,7 @@ function OddsButton({
           {flash.dir !== 0 ? (
             <MaterialCommunityIcons name={flash.dir > 0 ? "menu-up" : "menu-down"} size={16} color={flash.dir > 0 ? c.positive : c.negative} style={{ marginHorizontal: -4 }} />
           ) : null}
-          <Text style={[styles.oddsValue, { color: backed ? c.primaryForeground : c.foreground }]}>
+          <Text style={[styles.oddsValue, { color: backed ? c.primaryForeground : odds > 1 ? c.primary : c.foreground }]}>
             {odds > 1 ? formatOdds(odds, oddsFormat) : "—"}
           </Text>
         </View>

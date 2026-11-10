@@ -44,7 +44,7 @@ export function useShake() {
  * Line-movement flash for a number that updates live (odds): a green pulse
  * and ▲ when it goes up, red and ▼ when it goes down, fading after ~2.5 s.
  */
-export function useValueFlash(value: number, { up = "#2FE38A", down = "#FF4D63", rest = "rgba(0,0,0,0)" } = {}) {
+export function useValueFlash(value: number, { up = "#2EE6A6", down = "#FF5A5F", rest = "rgba(0,0,0,0)" } = {}) {
   const prev = useRef(value);
   const pulse = useSharedValue(0);
   const dirSV = useSharedValue(0);

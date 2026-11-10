@@ -18,6 +18,8 @@ exports.totalXpForLevel = totalXpForLevel;
 exports.levelFromXp = levelFromXp;
 exports.progressOf = progressOf;
 exports.levelUpCredits = levelUpCredits;
+exports.xpMultiplier = xpMultiplier;
+exports.scaledXp = scaledXp;
 exports.xpForLedger = xpForLedger;
 exports.normalizeReferralCode = normalizeReferralCode;
 exports.randomReferralCode = randomReferralCode;
@@ -77,6 +79,18 @@ exports.XP = {
     /** You joined with an invite code. */
     referred: 100,
 };
+/**
+ * XP rewards grow with your level: every level you complete raises what each
+ * action is worth by 10% of its base (level 1 = 1x, level 11 = 2x).
+ */
+function xpMultiplier(level) {
+    const l = Math.max(1, Math.min(exports.MAX_LEVEL, Math.floor(level)));
+    return 1 + 0.1 * (l - 1);
+}
+/** Base XP scaled to the player's current level. */
+function scaledXp(base, level) {
+    return base > 0 ? Math.round(base * xpMultiplier(level)) : 0;
+}
 /**
  * XP for a ledger row (users/{uid}/ledger/*). Stakes and refunds earn nothing,
  * so placing and cancelling a bet can't farm levels.

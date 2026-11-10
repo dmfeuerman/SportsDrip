@@ -115,7 +115,7 @@ export default function ChallengesScreen() {
     />
   );
 
-  const findFriends = () => router.navigate("/(tabs)/friends");
+  const findFriends = () => router.navigate({ pathname: "/(tabs)/leagues", params: { seg: "friends" } });
   const browse = () => router.navigate("/(tabs)/games");
 
   return (

@@ -1,3 +1,5 @@
+import SponsoredCard from "@/components/ads/SponsoredCard";
+import { adAfterRow } from "@/constants/ads";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
@@ -96,7 +98,7 @@ export default function ActivityScreen() {
         keyExtractor={(n) => n.id}
         contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.mutedForeground} />}
-        renderItem={({ item: n }) => {
+        renderItem={({ item: n, index }) => {
           const tone = isWin(n) || n.type === "league_payout" || n.type === "loan_repaid" || n.type === "level_up" || n.type === "referral_bonus" ? c.positive : isLoss(n) ? c.negative : n.leagueId ? c.league : isChallenge(n) ? c.accent : c.mutedForeground;
           const go = () => {
             markRead([n.id]);
@@ -140,6 +142,7 @@ export default function ActivityScreen() {
             else router.push("/bets");
           };
           return (
+            <>
             <Pressable accessibilityRole="button" accessibilityLabel={`${n.title}. ${n.body}`} onPress={go} style={({ pressed }) => [styles.row, { backgroundColor: !fresh.has(n.id) ? c.card : c.elevated, borderColor: !fresh.has(n.id) ? c.border : c.alpha(tone, 0.4), opacity: pressed ? 0.85 : 1 }]}>
               <View style={[styles.icon, { backgroundColor: c.alpha(tone, 0.14) }]}>
                 <MaterialCommunityIcons name={ICON[n.type] ?? "bell-outline"} size={20} color={tone} />
@@ -165,6 +168,8 @@ export default function ActivityScreen() {
               </View>
               <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} />
             </Pressable>
+            {adAfterRow(index) ? <SponsoredCard compact /> : null}
+            </>
           );
         }}
         ListEmptyComponent={<EmptyState icon="bell-sleep-outline" title="All Quiet" body="Bet results, league payouts, loan updates and invites will show up here." />}

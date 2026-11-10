@@ -12,6 +12,7 @@ import Burst from "@/components/fx/Burst";
 import { useCatalog } from "@/hooks/useCatalog";
 import { shareViewOrText } from "@/lib/shareCard";
 import TokenBalance from "@/components/TokenBalance";
+import EarnCreditsButton from "@/components/ads/EarnCreditsButton";
 import { ActionChip, Button, ConfirmDialog, ErrorBanner } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useCart, type CartOrigin } from "@/context/CartContext";
@@ -122,7 +123,7 @@ export default function CheckoutScreen() {
             </Text>
           ) : null}
         </View>
-        <TokenBalance tokens={balance} size="sm" />
+        <TokenBalance tokens={balance} size="sm" earn />
       </View>
 
       <ErrorBanner message={error} onDismiss={clearError} />
@@ -237,6 +238,7 @@ export default function CheckoutScreen() {
                   You're {credits(Math.abs(after))} credits short. Remove something or win a few bets first.
                 </Text>
               ) : null}
+              {short ? <EarnCreditsButton variant="row" style={{ marginTop: 8 }} /> : null}
               {bought.length && failed.length ? (
                 <Text style={[styles.note, { color: c.mutedForeground }]}>
                   Bought {bought.map((b) => b.name).join(", ")}. The rest are still in your cart.

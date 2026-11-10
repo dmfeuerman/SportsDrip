@@ -75,7 +75,7 @@ export default function MovesScreen() {
             {`${ownedMoves.size} owned · ${loadout.length} of ${MAX_LOADOUT} on your dance button`}
           </Text>
         </View>
-        <TokenBalance tokens={balance} />
+        <TokenBalance tokens={balance} earn />
       </View>
 
       <ErrorBanner message={error} onDismiss={clearError} />

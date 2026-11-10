@@ -6,9 +6,12 @@ exports.settleMainBet = settleMainBet;
 exports.settleLeagueBetsForGame = settleLeagueBetsForGame;
 exports.voidDisrupted = voidDisrupted;
 exports.refundStale = refundStale;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const ratings_1 = require("../lib/ratings");
 const brackets_1 = require("../callable/brackets");
+const flash_1 = require("../callable/flash");
+const tailBonus_1 = require("../lib/tailBonus");
 const coop_1 = require("../lib/coop");
 const firestore_1 = require("firebase-functions/v2/firestore");
 const firebase_functions_1 = require("firebase-functions");
@@ -383,6 +386,10 @@ async function settleLeagueBetsForGame(gameId) {
             if (row) {
                 settled++;
                 settledRows.push(row);
+                // After the money has committed: the picker who was tailed earns a small bonus.
+                const tailOf = doc.get("tailOf");
+                if (row.outcome === "won" && tailOf)
+                    await (0, tailBonus_1.payTailBonus)(row.leagueId, row.betId, tailOf, row.name);
             }
         }
         catch (err) {
@@ -525,6 +532,12 @@ exports.onGameFinal = (0, firestore_1.onDocumentUpdated)({ document: "games/{gam
         if (expired > 0)
             firebase_functions_1.logger.info("challenges expired at kickoff", { gameId, expired });
     }
+    // Flash picks grade whenever the scoreboard moves, and once more at the final whistle.
+    const d = event.data;
+    const scoreMoved = d?.before.get("homeScore") !== d?.after.get("homeScore") || d?.before.get("awayScore") !== d?.after.get("awayScore");
+    if (before !== "upcoming" && (scoreMoved || (before !== "final" && after === "final"))) {
+        await (0, flash_1.settleFlashForGame)(gameId, d?.after.get("homeScore") ?? null, d?.after.get("awayScore") ?? null, String(after ?? "")).catch((err) => firebase_functions_1.logger.warn("flash picks failed", { gameId, error: String(err) }));
+    }
     if (before === "final" || after !== "final")
         return;
     // Results feed the model line's team ratings (once per game).
@@ -543,7 +556,7 @@ exports.onGameFinal = (0, firestore_1.onDocumentUpdated)({ document: "games/{gam
  * Safety net. Catches anything the trigger missed — a cold deploy, a dropped
  * event, a bet placed after the game already went final.
  */
-exports.settleBetsSweep = (0, scheduler_1.onSchedule)({ schedule: "*/15 * * * *", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.settleBetsSweep = (0, onlineSchedule_1.onSchedule)({ schedule: "*/15 * * * *", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const [pending, leaguePending] = await Promise.all([
         economy_1.db.collection("bets").where("status", "==", "pending").limit(1000).get(),
         economy_1.db.collectionGroup("leagueBets").where("status", "==", "pending").limit(1000).get(),
@@ -656,7 +669,7 @@ async function refundStale(cutoff) {
  * Refunds bets on games that vanished from the provider (postponed, cancelled,
  * or pruned) and have been pending well past their start time.
  */
-exports.refundStaleBets = (0, scheduler_1.onSchedule)({ schedule: "30 6 * * *", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.refundStaleBets = (0, onlineSchedule_1.onSchedule)({ schedule: "30 6 * * *", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const now = Date.now();
     const cutoff = now - 72 * 3_600_000;
     const n = (await voidDisrupted(now)) +

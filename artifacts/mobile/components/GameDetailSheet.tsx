@@ -1,3 +1,4 @@
+import FlashPickCard from "@/components/FlashPickCard";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic } from "@/lib/motion";
 import TeamCrest from "@/components/TeamCrest";
@@ -146,6 +147,7 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
         ) : null}
 
         <SituationCard game={game} />
+        {game.status === "live" ? <FlashPickCard game={game} /> : null}
         {game.status !== "upcoming" ? (
           <>
             <Linescore game={game} insights={insights.data} />

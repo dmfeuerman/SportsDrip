@@ -96,7 +96,7 @@ function ClothingCard({
           ) : item.levelReward ? (
             <View style={[styles.owned, styles.priceRow, { backgroundColor: colors.alpha(colors.warning, 0.14) }]}>
               <MaterialCommunityIcons name="gift" size={11} color={colors.warning} />
-              <Text style={[styles.ownedText, { color: colors.warning }]}>LEVEL {item.levelReward} REWARD</Text>
+              <Text style={[styles.ownedText, { color: colors.warning }]}>LEVEL {item.levelReward}</Text>
             </View>
           ) : (
             <View style={styles.priceRow}>

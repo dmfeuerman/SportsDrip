@@ -5,9 +5,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
   Platform,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
@@ -22,8 +24,10 @@ import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
 import TailSheet from "@/components/TailSheet";
 import GameDetailSheet, { type DetailBet } from "@/components/GameDetailSheet";
 import SponsoredCard from "@/components/ads/SponsoredCard";
+import BannerSlot from "@/components/ads/BannerSlot";
+import { useFriends } from "@/hooks/useFriends";
 import TokenBalance from "@/components/TokenBalance";
-import { FilterPills, IconButton } from "@/components/ui";
+import { FilterPills } from "@/components/ui";
 import { SPORT_COLORS } from "@/constants/colors";
 import { SPORT_ICONS } from "@/constants/leagueTypes";
 import { AD_POLICY } from "@/constants/ads";
@@ -31,9 +35,7 @@ import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
 import { holdsMyStake, useChallenges, viewOf } from "@/context/ChallengeContext";
 import { useBoardLeagueSides, useLeague } from "@/context/LeagueContext";
-import { useNow } from "@/hooks/useNow";
 import { useToast } from "@/context/ToastContext";
-import { useNotifications } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
 import { useGames } from "@/hooks/useGames";
 import { useParlay } from "@/context/ParlayContext";
@@ -49,7 +51,8 @@ const ALL = "ALL";
 type Row =
   | { kind: "section"; id: string; title: string; live?: boolean }
   | { kind: "game"; id: string; game: Game }
-  | { kind: "ad"; id: string };
+  | { kind: "ad"; id: string }
+  | { kind: "thin"; id: string };
 
 export default function GamesScreen() {
   const colors = useColors();
@@ -57,11 +60,10 @@ export default function GamesScreen() {
 
   const { balance, bets, error, clearError, profile, placeBet } = useApp();
   const { leagues, activeLeagues, uid, placeLeagueBet, myLeagueBets } = useLeague();
+  const { friends } = useFriends(uid ?? null);
   const { betLocked } = useToast();
-  const { unreadCount } = useNotifications();
-  const { live, upcoming, loading, error: gamesError, syncedAt } = useGames();
+  const { live, upcoming, loading, error: gamesError } = useGames();
   const boardSides = useBoardLeagueSides(uid);
-  const clock = useNow(15_000);
   const { enabled: adsOn } = useAds();
   const params = useLocalSearchParams<{ wallet?: string; challenge?: string; challengeName?: string }>();
   const challenges = useChallenges();
@@ -76,6 +78,8 @@ export default function GamesScreen() {
   const [slipError, setSlipError] = useState<string | null>(null);
 
   const [sport, setSport] = useState<string>(ALL);
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [pending, setPending] = useState<{
     game: Game;
     side: Side;
@@ -132,23 +136,44 @@ export default function GamesScreen() {
     return map;
   }, [bets, leagues, myLeagueBets, challenges.byGame, challenges.uid]);
 
+  // Thin banners only for players with a real social graph (10+ friends or leagues).
+  const thinOn = friends.length > 10 || leagues.length > 10;
   const rows: Row[] = useMemo(() => {
-    const match = (g: Game) => sport === ALL || g.sport === sport;
+    const q = query.trim().toLowerCase();
+    const teamHit = (t: { name: string; abbreviation: string }) => t.name.toLowerCase().includes(q) || t.abbreviation.toLowerCase().includes(q);
+    const match = (g: Game) => (sport === ALL || g.sport === sport) && (!q || teamHit(g.homeTeam) || teamHit(g.awayTeam));
     const l = live.filter(match);
     const u = upcoming.filter(match);
     const out: Row[] = [];
     let seen = 0;
     let ads = 0;
+    let pendingBig = false;
+    let pendingThin = false;
+    // An ad is placed lazily, just before the next row that follows it, so it never
+    // trails the list and never sits next to another ad.
+    const flush = () => {
+      if (!pendingBig && !pendingThin) return;
+      const last = out[out.length - 1];
+      if (last && last.kind !== "ad" && last.kind !== "thin") {
+        if (pendingBig && adsOn && sport === ALL && ads < AD_POLICY.boardMax) {
+          out.push({ kind: "ad", id: `ad-${ads}` });
+          ads += 1;
+        } else if (pendingThin && thinOn) out.push({ kind: "thin", id: `thin-${seen}` });
+      }
+      pendingBig = false;
+      pendingThin = false;
+    };
     const pushGame = (g: Game) => {
+      flush();
       out.push({ kind: "game", id: g.id, game: g });
       seen += 1;
       const slot = seen - AD_POLICY.boardFirstAfter;
-      if (adsOn && ads < AD_POLICY.boardMax && slot >= 0 && slot % AD_POLICY.boardEvery === 0) {
-        out.push({ kind: "ad", id: `ad-${ads}` });
-        ads += 1;
-      }
+      if (adsOn && sport === ALL && slot >= 0 && slot % AD_POLICY.boardEvery === 0) pendingBig = true;
+      // Thin banner after games 3, 7, 10, 14, 17… (every 3 or 4 games).
+      if (thinOn && (seen % 7 === 3 || seen % 7 === 0)) pendingThin = true;
     };
     if (l.length) {
+      flush();
       out.push({ kind: "section", id: "sec-live", title: "Live Now", live: true });
       l.forEach(pushGame);
     }
@@ -156,13 +181,14 @@ export default function GamesScreen() {
     for (const g of u) {
       const day = dayKey(g.startsAt);
       if (day !== lastDay) {
+        flush();
         lastDay = day;
         out.push({ kind: "section", id: `sec-${day}`, title: dayTitle(g.startsAt) });
       }
       pushGame(g);
     }
     return out;
-  }, [live, upcoming, sport, adsOn]);
+  }, [live, upcoming, sport, adsOn, thinOn, query]);
   // The tutorials point at the first two games you can actually bet on (the second is a parlay's other leg).
   const listRef = useRef<FlatList<Row>>(null);
   const tourScroll = useTourScroll(listRef);
@@ -179,6 +205,9 @@ export default function GamesScreen() {
     const pool = upcoming.filter((g) => sport === ALL || g.sport === sport);
     return pickFeatured(pool, boardSides, favs, Date.now());
   }, [upcoming, sport, boardSides, profile?.favoriteTeams]);
+
+  // The game of the day steps aside while searching.
+  const featuredShown = !!featured && !query.trim();
 
   const openBetSheet = useCallback(
     (game: Game, side: Side, friend?: boolean, market?: Market, selection?: Selection) => {
@@ -410,13 +439,25 @@ export default function GamesScreen() {
                 <Text style={[styles.pendingText, { color: colors.accent }]}>{openBets} open</Text>
               </Pressable>
             )}
-            <TourTarget id="games.balance"><TokenBalance tokens={balance} /></TourTarget>
-            <IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} />
+            <Pressable
+              onPress={() => {
+                if (searchOpen) setQuery("");
+                setSearchOpen((o) => !o);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={searchOpen ? "Close search" : "Search teams"}
+              hitSlop={8}
+              style={[styles.searchToggle, { backgroundColor: searchOpen ? colors.alpha(colors.primary, 0.16) : colors.secondary, borderColor: searchOpen ? colors.alpha(colors.primary, 0.5) : colors.border }]}
+            >
+              <MaterialCommunityIcons name={searchOpen ? "close" : "magnify"} size={18} color={searchOpen ? colors.primary : colors.foreground} />
+            </Pressable>
+            <TourTarget id="games.balance"><TokenBalance tokens={balance} earn /></TourTarget>
           </View>
         </View>
 
         <TourTarget id="games.filters">
         <FilterPills
+          gap={14}
           value={sport}
           onChange={setSport}
           options={[
@@ -425,10 +466,34 @@ export default function GamesScreen() {
           ]}
         />
         </TourTarget>
-        {syncedAt ? (
-          <Text style={{ color: colors.subtleForeground, fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center", marginTop: 8, marginBottom: -4 }}>
-            Scores live · updated {ago(syncedAt, clock)}
-          </Text>
+        {searchOpen ? (
+        <View style={[styles.searchBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+          <MaterialCommunityIcons name="magnify" size={18} color={colors.mutedForeground} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.foreground }]}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search teams"
+            placeholderTextColor={colors.mutedForeground}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            accessibilityLabel="Search teams"
+          />
+          {query.length > 0 ? (
+            <Pressable
+              onPress={() => {
+                setQuery("");
+                setSearchOpen(false);
+                Keyboard.dismiss();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Close search"
+            >
+              <MaterialCommunityIcons name="close-circle" size={16} color={colors.mutedForeground} />
+            </Pressable>
+          ) : null}
+        </View>
         ) : null}
       </View>
 
@@ -465,18 +530,21 @@ export default function GamesScreen() {
           scrollEventThrottle={tourScroll.scrollEventThrottle}
           data={rows}
           keyExtractor={(r) => r.id}
+          ListFooterComponent={sport !== ALL && rows.length ? <SponsoredCard style={{ marginVertical: 12 }} /> : undefined}
           // Child 0 is the featured header when there is one, so section rows sit one further down.
           stickyHeaderIndices={rows
-            .map((r, i) => (r.kind === "section" ? i + (featured ? 1 : 0) : -1))
+            .map((r, i) => (r.kind === "section" ? i + (featuredShown ? 1 : 0) : -1))
             .filter((i) => i >= 0)}
           ListHeaderComponent={
-            featured ? (
+            featuredShown ? (
               <TourTarget id="games.featured"><FeaturedGameCard game={featured} sides={boardSides.get(featured.id) ?? []} onOpen={setDetail} /></TourTarget>
             ) : undefined
           }
           renderItem={({ item }) =>
             item.kind === "ad" ? (
               <SponsoredCard compact style={styles.adRow} />
+            ) : item.kind === "thin" ? (
+              <BannerSlot thin style={styles.adRow} />
             ) : item.kind === "section" ? (
               <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
                 {item.live ? (
@@ -509,6 +577,7 @@ export default function GamesScreen() {
               colors={colors}
               error={gamesError}
               sport={sport}
+              query={query.trim()}
               onClearFilter={() => setSport(ALL)}
             />
           }
@@ -570,7 +639,7 @@ export default function GamesScreen() {
             onSent: onChallengeSent,
             onFindFriends: () => {
               setPending(null);
-              router.navigate("/(tabs)/friends");
+              router.navigate({ pathname: "/(tabs)/leagues", params: { seg: "friends" } });
             },
           }}
           gameSummary={`${pending.game.awayTeam.abbreviation} @ ${pending.game.homeTeam.abbreviation} · ${pending.game.sport}`}
@@ -638,11 +707,13 @@ function EmptyState({
   colors,
   error,
   sport,
+  query,
   onClearFilter,
 }: {
   colors: ReturnType<typeof useColors>;
   error: string | null;
   sport: string;
+  query: string;
   onClearFilter: () => void;
 }) {
   const filtered = sport !== ALL;
@@ -654,7 +725,13 @@ function EmptyState({
         color={colors.mutedForeground}
       />
       <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-        {error ? "Can't reach the board" : filtered ? `No ${sport} games right now` : "No games on the board"}
+        {error
+          ? "Can't reach the board"
+          : query
+            ? `No games matching "${query}"`
+            : filtered
+              ? `No ${sport} games right now`
+              : "No games on the board"}
       </Text>
       <Text style={[styles.emptyBody, { color: colors.mutedForeground }]}>
         {error
@@ -675,6 +752,9 @@ function EmptyState({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginTop: 6 },
+  searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", padding: 0 },
+  searchToggle: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   header: { borderBottomWidth: 1, paddingBottom: 12 },
   headerRow: {
     flexDirection: "row",
@@ -728,9 +808,3 @@ const styles = StyleSheet.create({
   emptyBtnText: { fontSize: 14, fontFamily: "Inter_800ExtraBold" },
 });
 
-function ago(t: number, now: number): string {
-  const s = Math.max(0, Math.round((now - t) / 1000));
-  if (s < 60) return s < 10 ? "just now" : `${s}s ago`;
-  const m = Math.round(s / 60);
-  return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
-}

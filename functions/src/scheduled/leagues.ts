@@ -1,4 +1,5 @@
-import { onSchedule } from "firebase-functions/v2/scheduler";
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onSchedule } from "../lib/onlineSchedule";
 import { logger } from "firebase-functions";
 import { db } from "../lib/economy";
 import { finalizeLeague, payoutLeague } from "../lib/leagueLifecycle";

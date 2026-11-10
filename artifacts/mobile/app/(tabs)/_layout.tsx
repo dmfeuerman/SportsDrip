@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import { useUnseenCount } from "@/lib/settings";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { Tabs, useSegments } from "expo-router";
+import { router, Tabs, useSegments } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
 import { SymbolView } from "expo-symbols";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -10,13 +10,15 @@ import { Platform, StyleSheet, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { haptic } from "@/lib/motion";
 import { useChallenges } from "@/context/ChallengeContext";
+import { useApp } from "@/context/AppContext";
 import { useChat } from "@/context/ChatContext";
 import { useNotifications } from "@/context/NotificationContext";
+import { useTourState } from "@/lib/tour/store";
 
 const LEAGUE_ACTION = new Set(["loan_request", "loan_countered", "stimulus_request", "margin_call", "league_invite"]);
 const FRIEND_ACTION = new Set(["friend_request"]);
 
-/** Unread obligations per tab: league chat + money asks on Leagues, requests + challenges on Friends. */
+/** Unread obligations per tab. Friends live inside Leagues, so its badge carries chat, money asks, requests and challenges. */
 function useTabBadges(): Partial<Record<string, number>> {
   const { notifications } = useNotifications();
   const { unreadLeagueTokens } = useChat();
@@ -34,9 +36,9 @@ function useTabBadges(): Partial<Record<string, number>> {
     return { leagueIds, friendIds };
   }, [notifications, unreadLeagueTokens, incoming]);
   // A tab's badge counts only what's new since you last opened that tab.
-  const leagues = useUnseenCount("tab.leagues", leagueIds, current === "leagues");
-  const friends = useUnseenCount("tab.friends", friendIds, current === "friends");
-  return { leagues, friends };
+  const all = useMemo(() => [...leagueIds, ...friendIds], [leagueIds, friendIds]);
+  const leagues = useUnseenCount("tab.leagues", all, current === "leagues");
+  return { leagues };
 }
 
 const badgeText = (n?: number) => (n && n > 0 ? (n > 99 ? "99+" : String(n)) : undefined);
@@ -46,9 +48,8 @@ const badgeText = (n?: number) => (n && n > 0 ? (n > 99 ? "99+" : String(n)) : u
  *
  *   Home     where you stand: balance, open bets, results, league ranks, debt
  *   Games    the board, and the bet slip (credits or any league wallet)
- *   Leagues  promoted from a button inside Friends to a first-class tab —
- *            they're the competitive core, not a social afterthought
- *   Friends  people, requests, head-to-heads, league invites
+ *   Leagues  the crew: league chat first, standings a tap away, and a
+ *            Friends segment (people, requests, head-to-heads, invites)
  *   Locker   your character: outfit, appearance, and the shop
  *
  * My Bets, Prizes, Shop and Activity are pushed screens off these (with a real
@@ -60,7 +61,6 @@ const TABS = [
   { name: "index", title: "Home", sf: "house", md: "home-variant-outline" },
   { name: "games", title: "Games", sf: "sportscourt", md: "scoreboard-outline" },
   { name: "leagues", title: "Leagues", sf: "trophy", md: "trophy-outline" },
-  { name: "friends", title: "Friends", sf: "person.2", md: "account-group-outline" },
   { name: "avatar", title: "Locker", sf: "tshirt", md: "tshirt-crew-outline" },
 ] as const;
 
@@ -133,7 +133,38 @@ function ClassicTabLayout() {
   );
 }
 
+/**
+ * Chat is the front door: once per launch, if a league chat has unread
+ * messages when the tabs first settle, open that league on its chat.
+ */
+function useLandOnUnreadChat() {
+  const { unreadLeagueTokens } = useChat();
+  const { tour } = useTourState();
+  // Brand-new players are mid-walkthrough on Home; never pull them away from it.
+  const hasPlayed = useApp().bets.length > 0;
+  const segments = useSegments() as string[];
+  const onHome = segments[0] === "(tabs)" && (segments[1] ?? "index") === "index" && segments.length <= 2;
+  const done = useRef(false);
+  useEffect(() => {
+    // Only in the first few seconds: after that the player has chosen where to be.
+    const t = setTimeout(() => (done.current = true), 6000);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (done.current || tour || !hasPlayed || !onHome || unreadLeagueTokens.length === 0) return;
+    done.current = true;
+    let best = { id: "", at: 0 };
+    for (const tok of unreadLeagueTokens) {
+      const i = tok.lastIndexOf(":");
+      const at = Number(tok.slice(i + 1));
+      if (at > best.at) best = { id: tok.slice(0, i), at };
+    }
+    if (best.id) router.push({ pathname: "/league/[id]", params: { id: best.id, tab: "feed" } });
+  }, [unreadLeagueTokens, tour, onHome, hasPlayed]);
+}
+
 export default function TabLayout() {
+  useLandOnUnreadChat();
   // A detent click whenever the tab changes (native and classic bars alike).
   const tab = useSegments()[1] ?? "index";
   const last = useRef(tab);

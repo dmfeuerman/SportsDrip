@@ -1,6 +1,7 @@
 import { useColorScheme } from "react-native";
 import colors, { RARITY_RAMP, SPORT_COLORS, type Palette } from "@/constants/colors";
 import theme from "@/constants/theme";
+import { useThemeId } from "@/lib/settings";
 
 /**
  * Design tokens for the active colour scheme.
@@ -17,11 +18,14 @@ import theme from "@/constants/theme";
  */
 export function useColors() {
   const scheme = useColorScheme();
-  const palette: Palette = scheme === "light" ? colors.light : colors.dark;
+  const themeId = useThemeId();
+  const set = colors.schemes[themeId] ?? colors;
+  const palette: Palette = scheme === "light" ? set.light : set.dark;
 
   return {
     ...palette,
     radius: colors.radius,
+    themeId,
     isDark: scheme !== "light",
     type: theme.type,
     space: theme.space,

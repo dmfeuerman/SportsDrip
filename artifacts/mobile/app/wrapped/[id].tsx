@@ -1,3 +1,4 @@
+import { useExitBreakpoint } from "@/context/AdsContext";
 import { router, useLocalSearchParams } from "expo-router";
 import { doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
@@ -50,6 +51,7 @@ function storiesFor(w: Wrapped): Story[] {
 
 /** Drip Wrapped in stories format: tap right to advance, left to go back. */
 export default function WrappedScreen() {
+  useExitBreakpoint("wrapped_exit");
   const c = useColors();
   const top = useTopPad();
   const { id } = useLocalSearchParams<{ id: string }>();

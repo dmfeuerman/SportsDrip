@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Redirect, router, Stack, useGlobalSearchParams, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -19,6 +19,12 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import AppWalkthroughModal from "@/components/AppWalkthroughModal";
 import TourHost from "@/components/tour/TourHost";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import HouseLogo, { BRAND } from "@/components/brand/HouseLogo";
+import ConnectionGate from "@/components/ConnectionGate";
+import BootScreen from "@/components/BootScreen";
+import { markBootReady, useBootDone } from "@/lib/bootGate";
+import { useAvatarGate } from "@/hooks/useAvatarGate";
+import { useCatalog } from "@/hooks/useCatalog";
 import { AdsProvider } from "@/context/AdsContext";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -68,11 +74,15 @@ function useReferralLinkCode(): string | null {
 
 function AppShell() {
   const { profile, ready, needsOnboarding } = useApp();
+  const { byId: catalog, loading: catalogLoading } = useCatalog();
+  const avatarReady = useAvatarGate(profile?.avatar, profile?.equipped, catalog, catalogLoading, ready);
   const segments = useSegments();
   const colors = useColors();
   const linkCode = useInviteLinkCode();
   const refCode = useReferralLinkCode();
   const top = segments[0] as string | undefined;
+  // Popups and modals wait for the launch loading screen to leave, or they'd draw over it.
+  const bootDone = useBootDone();
 
   useEffect(() => {
     if (ready && needsOnboarding && linkCode) void savePendingInvite(linkCode, { signedIn: true });
@@ -98,6 +108,11 @@ function AppShell() {
     if (ready) trace("boot", needsOnboarding ? "shell ready (onboarding)" : "shell ready");
   }, [ready, needsOnboarding]);
 
+  // The launch loading screen may leave once what's beneath it is drawn.
+  useEffect(() => {
+    if (ready && (avatarReady || needsOnboarding)) markBootReady();
+  }, [ready, avatarReady, needsOnboarding]);
+
   const signedInUid = profile?.uid ?? null;
   useEffect(() => {
     if (signedInUid) void flushAnalytics();
@@ -110,9 +125,10 @@ function AppShell() {
   }
 
   const uid = profile?.uid ?? null;
-  const inMainApp = !needsOnboarding && top !== "onboarding" && top !== "login" && top !== "legal";
+  const inMainApp = bootDone && !needsOnboarding && top !== "onboarding" && top !== "login" && top !== "legal";
 
   return (
+    <View style={{ flex: 1 }}>
     <LeagueProvider uid={uid}>
       <NotificationProvider uid={uid} promptForPush={false}>
         <ChallengeProvider uid={uid}>
@@ -126,33 +142,37 @@ function AppShell() {
                     <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
                     <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
                     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                    <Stack.Screen name="messages" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="bets" />
-                    <Stack.Screen name="shop" />
-                    <Stack.Screen name="moves" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="levels" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="trophies" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="legal" options={{ animation: "slide_from_bottom" }} />
-                    <Stack.Screen name="customize" options={{ animation: "slide_from_bottom" }} />
-                    <Stack.Screen name="checkout" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="parlay" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="tutorial-league" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="activity" />
-                    <Stack.Screen name="feed" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="challenges" options={{ animation: "slide_from_right" }} />
-                    <Stack.Screen name="league/[id]" />
-                    <Stack.Screen name="game/[id]" options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="messages" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="bets" dangerouslySingular />
+                    <Stack.Screen name="shop" dangerouslySingular />
+                    <Stack.Screen name="moves" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="levels" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="trophies" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="settings" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="legal" dangerouslySingular options={{ animation: "slide_from_bottom" }} />
+                    <Stack.Screen name="customize" dangerouslySingular options={{ animation: "slide_from_bottom" }} />
+                    <Stack.Screen name="checkout" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="parlay" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="tutorial-league" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="activity" dangerouslySingular />
+                    <Stack.Screen name="feed" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="challenges" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="league/[id]" dangerouslySingular />
+                    <Stack.Screen name="game/[id]" dangerouslySingular options={{ animation: "slide_from_right" }} />
+                    <Stack.Screen name="league/[id]/recap" dangerouslySingular />
+                    <Stack.Screen name="wrapped/[id]" dangerouslySingular />
+                    <Stack.Screen name="ladder" dangerouslySingular />
+                    <Stack.Screen name="season" dangerouslySingular />
                   </Stack>
                   <AppWalkthroughModal autoTrigger={inMainApp} />
-                  {uid ? <ResultPopupHost /> : null}
+                  {uid && bootDone ? <ResultPopupHost /> : null}
                   {uid ? <PresenceBeat uid={uid} /> : null}
-                  {uid ? <InviteToastHost /> : null}
-                  {uid ? <EngagementWatchers /> : null}
+                  {uid && bootDone ? <InviteToastHost /> : null}
+                  {uid && bootDone && (avatarReady || needsOnboarding) ? <EngagementWatchers /> : null}
                   {uid && inMainApp ? <LevelUpHost /> : null}
                   {__DEV__ && hasDevFlags && uid && inMainApp ? <DevFlagsRunner uid={uid} /> : null}
                   <ToastHost />
-                  {uid ? <GlobalHosts /> : null}
+                  {uid && bootDone ? <GlobalHosts /> : null}
                   {uid && inMainApp ? <TourHost /> : null}
                   {uid && inMainApp ? <TermsGate /> : null}
                 </ChatProvider>
@@ -163,14 +183,21 @@ function AppShell() {
         </ChallengeProvider>
       </NotificationProvider>
     </LeagueProvider>
+    {/* The app mounts underneath so the avatar can build; the logo stays up until it has. */}
+    {avatarReady || needsOnboarding ? null : (
+      <View style={StyleSheet.absoluteFill}>
+        <Splash />
+      </View>
+    )}
+    </View>
   );
 }
 
 function Splash() {
-  const colors = useColors();
   return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
-      <ActivityIndicator color={colors.primary} />
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: BRAND.deepFelt }}>
+      <HouseLogo size={128} variant="dark" />
+      <ActivityIndicator color={BRAND.gold} style={{ marginTop: 32 }} />
     </View>
   );
 }
@@ -188,6 +215,11 @@ function RootLayoutNav() {
   useEffect(() => {
     if (!loading && firebaseConfigured && !currentUser && refCode) void savePendingReferral(refCode);
   }, [loading, currentUser, refCode]);
+
+  const signedOut = !loading && firebaseConfigured && !currentUser;
+  useEffect(() => {
+    if (signedOut) markBootReady();
+  }, [signedOut]);
 
   if (loading) return <Splash />;
 
@@ -234,6 +266,8 @@ export default function RootLayout() {
           </AuthProvider>
         </QueryClientProvider>
       </ErrorBoundary>
+      <BootScreen />
+      <ConnectionGate />
     </SafeAreaProvider>
   );
 }

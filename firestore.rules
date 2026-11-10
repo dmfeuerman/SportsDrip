@@ -269,6 +269,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Flash picks (makeFlashPick). Server-written; players read their own.
+    match /flashPicks/{pickId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
     // Bet-slip parlays (placeParlay). Server-written.
     match /slipParlays/{parlayId} {
       allow get: if signedIn() &&

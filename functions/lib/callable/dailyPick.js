@@ -4,7 +4,8 @@ exports.placeFreeBet = exports.FREE_BET_STAKE = exports.makeDailyPick = exports.
 exports.chooseDailyPick = chooseDailyPick;
 exports.settleDailyPicksForGame = settleDailyPicksForGame;
 const https_1 = require("firebase-functions/v2/https");
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const firebase_functions_1 = require("firebase-functions");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
@@ -69,7 +70,7 @@ async function chooseDailyPick(now = Date.now()) {
     });
     return day;
 }
-exports.scheduleDailyPick = (0, scheduler_1.onSchedule)({ schedule: "every 60 minutes", region: "us-central1", timeZone: "America/New_York", timeoutSeconds: 120 }, async () => {
+exports.scheduleDailyPick = (0, onlineSchedule_1.onSchedule)({ schedule: "every 60 minutes", region: "us-central1", timeZone: "America/New_York", timeoutSeconds: 120 }, async () => {
     const day = await chooseDailyPick(Date.now());
     if (day)
         firebase_functions_1.logger.info("daily pick ready", { day });

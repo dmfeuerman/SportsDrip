@@ -1,81 +1,21 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { haptic as buzz } from "@/lib/motion";
-import React, { useCallback, useEffect, useState } from "react";
+import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Button, Card } from "@/components/ui";
 import { AD_REWARD_DISPLAY } from "@/constants/ads";
-import { useAds } from "@/context/AdsContext";
-import { useApp } from "@/context/AppContext";
-import { useAdRewardsToday } from "@/hooks/useAdRewardsToday";
 import { useColors } from "@/hooks/useColors";
-import sdk from "@/lib/ads/sdk";
+import { useBonusVideo } from "@/hooks/useBonusVideo";
 
-/**
- * Opt-in rewarded video on the Prize Boxes screen: watch to the end for bonus
- * credits, a few times a day. The video's "earned" event only changes what this
- * card says — the credits are minted by the AdMob SSV callback on the server,
- * and the card confirms once that write shows up in Firestore.
- */
+/** Opt-in rewarded video on Home: watch to the end for bonus credits, a few times a day. */
 export default function BonusVideoCard() {
-  const { enabled } = useAds();
-  if (!sdk || !enabled) return null;
-  return <BonusVideo />;
+  const v = useBonusVideo();
+  if (!v.available) return null;
+  return <BonusVideo v={v} />;
 }
 
-const CONFIRM_TIMEOUT_MS = 20_000;
-
-function BonusVideo() {
+function BonusVideo({ v }: { v: ReturnType<typeof useBonusVideo> }) {
   const c = useColors();
-  const { profile } = useApp();
-  const { rewardedStatus, loadRewarded, showRewarded } = useAds();
-  const used = useAdRewardsToday(profile?.uid);
-  const left = Math.max(0, AD_REWARD_DISPLAY.dailyLimit - (used ?? 0));
-
-  const [crediting, setCrediting] = useState<number | null>(null); // count before the view
-  const [note, setNote] = useState<{ text: string; tone: "ok" | "info" } | null>(null);
-
-  // Warm one video while there's something left to earn.
-  useEffect(() => {
-    if (used !== null && left > 0 && rewardedStatus === "idle") loadRewarded();
-  }, [used, left, rewardedStatus, loadRewarded]);
-
-  // The server's counter moving is the confirmation.
-  useEffect(() => {
-    if (crediting === null || used === null || used <= crediting) return;
-    setCrediting(null);
-    setNote({ text: `+${AD_REWARD_DISPLAY.credits} credits added`, tone: "ok" });
-    buzz.success();
-  }, [used, crediting]);
-
-  useEffect(() => {
-    if (crediting === null) return;
-    const t = setTimeout(() => {
-      setCrediting(null);
-      setNote({ text: "Still confirming with the ad network — your credits will land shortly.", tone: "info" });
-    }, CONFIRM_TIMEOUT_MS);
-    return () => clearTimeout(t);
-  }, [crediting]);
-
-  const watch = useCallback(async () => {
-    setNote(null);
-    const before = used ?? 0;
-    const outcome = await showRewarded();
-    if (outcome === "earned") setCrediting(before);
-    else if (outcome === "dismissed") setNote({ text: "Watch to the end to earn the bonus.", tone: "info" });
-    else setNote({ text: "No video available right now. Try again in a bit.", tone: "info" });
-  }, [used, showRewarded]);
-
-  const done = left === 0 && crediting === null;
-  const button = done
-    ? { label: "Back Tomorrow", disabled: true, loading: false, onPress: undefined }
-    : crediting !== null
-      ? { label: "Adding credits…", disabled: true, loading: true, onPress: undefined }
-      : rewardedStatus === "ready"
-        ? { label: `Watch · +${AD_REWARD_DISPLAY.credits}`, disabled: false, loading: false, onPress: watch }
-        : rewardedStatus === "unavailable"
-          ? { label: "Try Again", disabled: false, loading: false, onPress: loadRewarded }
-          : { label: "Loading video…", disabled: true, loading: rewardedStatus !== "showing", onPress: undefined };
-
+  const { done, left, note, button } = v;
   return (
     <Card tone="money" style={styles.card}>
       <View style={styles.row}>

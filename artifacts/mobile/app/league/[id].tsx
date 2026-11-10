@@ -106,7 +106,10 @@ export default function LeagueDetailScreen() {
   const { leagues, getLeague, uid, error, clearError } = useLeague();
   const league = getLeague(params.id);
   const detail = useLeagueDetail(league);
-  const [tab, setTab] = useState<Tab>(params.tab ?? "standings");
+  const [tab, setTab] = useState<Tab>(
+    // Chat is the front door once a league is running; before it starts, the table carries the invite and preseason cards.
+    params.tab ?? (params.created || !league || !isLeagueStarted(league, Date.now()) ? "standings" : "feed")
+  );
   const seenAt = useChatSeen(league?.id);
 
   const unreadFeed = useMemo(() => {
@@ -225,10 +228,10 @@ export default function LeagueDetailScreen() {
           value={tab}
           onChange={setTab}
           options={[
+            { value: "feed", label: "Chat", badge: unreadFeed || undefined },
             { value: "standings", label: "Table" },
             { value: "bets", label: "Bets" },
             { value: "bank", label: "Loans", badge: pendingRequests || undefined },
-            { value: "feed", label: "Chat", badge: unreadFeed || undefined },
             { value: "info", label: "Info" },
           ]}
         />

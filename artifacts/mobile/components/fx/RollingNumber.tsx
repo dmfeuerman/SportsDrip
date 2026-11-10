@@ -25,7 +25,7 @@ export default function RollingNumber({
   prefix = "",
   duration = 750,
   flash = true,
-  upColor = "#2FE38A",
+  upColor = "#2EE6A6",
   downColor = "#FF4D63",
   accessibilityLabel,
   haptics = flash,

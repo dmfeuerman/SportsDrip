@@ -122,8 +122,7 @@ export default function LockerScreen() {
             {profile?.username ? ` · @${profile.username}` : ""}
           </Text>
         </View>
-        <TokenBalance tokens={balance} />
-        <TourTarget id="locker.cart"><CartButton from="locker" /></TourTarget>
+        <TokenBalance tokens={balance} earn />
         <TourTarget id="locker.help">
         <Pressable
           style={[styles.iconBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
@@ -132,16 +131,6 @@ export default function LockerScreen() {
           accessibilityLabel="Tutorials"
         >
           <MaterialCommunityIcons name="help-circle-outline" size={17} color={c.foreground} />
-        </Pressable>
-        </TourTarget>
-        <TourTarget id="locker.settings">
-        <Pressable
-          style={[styles.iconBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
-          onPress={() => router.push("/settings" as never)}
-          accessibilityRole="button"
-          accessibilityLabel="Settings"
-        >
-          <MaterialCommunityIcons name="cog-outline" size={17} color={c.foreground} />
         </Pressable>
         </TourTarget>
       </View>
@@ -184,6 +173,19 @@ export default function LockerScreen() {
                 setStageMove((m) => ({ id, n: (m?.n ?? 0) + 1 }));
               }}
             />
+          </View>
+          <View pointerEvents="box-none" style={styles.shoulders}>
+            <TourTarget id="locker.cart"><CartButton from="locker" /></TourTarget>
+            <TourTarget id="locker.settings">
+            <Pressable
+              style={[styles.iconBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
+              onPress={() => router.push("/settings" as never)}
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+            >
+              <MaterialCommunityIcons name="cog-outline" size={17} color={c.foreground} />
+            </Pressable>
+            </TourTarget>
           </View>
           <View style={[styles.stageBar, { borderTopColor: c.border }]}>
             <TourTarget id="locker.scene">
@@ -349,6 +351,7 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 14 },
   stage: { borderRadius: 20, borderWidth: 1, overflow: "hidden" },
   floor: { position: "absolute", left: 0, right: 0, bottom: 52, height: 90 },
+  shoulders: { position: "absolute", left: 0, right: 0, top: 28, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 26, zIndex: 5 },
   stageInner: { height: 400, overflow: "hidden" },
   stageBar: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
   quickRow: { flexDirection: "row", gap: 8 },

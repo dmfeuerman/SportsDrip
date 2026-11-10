@@ -1,6 +1,9 @@
-import { onSchedule } from "firebase-functions/v2/scheduler";
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onSchedule } from "../lib/onlineSchedule";
 import { applyResultToRatings, rateRecentFinals } from "../lib/ratings";
 import { settleBracketsForGame } from "../callable/brackets";
+import { settleFlashForGame } from "../callable/flash";
+import { payTailBonus } from "../lib/tailBonus";
 import { recordCoopWins } from "../lib/coop";
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions";
@@ -443,6 +446,9 @@ export async function settleLeagueBetsForGame(gameId: string): Promise<number> {
       if (row) {
         settled++;
         settledRows.push(row);
+        // After the money has committed: the picker who was tailed earns a small bonus.
+        const tailOf = doc.get("tailOf") as string | null | undefined;
+        if (row.outcome === "won" && tailOf) await payTailBonus(row.leagueId, row.betId, tailOf, row.name);
       }
     } catch (err) {
       logger.error("failed to settle league bet", { betId: doc.id, err });
@@ -590,6 +596,18 @@ export const onGameFinal = onDocumentUpdated(
     if (before === "upcoming" && after && after !== "upcoming") {
       const expired = await expirePendingChallenges(gameId);
       if (expired > 0) logger.info("challenges expired at kickoff", { gameId, expired });
+    }
+
+    // Flash picks grade whenever the scoreboard moves, and once more at the final whistle.
+    const d = event.data;
+    const scoreMoved = d?.before.get("homeScore") !== d?.after.get("homeScore") || d?.before.get("awayScore") !== d?.after.get("awayScore");
+    if (before !== "upcoming" && (scoreMoved || (before !== "final" && after === "final"))) {
+      await settleFlashForGame(
+        gameId,
+        (d?.after.get("homeScore") as number | null) ?? null,
+        (d?.after.get("awayScore") as number | null) ?? null,
+        String(after ?? "")
+      ).catch((err) => logger.warn("flash picks failed", { gameId, error: String(err) }));
     }
 
     if (before === "final" || after !== "final") return;

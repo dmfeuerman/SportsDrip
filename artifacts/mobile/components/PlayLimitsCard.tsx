@@ -1,13 +1,22 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { ActionChip, Card } from "@/components/ui";
+import { StyleSheet, Switch, Text, View } from "react-native";
+import { Pressable } from "@/components/fx/Tap";
+import { Card, ChoiceDialog, SegmentedControl } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import * as api from "@/lib/api";
 import { haptic } from "@/lib/motion";
 
-const CAPS: Array<number | null> = [null, 5, 10, 20];
+type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+type Cap = "none" | "5" | "10" | "20";
+
+const CAPS: Array<{ value: Cap; label: string }> = [
+  { value: "none", label: "No limit" },
+  { value: "5", label: "5/day" },
+  { value: "10", label: "10/day" },
+  { value: "20", label: "20/day" },
+];
 
 /** Optional limits: a daily pick cap and "take a break". Enforced on the server. */
 export default function PlayLimitsCard() {
@@ -16,12 +25,10 @@ export default function PlayLimitsCard() {
   const cap = profile?.limits?.dailyPicks ?? null;
   const breakUntil = profile?.limits?.breakUntil ?? 0;
   const onBreak = breakUntil > Date.now();
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [pickBreak, setPickBreak] = useState(false);
 
-  // Instant: the chip flips now, the server saves it after (and undoes it with a toast if it refuses).
+  // Instant: the control flips now, the server saves it after (and undoes it with a toast if it refuses).
   const run = (args: Parameters<typeof api.setPlayLimits>[0]) => {
-    setErr(null);
     const limits = { ...(profile?.limits ?? {}) };
     if ("dailyPicks" in args) limits.dailyPicks = args.dailyPicks ?? null;
     if (args.breakDays) limits.breakUntil = Date.now() + args.breakDays * 86_400_000;
@@ -29,78 +36,125 @@ export default function PlayLimitsCard() {
     haptic.success();
   };
 
+  const sweat = !!profile?.sweatAlerts;
+  const quiet = profile?.quietHours !== false;
+  const taunts = !profile?.muteTaunts;
+
   return (
-    <Card style={{ gap: 10 }} accessibilityLabel="Play limits">
-      <View style={styles.head}>
-        <MaterialCommunityIcons name="timer-sand" size={18} color={c.accent} />
-        <Text style={[styles.title, { color: c.foreground }]}>Alerts & Limits</Text>
-      </View>
-      <Text style={[styles.sub, { color: c.mutedForeground }]}>
-        {onBreak ? `On a break until ${new Date(breakUntil).toLocaleDateString()}.` : `Daily pick limit: ${cap ?? "none"}.`}
-      </Text>
-      <View style={styles.row}>
-        {CAPS.map((v) => (
-          <ActionChip
-            key={String(v)}
-            label={v === null ? "No limit" : `${v}/day`}
-            chevron={false}
-            tone={cap === v ? "accent" : "neutral"}
-            disabled={busy || cap === v}
-            onPress={() => run({ dailyPicks: v })}
-          />
-        ))}
-      </View>
-      {!onBreak ? (
-        <View style={styles.row}>
-          {([1, 7, 30] as const).map((d) => (
-            <ActionChip key={d} label={`Break ${d}d`} icon="pause-circle-outline" chevron={false} disabled={busy} onPress={() => run({ breakDays: d })} />
-          ))}
-        </View>
-      ) : null}
-      <View style={styles.row}>
-        <ActionChip
-          label={profile?.sweatAlerts ? "Live sweat alerts: on" : "Live sweat alerts: off"}
-          icon="fire"
-          chevron={false}
-          tone={profile?.sweatAlerts ? "accent" : "neutral"}
-          disabled={busy}
-          onPress={() => {
-            writeProfile({ sweatAlerts: !profile?.sweatAlerts }, () => api.setAlertPrefs({ sweat: !profile?.sweatAlerts }));
-            haptic.tick();
+    <Card style={styles.card} accessibilityLabel="Alerts and limits">
+      <View style={styles.block}>
+        <Text style={[styles.rowTitle, { color: c.foreground }]}>Daily Pick Limit</Text>
+        <SegmentedControl
+          value={cap === null ? "none" : (String(cap) as Cap)}
+          onChange={(v) => {
+            const next = v === "none" ? null : Number(v);
+            if (next !== cap) run({ dailyPicks: next });
           }}
-        />
-        <ActionChip
-          label={profile?.quietHours === false ? "Quiet hours: off" : "Quiet hours: 11pm–8am"}
-          icon="weather-night"
-          chevron={false}
-          tone={profile?.quietHours === false ? "neutral" : "accent"}
-          disabled={busy}
-          accessibilityLabel={profile?.quietHours === false ? "Turn quiet hours on" : "Turn quiet hours off"}
-          onPress={() => {
-            writeProfile({ quietHours: profile?.quietHours === false }, () => api.setAlertPrefs({ quietHours: profile?.quietHours === false }));
-            haptic.tick();
-          }}
-        />
-        <ActionChip
-          label={profile?.muteTaunts ? "Taunts: muted" : "Taunts: on"}
-          icon="human-handsup"
-          chevron={false}
-          tone={profile?.muteTaunts ? "neutral" : "accent"}
-          disabled={busy}
-          onPress={() => {
-            writeProfile({ muteTaunts: !profile?.muteTaunts }, () => api.setMuteTaunts({ mute: !profile?.muteTaunts }));
-            haptic.tick();
-          }}
+          options={CAPS}
         />
       </View>
-      {err ? <Text style={[styles.sub, { color: c.negative }]}>{err}</Text> : null}
+      <Divider />
+      <Row
+        icon="pause-circle-outline"
+        title="Take a Break"
+        sub={onBreak ? `On a break until ${new Date(breakUntil).toLocaleDateString()}` : "Pause picks for 1, 7 or 30 days"}
+        onPress={onBreak ? undefined : () => setPickBreak(true)}
+      />
+      <Divider />
+      <ToggleRow
+        icon="fire"
+        title="Live Sweat Alerts"
+        sub="Pings when a game you picked swings"
+        value={sweat}
+        onChange={(v) => {
+          writeProfile({ sweatAlerts: v }, () => api.setAlertPrefs({ sweat: v }));
+          haptic.tick();
+        }}
+      />
+      <Divider />
+      <ToggleRow
+        icon="weather-night"
+        title="Quiet Hours"
+        sub="No alerts 11pm–8am"
+        value={quiet}
+        onChange={(v) => {
+          writeProfile({ quietHours: v }, () => api.setAlertPrefs({ quietHours: v }));
+          haptic.tick();
+        }}
+      />
+      <Divider />
+      <ToggleRow
+        icon="human-handsup"
+        title="Taunts"
+        sub="Let friends send you taunts"
+        value={taunts}
+        onChange={(v) => {
+          writeProfile({ muteTaunts: !v }, () => api.setMuteTaunts({ mute: !v }));
+          haptic.tick();
+        }}
+      />
+
+      <ChoiceDialog
+        visible={pickBreak}
+        title="Take a Break?"
+        body="You won't be able to make picks until the break ends."
+        actions={([1, 7, 30] as const).map((d) => ({
+          label: d === 1 ? "1 Day" : `${d} Days`,
+          variant: "secondary" as const,
+          onPress: () => {
+            setPickBreak(false);
+            run({ breakDays: d });
+          },
+        }))}
+        onCancel={() => setPickBreak(false)}
+      />
     </Card>
   );
 }
 
+function Row({ icon, title, sub, onPress }: { icon: Icon; title: string; sub?: string; onPress?: () => void }) {
+  const c = useColors();
+  const body = (
+    <>
+      <MaterialCommunityIcons name={icon} size={20} color={c.primary} />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.rowTitle, { color: c.foreground }]}>{title}</Text>
+        {sub ? <Text style={[styles.rowSub, { color: c.mutedForeground }]}>{sub}</Text> : null}
+      </View>
+      {onPress ? <MaterialCommunityIcons name="chevron-right" size={20} color={c.mutedForeground} /> : null}
+    </>
+  );
+  if (!onPress) return <View style={styles.row}>{body}</View>;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.secondary }]}>
+      {body}
+    </Pressable>
+  );
+}
+
+function ToggleRow({ icon, title, sub, value, onChange }: { icon: Icon; title: string; sub?: string; value: boolean; onChange: (v: boolean) => void }) {
+  const c = useColors();
+  return (
+    <View style={styles.row}>
+      <MaterialCommunityIcons name={icon} size={20} color={c.primary} />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.rowTitle, { color: c.foreground }]}>{title}</Text>
+        {sub ? <Text style={[styles.rowSub, { color: c.mutedForeground }]}>{sub}</Text> : null}
+      </View>
+      <Switch value={value} onValueChange={onChange} trackColor={{ false: c.border, true: c.primary }} accessibilityLabel={title} />
+    </View>
+  );
+}
+
+function Divider() {
+  const c = useColors();
+  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.border, marginLeft: 46 }} />;
+}
+
 const styles = StyleSheet.create({
-  head: { flexDirection: "row", alignItems: "center", gap: 8 },
-  title: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
-  sub: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  card: { padding: 0, overflow: "hidden" },
+  block: { gap: 8, padding: 14 },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 13 },
+  rowTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  rowSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1 },
 });

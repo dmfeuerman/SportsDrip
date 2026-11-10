@@ -1,3 +1,4 @@
+import BannerSlot from "@/components/ads/BannerSlot";
 import { doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
@@ -49,6 +50,7 @@ export default function LadderScreen() {
             {u === profile?.uid ? <Pill label="You" tone="league" /> : null}
           </Card>
         ))}
+        <BannerSlot />
       </ScrollView>
     </View>
   );

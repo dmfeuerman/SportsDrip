@@ -391,6 +391,19 @@ export const repayFriendLoan = callable<
 
 /** Returning-player Prize Box (functions/src/callable/winBack.ts). */
 export const claimWinBackBox = callable<Record<string, never>, { ok: true; credits: number; balance: number | null }>("claimWinBackBox");
+/** Free "who scores next?" call on a live game (functions/src/callable/flash.ts). */
+export const makeFlashPick = callable<{ gameId: string; side: "home" | "away" }, { ok: true; id: string; left: number; leftToday: number }>("makeFlashPick");
+/** Stake credits on adding 7 days to your pick streak (functions/src/callable/streakWager.ts). */
+export interface StreakWagerInfo {
+  stake: number;
+  startCount: number;
+  startDay: string;
+  target: number;
+}
+export const streakWager = callable<
+  { action: "place"; stake: number } | { action: "settle" },
+  { ok: true; state: "active" | "won" | "lost" | "none"; credits?: number; wager?: StreakWagerInfo }
+>("streakWager");
 export const claimTutorialGift = callable<Record<string, never>, { ok: true; credits: number; balance: number | null; already: boolean }>("claimTutorialGift");
 
 export const saveAppearance = callable<

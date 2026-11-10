@@ -84,6 +84,8 @@ export interface Profile {
   equipped: Partial<Record<Slot, string>>;
   stats: UserStats;
   streak?: StreakInfo | null;
+  /** Open streak wager (callable/streakWager.ts). */
+  streakWager?: api.StreakWagerInfo | null;
   /** Pending returning-player Prize Box (functions/src/scheduled/winBack.ts). */
   winBack?: { pending: boolean; stage: number; lastDay: string } | null;
   punishment?: PunishmentInfo | null;

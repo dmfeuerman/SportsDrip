@@ -15,6 +15,7 @@ import {
 import { Pressable } from "@/components/fx/Tap";
 import * as THREE from "three";
 import AvatarSilhouette from "@/components/avatar/AvatarSilhouette";
+import { markAvatarDrawn } from "@/lib/bootSignal";
 import AvatarPortrait from "@/components/avatar/AvatarPortrait";
 import { addStudioLights, AvatarRig, contactShadow, fitDepthRange, type AppearanceParts, type GarmentSource } from "@/lib/avatar3d/avatarRig";
 import { Canvas } from "@/lib/avatar3d/canvas";
@@ -241,6 +242,21 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
   // The stand-in still stays up until the live character has actually drawn.
   const [drawn, setDrawn] = useState(false);
   const onFirstFrame = useRef(() => setDrawn(true)).current;
+
+  // Tell the boot splash the character is on screen as it should look: final body, hair and
+  // every equipped garment. Two frames' grace so the garments that just attached have drawn.
+  const complete = drawn && assets.status === "ready" && assets.garments.length >= outfit.pieces.length;
+  useEffect(() => {
+    if (!complete) return;
+    let b = 0;
+    const a = requestAnimationFrame(() => {
+      b = requestAnimationFrame(markAvatarDrawn);
+    });
+    return () => {
+      cancelAnimationFrame(a);
+      cancelAnimationFrame(b);
+    };
+  }, [complete]);
 
   const topColor = outfit.pieces.find((p) => p.slot === "outerwear" || p.slot === "top")?.primary;
   const bottomColor = outfit.pieces.find((p) => p.slot === "bottom")?.primary;

@@ -12,7 +12,8 @@ import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { setOddsFormat, useOddsFormat } from "@/lib/settings";
+import { setOddsFormat, setThemeId, useOddsFormat } from "@/lib/settings";
+import { SCHEMES, THEME_IDS, themeUnlockLevel } from "@/constants/colors";
 import { openTourMenu } from "@/lib/tour/store";
 import * as api from "@/lib/api";
 import { unblockPlayer, useBlockedUids } from "@/lib/blocks";
@@ -26,7 +27,7 @@ export default function SettingsScreen() {
   const c = useColors();
   const bottom = useBottomPad(false);
   const oddsFormat = useOddsFormat();
-  const { profile } = useApp();
+  const { profile, progress } = useApp();
   const { signOut } = useAuth();
   const { privacyOptionsRequired, openPrivacyOptions } = useAds();
   const [editTeams, setEditTeams] = useState(false);
@@ -75,6 +76,34 @@ export default function SettingsScreen() {
               { value: "american", label: "American (+131)" },
             ]}
           />
+          <Text style={[styles.rowTitle, { color: c.foreground, marginTop: 8 }]}>Theme</Text>
+          <View style={styles.themes}>
+            {THEME_IDS.map((id) => {
+              const p = c.isDark ? SCHEMES[id].dark : SCHEMES[id].light;
+              const on = c.themeId === id;
+              const needs = themeUnlockLevel(id);
+              const locked = progress.level < needs && !on;
+              return (
+                <Pressable
+                  key={id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on, disabled: locked }}
+                  accessibilityLabel={locked ? `${SCHEMES[id].label} theme, unlocks at level ${needs}` : `${SCHEMES[id].label} theme`}
+                  disabled={locked}
+                  onPress={() => setThemeId(id)}
+                  style={[styles.theme, { backgroundColor: p.background, borderColor: on ? c.primary : c.border, borderWidth: on ? 2 : 1, opacity: locked ? 0.55 : 1 }]}
+                >
+                  <View style={styles.themeDots}>
+                    <View style={[styles.themeDot, { backgroundColor: p.primary }]} />
+                    <View style={[styles.themeDot, { backgroundColor: p.accent }]} />
+                    <View style={[styles.themeDot, { backgroundColor: p.positive }]} />
+                  </View>
+                  <View style={[styles.themeBar, { backgroundColor: p.card, borderColor: p.border }]} />
+                  <Text style={[styles.themeLabel, { color: p.foreground }]} numberOfLines={1}>{locked ? `Level ${needs}` : SCHEMES[id].label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </Card>
 
         <SectionHeader title="Alerts & Limits" />
@@ -230,5 +259,11 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 13 },
   rowTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   rowSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1 },
+  themes: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  theme: { width: "31%", flexGrow: 1, borderRadius: 12, padding: 10, gap: 6 },
+  themeDots: { flexDirection: "row", gap: 4 },
+  themeDot: { width: 14, height: 14, borderRadius: 7 },
+  themeBar: { height: 14, borderRadius: 5, borderWidth: 1 },
+  themeLabel: { fontSize: 12, fontFamily: "Inter_700Bold" },
   version: { fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center", marginTop: 4 },
 });

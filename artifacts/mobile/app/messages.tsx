@@ -373,7 +373,7 @@ export default function MessagesScreen() {
               title="No Direct Chats Yet"
               body="Add a friend to start messaging 1-on-1, share picks, and challenge them head-to-head."
               action="Find Friends"
-              onAction={() => router.navigate("/(tabs)/friends")}
+              onAction={() => router.navigate({ pathname: "/(tabs)/leagues", params: { seg: "friends" } })}
             />
           </View>
         ) : (

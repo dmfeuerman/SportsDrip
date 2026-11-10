@@ -16,6 +16,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { firebaseConfigured, getFirebaseAuth } from "@/lib/firebase";
 import { unregisterPush } from "@/lib/push";
+import { clearReminders } from "@/lib/localReminders";
 import { appleCredential, googleCredential, SignInCancelled, signOutSocial } from "@/lib/socialAuth";
 
 /** Web: popup, falling back to a full-page redirect when the browser blocks popups. */
@@ -106,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // While still signed in: detach this phone so the next account on it
     // doesn't receive the previous account's pushes.
     await unregisterPush();
+    await clearReminders();
     await signOutSocial();
     await clearCachedQueries();
     await firebaseSignOut(auth);

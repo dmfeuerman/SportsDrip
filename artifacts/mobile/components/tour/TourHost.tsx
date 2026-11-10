@@ -18,6 +18,7 @@ import * as api from "@/lib/api";
 import { CHARGE_MS } from "@/components/PrizeBox";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import { useCatalog } from "@/hooks/useCatalog";
+import { getFirstPick, setFirstPick } from "@/lib/settings";
 import { FIRST_BET_TOUR, STARTER_ITEMS, STARTER_TOUR } from "@/lib/tour/tours";
 import { nyDayOf } from "@/lib/streakGrid";
 import { useGames } from "@/hooks/useGames";
@@ -25,7 +26,7 @@ import { quoteMarket } from "@/lib/markets";
 import { useToast } from "@/context/ToastContext";
 
 type Rect = { x: number; y: number; w: number; h: number };
-const TABS = ["index", "games", "leagues", "friends", "avatar"];
+const TABS = ["index", "games", "leagues", "avatar"];
 const PAD = 6;
 /** How long a press step waits for its target before offering "Next" so nobody gets stuck. */
 const MISSING_MS = 2500;
@@ -70,7 +71,10 @@ export default function TourHost() {
       if (!STARTER_ITEMS.every((id) => now.owned.has(id))) return startTour(STARTER_TOUR, "/");
       if (p && !p.tutorialGiftAt && neverBet(p, now.betCount)) {
         void tourDone(STARTER_TOUR.id).then((starterRan) => {
-          if (starterRan) startTour(FIRST_BET_TOUR, "/");
+          if (!starterRan) return;
+          // A call made during sign-up is placed for them; otherwise the first-bet tutorial runs.
+          if (getFirstPick()) setAutoBet(true);
+          else startTour(FIRST_BET_TOUR, "/");
         });
       }
     }, 2500);
@@ -86,7 +90,8 @@ export default function TourHost() {
     chained.current = ended.n;
     if (ended.id === FIRST_BET_TOUR.id && !ended.finished && profile && neverBet(profile, ctx.betCount)) setAutoBet(true);
     if (ended.id === STARTER_TOUR.id && STARTER_ITEMS.every((id) => ctx.owned.has(id)) && profile && !profile.tutorialGiftAt && neverBet(profile, ctx.betCount)) {
-      setTimeout(() => startTour(FIRST_BET_TOUR, "/"), 900);
+      if (getFirstPick()) setTimeout(() => setAutoBet(true), 900);
+      else setTimeout(() => startTour(FIRST_BET_TOUR, "/"), 900);
     }
   }, [ended, ctx.owned, ctx.betCount, profile]);
 
@@ -138,9 +143,13 @@ function AutoFirstBet({ run, onDone }: { run: boolean; onDone: () => void }) {
         // Wait for the board and the prize credits to land.
         for (let i = 0; i < 40 && (latest.current.balance < stake || !latest.current.upcoming.length); i++) await wait(250);
         const now = Date.now() + 5 * 60_000;
-        const game = latest.current.upcoming.find((g) => g.priced && !g.disrupted && g.startsAt > now);
+        // The side they called during sign-up, if that game is still open; else the soonest game's favourite.
+        const called = getFirstPick();
+        setFirstPick(null);
+        const calledGame = called ? latest.current.upcoming.find((g) => g.id === called.gameId && g.priced && !g.disrupted && g.startsAt > now) : undefined;
+        const game = calledGame ?? latest.current.upcoming.find((g) => g.priced && !g.disrupted && g.startsAt > now);
         const qs = game ? (["home", "away"] as const).map((sd) => quoteMarket(game, "ml", sd)).filter((q) => q.odds) : [];
-        const q = qs.sort((a, b) => (a.odds ?? 99) - (b.odds ?? 99))[0];
+        const q = (calledGame && called ? qs.find((x) => x.side === called.side) : undefined) ?? qs.sort((a, b) => (a.odds ?? 99) - (b.odds ?? 99))[0];
         const ok =
           !!game && !!q && latest.current.balance >= stake
             ? await placeBet({
@@ -408,6 +417,20 @@ function TourOverlay() {
       ) : (
         <Blocker style={StyleSheet.absoluteFill} />
       )}
+
+      {/* A tab-bar step never depends on the spotlight lining up with the real bar (the native
+          bar's layout varies with tab count and iOS version): tapping the glow opens the tab. */}
+      {pressing && hole && s.target?.startsWith("tab:") ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={s.title}
+          onPress={() => {
+            const name = s.target!.slice(4);
+            router.navigate((name === "index" ? "/(tabs)" : `/(tabs)/${name}`) as never);
+          }}
+          style={[styles.abs, { left: hole.x, top: hole.y, width: hole.w, height: hole.h }]}
+        />
+      ) : null}
 
       {hole && glows.length ? glows.map((g, i) => <Glow key={i} hole={g} color={c.primary} />) : hole ? <Glow hole={hole} color={c.primary} /> : null}
       {pressing && hole && !kb ? <PressHint hole={hole} below={below} color={c.primary} fg={c.primaryForeground} label={s.pressLabel ?? "Press this button"} /> : null}

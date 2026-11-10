@@ -12,10 +12,12 @@ import LevelBar from "@/components/LevelBar";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket from "@/components/BetTicket";
 import DailyPickCard from "@/components/DailyPickCard";
+import FeaturedGameCard, { pickFeatured } from "@/components/FeaturedGameCard";
 import { betNet } from "@/components/BetRecordPanel";
 import FirstWeekChecklist from "@/components/FirstWeekChecklist";
 import LadderPromotionHost from "@/components/LadderPromotionHost";
 import QuestsCard from "@/components/QuestsCard";
+import StreakWagerCard from "@/components/StreakWagerCard";
 import RewardsCard from "@/components/RewardsCard";
 import WinBackCard from "@/components/WinBackCard";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
@@ -42,9 +44,25 @@ import { openTourMenu } from "@/lib/tour/store";
 import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
 
 /**
- * Home: "where do I stand?" answered in one screen. Order follows "now":
- * live stakes, challenges, your team today, leagues, then wallet and boxes.
+ * Home in three zones. Now: what is live, what is next, what you have riding.
+ * Claim: the free bet, prize boxes and quests. Crew: challenges, leagues, the feed.
+ * Results history, record and league detail live on their own screens.
  */
+const NO_SIDES: never[] = [];
+const NO_SIDE_MAP = new Map<string, never[]>();
+
+/** Zone divider: Home reads as three bands, not a stack of twenty cards. */
+function Zone({ title, sub }: { title: string; sub: string }) {
+  const c = useColors();
+  return (
+    <View style={styles.zone} accessibilityRole="header">
+      <Text style={[styles.zoneTitle, { color: c.primary }]}>{title.toUpperCase()}</Text>
+      <Text style={[styles.zoneSub, { color: c.subtleForeground }]} numberOfLines={1}>{sub}</Text>
+      <View style={[styles.zoneRule, { backgroundColor: c.border }]} />
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   const c = useColors();
   const top = useTopPad();
@@ -52,12 +70,13 @@ export default function HomeScreen() {
   const now = useNow(30_000);
 
   const { profile, balance, bets, totalWon, progress, background } = useApp();
+  const hasPlayed = bets.length > 0;
   const [showCard, setShowCard] = useState(false);
   const { nextAfter } = useLevelRewards();
   const onScene = isSceneBackdrop(background);
   const { myLeagueBets, leagues } = useLeague();
   const { summaries, totalDebt } = useLeagueSummaries();
-  const { notifications, unreadCount } = useNotifications();
+  const { notifications } = useNotifications();
   const { unreadChatCount } = useChat();
   const { byId } = useCatalog();
   const { games } = useGames();
@@ -119,6 +138,12 @@ export default function HomeScreen() {
     ...openCredit.map((b) => ({ ...b, key: b.id, wallet: null })),
     ...openLeague.map(({ b, league }) => ({ ...b, key: `lg_${b.id}`, wallet: league })),
   ];
+  // The biggest upcoming game you aren't on yet.
+  const featured = useMemo(() => {
+    const favs = new Set((profile?.favoriteTeams ?? []).map((t) => `${t.sport}:${t.abbr}`));
+    const g = pickFeatured(games.filter((x) => !openGameIds.has(x.id)), NO_SIDE_MAP, favs, now);
+    return g;
+  }, [games, openGameIds, profile?.favoriteTeams, now]);
   const bestLeague = summaries
     .filter((s) => s.me?.rank)
     .sort((a, b) => (a.me!.rank ?? 99) - (b.me!.rank ?? 99))[0];
@@ -153,13 +178,13 @@ export default function HomeScreen() {
               </Text>
               <TourTarget id="home.help"><IconButton icon="help-circle-outline" label="Tutorials" onPress={openTourMenu} /></TourTarget>
               <TourTarget id="home.chat"><IconButton icon="chat-processing-outline" label="Chat" badge={unreadChatCount} onPress={() => router.push("/messages" as never)} /></TourTarget>
-              <TourTarget id="home.activity"><IconButton icon="bell-outline" label="Activity" badge={unreadCount} onPress={() => router.push("/activity")} /></TourTarget>
             </>
           }
         />
 
         </TourTarget>
 
+        <Zone title="Now" sub="Live, next up and what you have riding" />
         {/* The one thing worth doing right now */}
         <TourTarget id="home.next">
         <NextActionCard
@@ -172,14 +197,13 @@ export default function HomeScreen() {
         />
         </TourTarget>
 
-        <WeeklyRecapCard
-          bets={bets}
-          now={now}
-          leagueLine={bestLeague ? `#${bestLeague.me!.rank} of ${bestLeague.memberCount} in ${bestLeague.league.name}` : null}
-        />
+        {/* Live games you have money on */}
+        <LiveSweatCard bets={sweat} gameById={gameById} onOpen={setQuickGame} />
+
+        {/* Game of the Night: one tap opens the bet slip without leaving Home */}
+        {featured ? <FeaturedGameCard game={featured} sides={NO_SIDES} onOpen={(g) => setQuickGame(g.id)} /> : null}
 
         {/* Wallet */}
-        <SectionHeader title="Wallet" icon="wallet-outline" />
         <TourTarget id="home.wallet">
         <Pressable accessibilityRole="button" accessibilityLabel="Open your player card" onPress={() => { buzz.tick(); setShowCard(true); }}>
         <Card style={[styles.wallet, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.28) }]}>
@@ -210,9 +234,6 @@ export default function HomeScreen() {
         </Card>
         </Pressable>
         </TourTarget>
-
-        {/* Live games you have money on */}
-        <LiveSweatCard bets={sweat} gameById={gameById} onOpen={setQuickGame} />
 
         {/* Open bets */}
         <TourTarget id="home.bets">
@@ -245,6 +266,18 @@ export default function HomeScreen() {
         )}
 
 
+        {results.length > 0 ? (
+          <Button label="Results & History" icon="history" variant="ghost" size="sm" onPress={() => router.push("/activity")} />
+        ) : null}
+
+        <Zone title="Claim" sub="Free bet, boxes and quests" />
+        {/* Daily reasons to open the app: free bet, then prize boxes */}
+        <View onLayout={(e) => (sectionY.current.daily = e.nativeEvent.layout.y)}>
+          <TourTarget id="home.daily">
+            <DailyPickCard />
+          </TourTarget>
+        </View>
+
         {/* Prize boxes: start, open and reset right here */}
         <View onLayout={(e) => (sectionY.current.prizes = e.nativeEvent.layout.y)} style={{ gap: 12 }}>
           <TourTarget id="home.prizes" style={{ gap: 12 }}>
@@ -254,6 +287,28 @@ export default function HomeScreen() {
           </TourTarget>
         </View>
 
+        {hasPlayed ? <StreakWagerCard /> : null}
+
+        {/* First-week checklist: compact row, full list opens over the screen */}
+        <FirstWeekChecklist />
+
+        {hasPlayed ? (
+          <>
+            <LadderPromotionHost />
+            <QuestsCard />
+          </>
+        ) : null}
+
+        <WeeklyRecapCard
+          bets={bets}
+          now={now}
+          leagueLine={bestLeague ? `#${bestLeague.me!.rank} of ${bestLeague.memberCount} in ${bestLeague.league.name}` : null}
+        />
+
+        {/* Leagues */}
+        <SponsoredCard compact style={{ marginVertical: 12 }} />
+
+        <Zone title="Crew" sub="Challenges, leagues and what your friends did" />
         {/* Friend challenges: anything waiting on an answer, or riding on a game */}
         {challengeInbox.length + challengesLive.length + challengesSent.length > 0 ? (
           <>
@@ -284,33 +339,6 @@ export default function HomeScreen() {
           </>
         ) : null}
 
-        <SectionHeader title="Today" icon="calendar-today" action="See All" onAction={() => router.push("/bets")} />
-        <FirstWeekChecklist />
-        <LadderPromotionHost />
-        <View onLayout={(e) => (sectionY.current.daily = e.nativeEvent.layout.y)}>
-          <TourTarget id="home.daily">
-            <DailyPickCard />
-          </TourTarget>
-        </View>
-        <QuestsCard />
-
-        {/* Your team plays today */}
-        {teamTonight ? (
-          <Card onPress={() => setQuickGame(teamTonight.game.id)} style={styles.rowCard} accessibilityLabel={`${teamTonight.abbr} plays ${untilKickoff(teamTonight.game.startsAt, now)}`}>
-            <MaterialCommunityIcons name="calendar-star" size={22} color={c.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowTitle, { color: c.foreground }]}>
-                {teamTonight.abbr} {teamTonight.game.status === "live" ? "is live now" : `plays ${untilKickoff(teamTonight.game.startsAt, now)}`}
-              </Text>
-              <Text style={[styles.rowSub, { color: c.mutedForeground }]}>
-                {teamTonight.game.awayTeam.abbreviation} @ {teamTonight.game.homeTeam.abbreviation} · get your pick in
-              </Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={20} color={c.mutedForeground} />
-          </Card>
-        ) : null}
-
-        {/* Leagues */}
         <TourTarget id="home.leagues">
         <SectionHeader title="Your Leagues" action={leagues.length ? "See All" : undefined} onAction={() => router.navigate("/(tabs)/leagues")} />
         </TourTarget>
@@ -353,76 +381,8 @@ export default function HomeScreen() {
 
         <CrewFeedModule />
 
-        {/* Interactive Recent Results */}
-        {results.length > 0 && (
-          <>
-            <SectionHeader title="Recent Results" action="See All" onAction={() => router.push("/activity")} />
-            <Card style={{ padding: 0, overflow: "hidden" }}>
-              {results.map((n, i) => (
-                <ResultRow
-                  key={n.id}
-                  n={n}
-                  last={i === results.length - 1}
-                  onPress={() => {
-                    if (!n.bet) return;
-                    buzz.tick();
-                    const won = n.type === "bet_won" || n.type === "challenge_won";
-                    const lost = n.type === "bet_lost" || n.type === "challenge_lost";
-                    setBreakdown({
-                      id: n.bet.betId,
-                      gameId: n.bet.gameId,
-                      sport: n.bet.sport,
-                      teamName: n.bet.teamName,
-                      teamAbbr: n.bet.teamAbbr,
-                      teamColor: n.bet.teamColor,
-                      opponentAbbr: n.bet.opponentAbbr,
-                      side: n.bet.side,
-                      market: n.type.startsWith("challenge_") ? "challenge" : "ml",
-                      odds: n.bet.odds,
-                      stake: n.bet.stake,
-                      payout: n.bet.payout,
-                      status: won ? "won" : lost ? "lost" : "push",
-                      finalHomeScore: n.bet.finalHomeScore,
-                      finalAwayScore: n.bet.finalAwayScore,
-                      wallet: n.wallet,
-                      leagueId: n.leagueId,
-                      leagueName: n.leagueName,
-                      friendName: n.data?.friendName ?? null,
-                      settledAtMs: n.createdAtMs,
-                    });
-                  }}
-                />
-              ))}
-            </Card>
-          </>
-        )}
-
-        <SponsoredCard />
-
-        {settled.length > 0 && (
-          <View style={styles.record}>
-            {[
-              <Pill key="rec" label={`${wins}–${settled.length - wins} record`} icon="chart-line" />,
-              <Pill key="hit" label={`${Math.round((wins / settled.length) * 100)}% hit rate`} tone="accent" />,
-              <Pill key="net" label={`${net >= 0 ? "+" : ""}${net.toLocaleString()} net`} tone={net > 0 ? "positive" : net < 0 ? "negative" : "neutral"} />,
-              <Pill key="gross" label={`${totalWon.toLocaleString()} won gross`} tone="neutral" />,
-            ].map((pill) => (
-              <Pressable
-                key={pill.key}
-                accessibilityRole="button"
-                accessibilityLabel={`Open your profile stats. ${pill.props.label}`}
-                onPress={() => {
-                  buzz.tick();
-                  router.navigate({ pathname: "/(tabs)/avatar", params: { profile: "1" } });
-                }}
-                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] })}
-              >
-                {pill}
-              </Pressable>
-            ))}
-          </View>
-        )}
         </tourScroll.Provider>
+        <SponsoredCard style={{ marginTop: 12 }} />
       </ScrollView>
       <BetBreakdownModal
         item={breakdown}
@@ -493,6 +453,10 @@ function ResultRow({ n, last, onPress }: { n: AppNotification; last: boolean; on
 }
 
 const styles = StyleSheet.create({
+  zone: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14 },
+  zoneTitle: { fontSize: 12, fontFamily: "Inter_900Black", letterSpacing: 1.6 },
+  zoneSub: { fontSize: 11, fontFamily: "Inter_500Medium", flexShrink: 1 },
+  zoneRule: { flex: 1, height: StyleSheet.hairlineWidth, minWidth: 12 },
   container: { flex: 1 },
   content: { paddingHorizontal: 16, gap: 12 },
   h1: { fontSize: 28, lineHeight: 32, fontFamily: "Inter_900Black", letterSpacing: -1 },

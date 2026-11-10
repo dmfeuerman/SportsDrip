@@ -115,7 +115,10 @@ export type LedgerType =
   | "friend_loan"
   | "win_back"
   | "tutorial_gift"
-  | "birthday_gift";
+  | "birthday_gift"
+  | "flash_pick"
+  | "streak_wager"
+  | "tail_bonus";
 
 export interface LedgerEntry {
   type: LedgerType;

@@ -1,3 +1,5 @@
+import { adAfterRow } from "@/constants/ads";
+import SponsoredCard from "@/components/ads/SponsoredCard";
 import { router, useLocalSearchParams } from "expo-router";
 import { useUnseenCount } from "@/lib/settings";
 import React, { useMemo, useState } from "react";
@@ -119,7 +121,8 @@ export default function MyBetsScreen() {
         showsVerticalScrollIndicator={false}
         initialNumToRender={10}
         windowSize={7}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
+          <>
           <BetTicket
             bet={item.bet}
             walletLabel={item.wallet ?? undefined}
@@ -166,6 +169,8 @@ export default function MyBetsScreen() {
                 : undefined
             }
           />
+            {adAfterRow(index) ? <SponsoredCard compact style={{ marginBottom: 10 }} /> : null}
+          </>
         )}
         ListHeaderComponent={
           wallet === "all" || wallet === "credits" ? (

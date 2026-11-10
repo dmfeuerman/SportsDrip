@@ -1,3 +1,4 @@
+import { useExitBreakpoint } from "@/context/AdsContext";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
@@ -23,6 +24,7 @@ const CARD_META: Record<
 };
 
 export default function LeagueRecapScreen() {
+  useExitBreakpoint("recap_exit");
   const c = useColors();
   const bottom = useBottomPad(false);
   const params = useLocalSearchParams<{ id: string; week?: string }>();

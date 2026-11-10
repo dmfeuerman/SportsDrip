@@ -2,7 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.weeklyLiveOps = void 0;
 exports.runLiveOps = runLiveOps;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const weekly_1 = require("../lib/weekly");
@@ -70,7 +71,7 @@ async function runLiveOps(now = Date.now()) {
     firebase_functions_1.logger.info("liveOps run", { week, ...out });
     return out;
 }
-exports.weeklyLiveOps = (0, scheduler_1.onSchedule)({ schedule: "5 0 * * 1", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 300 }, async () => {
+exports.weeklyLiveOps = (0, onlineSchedule_1.onSchedule)({ schedule: "5 0 * * 1", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 300 }, async () => {
     await runLiveOps();
 });
 //# sourceMappingURL=liveOps.js.map

@@ -37,7 +37,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { useCart } from "@/context/CartContext";
 import { useCartItems } from "@/hooks/useCartItems";
-import { useCatalog } from "@/hooks/useCatalog";
+import { storeOrder, useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { applyEquip } from "@/lib/avatar3d/avatarRules";
 import type { Focus } from "@/lib/avatar3d/spec";
@@ -518,7 +518,7 @@ function SlotGrid({
   const list = useMemo(() => {
     const ownedHere = [...owned].map((id) => byId.get(id)).filter((i): i is CatalogItem => !!i && i.slot === slot);
     const store = items.filter((i) => i.slot === slot && !owned.has(i.id));
-    return [...ownedHere.sort((a, b) => a.price - b.price), ...store];
+    return [...ownedHere.sort(storeOrder), ...store];
   }, [items, byId, owned, slot]);
   const current = equipped[slot] ?? null;
   const w = `${100 / cols}%` as const;
@@ -575,6 +575,10 @@ function SlotGrid({
                       <MaterialCommunityIcons name="check" size={12} color={c.primaryForeground} />
                     </View>
                   ) : null
+                ) : item.levelReward ? (
+                  <View style={[styles.price, { backgroundColor: c.league }]}>
+                    <Text style={[styles.priceText, { color: "#FFFFFF" }]}>{`LV ${item.levelReward}`}</Text>
+                  </View>
                 ) : (
                   <View style={[styles.price, { backgroundColor: c.secondary }]}>
                     <MaterialCommunityIcons name="lock" size={10} color={c.mutedForeground} />

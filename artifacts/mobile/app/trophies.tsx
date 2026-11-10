@@ -1,3 +1,5 @@
+import { useExitBreakpoint } from "@/context/AdsContext";
+import BannerSlot from "@/components/ads/BannerSlot";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -63,6 +65,7 @@ function leaguePiece(t: TrophyItem, i: number): Piece {
  * ones shown as dark silhouettes that say how to earn them.
  */
 export default function TrophiesScreen() {
+  useExitBreakpoint("trophies_exit");
   const c = useColors();
   const bottom = useBottomPad(false);
   const { trophies, profile, writeProfile } = useApp();
@@ -165,6 +168,7 @@ export default function TrophiesScreen() {
             />
           </View>
         </LinearGradient>
+        <BannerSlot />
       </ScrollView>
 
       <Modal visible={!!open} transparent animationType="none" onRequestClose={() => setOpen(null)} statusBarTranslucent>

@@ -1,3 +1,4 @@
+import SponsoredCard from "@/components/ads/SponsoredCard";
 import BackToLevels from "@/components/BackToLevels";
 import { TourTarget } from "@/components/tour/TourTarget";
 import { tourEvent, tourPractice } from "@/lib/tour/store";
@@ -8,7 +9,10 @@ import React, { useEffect, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import CreateLeagueModal from "@/components/CreateLeagueModal";
 import JoinLeagueSheet from "@/components/JoinLeagueSheet";
-import { Amount, Button, Card, EmptyState, ErrorBanner, Pill, ScreenHeader, SectionHeader, useBottomPad } from "@/components/ui";
+import FriendsPanel from "@/components/FriendsPanel";
+import { useChallenges } from "@/context/ChallengeContext";
+import { useNotifications } from "@/context/NotificationContext";
+import { Amount, Button, Card, EmptyState, ErrorBanner, Pill, ScreenHeader, SectionHeader, SegmentedControl, useBottomPad } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useLeague, useLeagueSummaries, type LeagueSummary } from "@/context/LeagueContext";
 import { useColors } from "@/hooks/useColors";
@@ -24,8 +28,17 @@ import { useLatestActivity } from "@/hooks/useLatestActivity";
 export default function LeaguesScreen() {
   const c = useColors();
   const bottom = useBottomPad();
-  const params = useLocalSearchParams<{ create?: string; join?: string; code?: string; via?: string; t?: string }>();
+  const params = useLocalSearchParams<{ create?: string; join?: string; code?: string; via?: string; t?: string; seg?: string; open?: string }>();
   const { balance } = useApp();
+  // Counted from notifications already in memory: no extra friends listener while the Leagues segment is showing.
+  const { notifications } = useNotifications();
+  const friendRequests = notifications.filter((n) => !n.read && n.type === "friend_request");
+  const { incoming: challengeInbox } = useChallenges();
+  const [seg, setSeg] = useState<"leagues" | "friends">(params.seg === "friends" || params.open ? "friends" : "leagues");
+  const pickSeg = (v: "leagues" | "friends") => {
+    setSeg(v);
+    if (v === "friends") tourEvent("leagues:friends");
+  };
   const { leagues, createLeague, joinLeague, error, clearError, ready } = useLeague();
   const { summaries } = useLeagueSummaries();
   const latest = useLatestActivity(leagues.filter((l) => l.status === "active").map((l) => l.id));
@@ -36,7 +49,9 @@ export default function LeaguesScreen() {
   useEffect(() => {
     if (params.create) setShowCreate(true);
     if (params.join || params.code) setShowJoin(true);
-  }, [params.create, params.join, params.code, params.t]);
+    if (params.create || params.join || params.code) setSeg("leagues");
+    else if (params.seg === "friends" || params.open) setSeg("friends");
+  }, [params.create, params.join, params.code, params.t, params.seg, params.open]);
 
   const active = summaries.filter((s) => !s.closed);
   const closed = summaries.filter((s) => s.closed);
@@ -51,22 +66,35 @@ export default function LeaguesScreen() {
     <View style={[styles.container, { backgroundColor: c.background }]}>
       <ScreenHeader
         leading={<BackToLevels />}
-        title="Leagues"
-        subtitle={active.length ? `${active.length} running` : "Season-long competitions with friends"}
-        right={
+        title={seg === "friends" ? "Friends" : "Leagues"}
+        subtitle={seg === "friends" ? "Your crew, chats and challenges" : active.length ? `${active.length} running` : "Season-long competitions with friends"}
+        right={seg === "friends" ? undefined : (
           <>
             <TourTarget id="leagues.join"><Button label="Join" size="sm" variant="secondary" icon="key-variant" onPress={() => setShowJoin(true)} /></TourTarget>
             <TourTarget id="leagues.new"><Button label="New" size="sm" icon="plus" onPress={() => setShowCreate(true)} /></TourTarget>
           </>
-        }
-      />
+        )}
+      >
+        <TourTarget id="leagues.seg">
+          <SegmentedControl
+            value={seg}
+            onChange={pickSeg}
+            options={[
+              { value: "leagues", label: "Leagues" },
+              { value: "friends", label: "Friends", badge: friendRequests.length + challengeInbox.length || undefined },
+            ]}
+          />
+        </TourTarget>
+      </ScreenHeader>
       <ErrorBanner message={error} onDismiss={clearError} />
 
+      {seg === "friends" ? <FriendsPanel embedded /> : (
       <FlatList
         data={rows}
         keyExtractor={(r, i) => (r.kind === "league" ? r.s.league.id : `h${i}`)}
         contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
         showsVerticalScrollIndicator={false}
+        ListFooterComponent={rows.length ? <SponsoredCard compact style={{ marginVertical: 12 }} /> : undefined}
         renderItem={({ item, index }) =>
           item.kind === "header" ? (
             index === 0 ? <TourTarget id="leagues.list"><SectionHeader title={item.title} /></TourTarget> : <SectionHeader title={item.title} />
@@ -106,6 +134,7 @@ export default function LeaguesScreen() {
           ) : undefined
         }
       />
+      )}
 
       <CreateLeagueModal
         visible={showCreate}

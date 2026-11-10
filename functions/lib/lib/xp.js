@@ -62,8 +62,9 @@ async function grantXp(uid, amount, key, reason) {
         const before = user.get("xp") ?? 0;
         if (ev.exists)
             return none(before);
-        const after = before + Math.floor(amount);
         const oldLevel = (0, progression_1.levelFromXp)(before);
+        amount = (0, progression_1.scaledXp)(Math.floor(amount), oldLevel);
+        const after = before + amount;
         const newLevel = (0, progression_1.levelFromXp)(after);
         // ── reads (all before the first write) ──
         const crossed = [];

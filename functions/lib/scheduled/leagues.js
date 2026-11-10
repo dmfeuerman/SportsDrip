@@ -2,7 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.leagueSweep = void 0;
 exports.sweepLeagues = sweepLeagues;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const leagueLifecycle_1 = require("../lib/leagueLifecycle");
@@ -39,7 +40,7 @@ async function sweepLeagues(now) {
     await (0, awards_1.expirePunishments)(now);
     return { ended, paid };
 }
-exports.leagueSweep = (0, scheduler_1.onSchedule)({ schedule: "every 60 minutes", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.leagueSweep = (0, onlineSchedule_1.onSchedule)({ schedule: "every 60 minutes", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const r = await sweepLeagues(Date.now());
     if (r.ended || r.paid)
         firebase_functions_1.logger.info("leagueSweep", r);

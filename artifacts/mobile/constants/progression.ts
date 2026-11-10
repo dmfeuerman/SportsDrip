@@ -80,6 +80,20 @@ export const XP = {
 } as const;
 
 /**
+ * XP rewards grow with your level: every level you complete raises what each
+ * action is worth by 10% of its base (level 1 = 1x, level 11 = 2x).
+ */
+export function xpMultiplier(level: number): number {
+  const l = Math.max(1, Math.min(MAX_LEVEL, Math.floor(level)));
+  return 1 + 0.1 * (l - 1);
+}
+
+/** Base XP scaled to the player's current level. */
+export function scaledXp(base: number, level: number): number {
+  return base > 0 ? Math.round(base * xpMultiplier(level)) : 0;
+}
+
+/**
  * XP for a ledger row (users/{uid}/ledger/*). Stakes and refunds earn nothing,
  * so placing and cancelling a bet can't farm levels.
  */

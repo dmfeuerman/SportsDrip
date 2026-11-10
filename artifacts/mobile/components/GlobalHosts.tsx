@@ -5,6 +5,8 @@ import SyncFailureToaster from "@/components/SyncFailureToaster";
 import ParlaySlip from "@/components/ParlaySlip";
 import ParlayLeaveGuard from "@/components/ParlayLeaveGuard";
 import KickoffSheet from "@/components/KickoffSheet";
+import CreditsEarnedPopup from "@/components/ads/CreditsEarnedPopup";
+import XpGainPopup from "@/components/XpGainPopup";
 
 /**
  * App-wide overlays and background helpers for a signed-in player. Kept out
@@ -20,6 +22,8 @@ export default function GlobalHosts() {
       <ParlaySlip />
       <ParlayLeaveGuard />
       <KickoffSheet />
+      <CreditsEarnedPopup />
+      <XpGainPopup />
     </>
   );
 }

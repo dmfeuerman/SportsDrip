@@ -287,7 +287,7 @@ export default function ShopScreen() {
           </View>
           <View style={styles.headerActions}>
             <TourTarget id="shop.cart"><CartButton from="shop" /></TourTarget>
-            <TourTarget id="shop.balance"><TokenBalance tokens={balance} /></TourTarget>
+            <TourTarget id="shop.balance"><TokenBalance tokens={balance} earn /></TourTarget>
           </View>
         </View>
 

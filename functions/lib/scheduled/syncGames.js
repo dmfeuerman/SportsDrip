@@ -6,7 +6,8 @@ exports.writeChangedGames = writeChangedGames;
 exports.liveGamesWithStakes = liveGamesWithStakes;
 exports.refreshLiveGames = refreshLiveGames;
 const node_crypto_1 = require("node:crypto");
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const ratings_1 = require("../lib/ratings");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
@@ -155,7 +156,7 @@ async function writeChangedGames(games, prune, now = Date.now()) {
  * Tightened to a 1-minute schedule so games within 30 minutes of kickoff carry
  * fresh prices.
  */
-exports.syncGames = (0, scheduler_1.onSchedule)({ schedule: "*/1 * * * *", region: "us-central1", timeoutSeconds: 120, retryCount: 1 }, async () => {
+exports.syncGames = (0, onlineSchedule_1.onSchedule)({ schedule: "*/1 * * * *", region: "us-central1", timeoutSeconds: 120, retryCount: 1 }, async () => {
     const fetched = await (0, sportsProvider_1.fetchGames)();
     const failures = fetched.failures;
     // Unpriced upcoming games get the shared model line (same for every user).
@@ -208,7 +209,7 @@ async function expireMissing(seen) {
     return n;
 }
 /** Sweeps games that finished more than 48h ago. */
-exports.pruneGames = (0, scheduler_1.onSchedule)({ schedule: "0 5 * * *", region: "us-central1", timeoutSeconds: 300 }, async () => {
+exports.pruneGames = (0, onlineSchedule_1.onSchedule)({ schedule: "0 5 * * *", region: "us-central1", timeoutSeconds: 300 }, async () => {
     const cutoff = Date.now() - 48 * 3_600_000;
     const stale = await economy_1.db
         .collection("games")
@@ -240,16 +241,17 @@ exports.pruneGames = (0, scheduler_1.onSchedule)({ schedule: "0 5 * * *", region
     await batch.commit();
     firebase_functions_1.logger.info("pruneGames", { deleted });
 });
-/** Live games someone has money on: a sweat doc, a pending global bet, or a pending league bet. */
+/** Live games someone has something riding on: a sweat doc, a pending global bet, a pending league bet, or an open flash pick. */
 async function liveGamesWithStakes() {
     const live = await economy_1.db.collection("games").where("status", "==", "live").limit(200).get();
     const checks = await Promise.all(live.docs.map(async (g) => {
-        const [sweat, bet, leagueBet] = await Promise.all([
+        const [sweat, bet, leagueBet, flash] = await Promise.all([
             economy_1.db.collection("sweat").doc(g.id).get(),
             economy_1.db.collection("bets").where("gameId", "==", g.id).where("status", "==", "pending").limit(1).get(),
             economy_1.db.collectionGroup("leagueBets").where("gameId", "==", g.id).where("status", "==", "pending").limit(1).get(),
+            economy_1.db.collection("flashPicks").where("gameId", "==", g.id).where("status", "==", "pending").limit(1).get(),
         ]);
-        return sweat.exists || !bet.empty || !leagueBet.empty ? { id: g.id, sport: g.get("sport") } : null;
+        return sweat.exists || !bet.empty || !leagueBet.empty || !flash.empty ? { id: g.id, sport: g.get("sport") } : null;
     }));
     return checks.filter((x) => !!x);
 }
@@ -275,7 +277,7 @@ async function refreshLiveGames() {
  * refreshes twice, ~30 s apart (offset from syncGames' own pass). Cost scales
  * with staked live games, not users; a quiet slate does one cheap query.
  */
-exports.syncLiveGames = (0, scheduler_1.onSchedule)({ schedule: "*/1 * * * *", region: "us-central1", timeoutSeconds: 90, retryCount: 0 }, async () => {
+exports.syncLiveGames = (0, onlineSchedule_1.onSchedule)({ schedule: "*/1 * * * *", region: "us-central1", timeoutSeconds: 90, retryCount: 0 }, async () => {
     await new Promise((r) => setTimeout(r, 15_000));
     const a = await refreshLiveGames().catch((err) => (firebase_functions_1.logger.warn("live refresh failed", { error: String(err) }), 0));
     await new Promise((r) => setTimeout(r, 30_000));

@@ -694,6 +694,7 @@ export function FilterPills<T extends string>({
   value,
   onChange,
   inset = 16,
+  gap = 8,
   style,
 }: {
   options: Array<{ value: T; label: string; icon?: IconName; color?: string; badge?: number }>;
@@ -701,6 +702,8 @@ export function FilterPills<T extends string>({
   onChange: (v: T) => void;
   /** Horizontal padding at the ends of the row. */
   inset?: number;
+  /** Space between pills. */
+  gap?: number;
   style?: StyleProp<ViewStyle>;
 }) {
   const c = useColors();
@@ -709,7 +712,7 @@ export function FilterPills<T extends string>({
       horizontal
       showsHorizontalScrollIndicator={false}
       style={style}
-      contentContainerStyle={[styles.pillsRow, { paddingHorizontal: inset }]}
+      contentContainerStyle={[styles.pillsRow, { paddingHorizontal: inset, gap }]}
     >
       {options.map((o) => {
         const on = o.value === value;

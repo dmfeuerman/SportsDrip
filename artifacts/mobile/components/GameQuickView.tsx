@@ -345,7 +345,7 @@ export default function GameQuickView({
                     setPending(null);
                     onClose();
                     onLeave?.();
-                    router.navigate("/(tabs)/friends");
+                    router.navigate({ pathname: "/(tabs)/leagues", params: { seg: "friends" } });
                   },
                 }
           }

@@ -2,7 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.yearWrapped = void 0;
 exports.runYearWrapped = runYearWrapped;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
 const wrapped_1 = require("../lib/wrapped");
@@ -31,7 +32,7 @@ async function runYearWrapped(year, now = Date.now()) {
     }
     return n;
 }
-exports.yearWrapped = (0, scheduler_1.onSchedule)({ schedule: "0 9 1 12 *", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540, memory: "1GiB" }, async () => {
+exports.yearWrapped = (0, onlineSchedule_1.onSchedule)({ schedule: "0 9 1 12 *", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540, memory: "1GiB" }, async () => {
     const year = new Date().getUTCFullYear();
     const n = await runYearWrapped(year);
     firebase_functions_1.logger.info("yearWrapped", { year, n });

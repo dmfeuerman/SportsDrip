@@ -5,7 +5,8 @@ exports.generateTuesdayReport = generateTuesdayReport;
 exports.closeMatchups = closeMatchups;
 exports.openWeekMatchups = openWeekMatchups;
 exports.sweepMissedSurvivorWeek = sweepMissedSurvivorWeek;
-const scheduler_1 = require("firebase-functions/v2/scheduler");
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+const onlineSchedule_1 = require("../lib/onlineSchedule");
 const widgetRefresh_1 = require("../lib/widgetRefresh");
 const firebase_functions_1 = require("firebase-functions");
 const economy_1 = require("../lib/economy");
@@ -299,7 +300,7 @@ async function sweepMissedSurvivorWeek(leagueId, completedWeek, now = Date.now()
         return knockedOut;
     });
 }
-exports.tuesdayLeagueReport = (0, scheduler_1.onSchedule)({ schedule: "0 9 * * 2", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.tuesdayLeagueReport = (0, onlineSchedule_1.onSchedule)({ schedule: "0 9 * * 2", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const now = Date.now();
     const active = await economy_1.db.collection("leagues").where("status", "==", "active").limit(200).get();
     let count = 0;
@@ -323,7 +324,7 @@ exports.tuesdayLeagueReport = (0, scheduler_1.onSchedule)({ schedule: "0 9 * * 2
  * it's over, and opens the next on its first day (Mondays for weekly leagues,
  * Mondays and Thursdays for twice-weekly, every day for daily).
  */
-exports.leagueMatchupJobs = (0, scheduler_1.onSchedule)({ schedule: "0 9 * * *", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.leagueMatchupJobs = (0, onlineSchedule_1.onSchedule)({ schedule: "0 9 * * *", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const now = Date.now();
     const active = await economy_1.db.collection("leagues").where("status", "==", "active").limit(500).get();
     for (const d of active.docs) {
@@ -349,7 +350,7 @@ exports.leagueMatchupJobs = (0, scheduler_1.onSchedule)({ schedule: "0 9 * * *",
         }
     }
 });
-exports.mondayLeagueJobs = (0, scheduler_1.onSchedule)({ schedule: "0 9 * * 1", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.mondayLeagueJobs = (0, onlineSchedule_1.onSchedule)({ schedule: "0 9 * * 1", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const now = Date.now();
     const prevWeek = (0, weekly_1.weekKey)(now - 2 * 86_400_000);
     const active = await economy_1.db.collection("leagues").where("status", "==", "active").limit(200).get();

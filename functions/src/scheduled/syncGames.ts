@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { onSchedule } from "firebase-functions/v2/scheduler";
+// import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onSchedule } from "../lib/onlineSchedule";
 import { withModelPrices } from "../lib/ratings";
 import { logger } from "firebase-functions";
 import { db, FieldValue } from "../lib/economy";
@@ -264,17 +265,18 @@ export const pruneGames = onSchedule(
   }
 );
 
-/** Live games someone has money on: a sweat doc, a pending global bet, or a pending league bet. */
+/** Live games someone has something riding on: a sweat doc, a pending global bet, a pending league bet, or an open flash pick. */
 export async function liveGamesWithStakes(): Promise<Array<{ id: string; sport: Sport }>> {
   const live = await db.collection("games").where("status", "==", "live").limit(200).get();
   const checks = await Promise.all(
     live.docs.map(async (g) => {
-      const [sweat, bet, leagueBet] = await Promise.all([
+      const [sweat, bet, leagueBet, flash] = await Promise.all([
         db.collection("sweat").doc(g.id).get(),
         db.collection("bets").where("gameId", "==", g.id).where("status", "==", "pending").limit(1).get(),
         db.collectionGroup("leagueBets").where("gameId", "==", g.id).where("status", "==", "pending").limit(1).get(),
+        db.collection("flashPicks").where("gameId", "==", g.id).where("status", "==", "pending").limit(1).get(),
       ]);
-      return sweat.exists || !bet.empty || !leagueBet.empty ? { id: g.id, sport: g.get("sport") as Sport } : null;
+      return sweat.exists || !bet.empty || !leagueBet.empty || !flash.empty ? { id: g.id, sport: g.get("sport") as Sport } : null;
     })
   );
   return checks.filter((x): x is { id: string; sport: Sport } => !!x);
