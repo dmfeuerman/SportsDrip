@@ -20,6 +20,7 @@ interface Ask {
 let waiting: Ask[] = [];
 let active: string | null = null;
 let cooling = false;
+let coolingTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
@@ -38,6 +39,30 @@ function ask(id: string, priority: number) {
   emit();
 }
 
+/**
+ * Immediately claims the active overlay slot for a user-initiated modal
+ * (such as opening a Prize Box / SpinWheel or Streak Wager popup) so background
+ * watchers (XpGainPopup, LevelUpHost, etc.) queue behind it instead of
+ * mounting a second iOS Modal while it is open or dismissing.
+ */
+function holdImmediate(id: string, priority: number) {
+  waiting = waiting.filter((w) => w.id !== id);
+  if (active === id) return;
+  if (coolingTimer) {
+    clearTimeout(coolingTimer);
+    coolingTimer = null;
+    cooling = false;
+  }
+  if (active && active !== id) {
+    // Re-queue the interrupted background overlay so it resumes after this modal closes.
+    if (!waiting.some((w) => w.id === active)) {
+      waiting.push({ id: active, priority: 0, at: Date.now() });
+    }
+  }
+  active = id;
+  emit();
+}
+
 function release(id: string) {
   const before = waiting.length;
   waiting = waiting.filter((w) => w.id !== id);
@@ -45,7 +70,9 @@ function release(id: string) {
     active = null;
     cooling = true;
     emit();
-    setTimeout(() => {
+    if (coolingTimer) clearTimeout(coolingTimer);
+    coolingTimer = setTimeout(() => {
+      coolingTimer = null;
       cooling = false;
       advance();
       emit();
@@ -74,10 +101,28 @@ export function useOverlayTurn(id: string, wants: boolean, priority = 0): boolea
   return useSyncExternalStore(subscribe, () => active === id, () => false);
 }
 
+/**
+ * Holds the overlay lock for a directly opened modal (e.g. SpinWheel) and
+ * enforces the GAP_MS cooldown when it closes so queued modals (XpGain, LevelUp)
+ * never overlap with it on iOS.
+ */
+export function useHoldOverlay(id: string, open: boolean, priority = 40): void {
+  useEffect(() => {
+    if (!open) return;
+    holdImmediate(id, priority);
+    return () => release(id);
+  }, [id, open, priority]);
+}
+
 /** True while any full-screen moment is up or about to be (toasts wait for it). */
 export function useOverlayBusy(): boolean {
   return useSyncExternalStore(subscribe, () => active !== null || cooling, () => false);
 }
 
+/** Synchronous check for imperative callers (e.g. ad breakpoints) so fullscreen ads don't collide with modals. */
+export function isOverlayBusy(): boolean {
+  return active !== null || cooling || waiting.length > 0;
+}
+
 /** Priorities: what the player just earned first. */
-export const OVERLAY = { results: 30, creditsEarned: 26, xpGain: 24, levelUp: 20, ladder: 10, walkthrough: 0 } as const;
+export const OVERLAY = { prizeWheel: 40, streakWager: 35, results: 30, creditsEarned: 26, xpGain: 24, levelUp: 20, ladder: 10, walkthrough: 0 } as const;

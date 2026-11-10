@@ -18,6 +18,7 @@ import Shimmer from "@/components/fx/Shimmer";
 import MemberAvatar from "@/components/MemberAvatar";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
 import ReportDialog, { type ReportTarget } from "@/components/ReportDialog";
+import ReactionRow from "@/components/chat/ReactionRow";
 import BetChatCard from "@/components/chat/BetChatCard";
 import BracketFill from "@/components/BracketFill";
 import CoopGoalCard from "@/components/CoopGoalCard";
@@ -1823,6 +1824,34 @@ function PeerMarket({ league, loans, uid, tokens }: { league: League; loans: Lea
 
 // ── Unified Chat & Activity Feed (Newest at Bottom + Fixed Bottom Input) ───
 
+function formatChatClock(at: number): string {
+  return new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function chatDayKey(at: number): string {
+  const d = new Date(at);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function formatChatDayPill(at: number): string {
+  const d = new Date(at);
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+  const yest = new Date(now.getTime() - 86_400_000);
+  const yestKey = `${yest.getFullYear()}-${yest.getMonth()}-${yest.getDate()}`;
+  const key = chatDayKey(at);
+  if (key === todayKey) return "Today";
+  if (key === yestKey) return "Yesterday";
+  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
+const CHAT_NAME_COLORS = ["#FF7A1A", "#2EE6A6", "#4C9BFF", "#B97BFF", "#FFC23D", "#FF5C8A"];
+function chatSenderColor(senderUid: string): string {
+  let h = 0;
+  for (let i = 0; i < senderUid.length; i++) h = (h * 31 + senderUid.charCodeAt(i)) | 0;
+  return CHAT_NAME_COLORS[Math.abs(h) % CHAT_NAME_COLORS.length]!;
+}
+
 function FeedTab({
   league,
   activity,
@@ -1851,6 +1880,7 @@ function FeedTab({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [replyQuote, setReplyQuote] = useState<ReplyQuote | null>(null);
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState<string | null>(null);
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [profileUid, setProfileUid] = useState<string | null>(null);
   const [quickGame, setQuickGame] = useState<string | null>(null);
@@ -1886,6 +1916,7 @@ function FeedTab({
     setSending(true);
     buzz.light();
     setSendErr(null);
+    setActiveMenuMsgId(null);
     const quote = replyQuote
       ? (Object.fromEntries(Object.entries(replyQuote).filter(([, v]) => v !== undefined)) as ReplyQuote)
       : null;
@@ -1902,45 +1933,356 @@ function FeedTab({
     }
   };
 
+  const outgoingBubbleBg = "#007AFF";
+  const incomingBubbleBg = c.isDark ? "#1C1E26" : "#E9E9EB";
+  const chatWallpaperBg = c.isDark ? "#090A0F" : "#F2F2F7";
+
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: chatWallpaperBg }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={[styles.body, { flexGrow: 1, justifyContent: "flex-end", paddingBottom: 16 }]}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16, flexGrow: 1, justifyContent: "flex-end" }}
         showsVerticalScrollIndicator={false}
+        keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
       >
         {items.length === 0 ? (
-          <Card>
-            <Text style={[styles.muted, { color: c.mutedForeground }]}>
-              Nothing yet — drop a message below or place the first league bet.
-            </Text>
-          </Card>
+          <View style={{ paddingVertical: 36, alignItems: "center" }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius: 14,
+                backgroundColor: c.isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+              }}
+            >
+              <MaterialCommunityIcons name="trophy-outline" size={14} color={c.league} />
+              <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: c.mutedForeground, textAlign: "center" }}>
+                Nothing yet — drop a message below or place the first league bet.
+              </Text>
+            </View>
+          </View>
         ) : (
-          items.map((item) => {
-            if (item.kind === "msg") {
-              const m = item.m;
-              const mine = m.uid === uid;
-              const attached = m.betId ? betById.get(m.betId) : undefined;
-              const quote = m.replyTo ?? leagueReplyQuotes[m.id] ?? null;
+          items.map((item, idx) => {
+            const prev = idx > 0 ? items[idx - 1] : null;
+            const next = idx < items.length - 1 ? items[idx + 1] : null;
+            const showDateHeader = !prev || chatDayKey(prev.at) !== chatDayKey(item.at);
+
+            if (item.kind === "act") {
+              const a = item.a;
+              const isWinAct = a.type === "bet_won";
+              const isLossAct = a.type === "bet_lost";
               return (
-                <View key={`msg_${m.id}`} style={{ gap: 2 }}>
-                  {quote ? <QuotedParent quote={quote} isMine={mine} /> : null}
-                  <Card style={{ gap: 6, borderColor: mine ? c.alpha(c.league, 0.45) : c.border }}>
-                    <View style={styles.inline}>
-                      <Pressable onPress={() => setProfileUid(m.uid)} hitSlop={6} style={{ flex: 1 }}>
-                        <Text style={[styles.memberName, { color: mine ? c.league : c.primary }]}>
-                          {mine ? "You" : m.name}
-                        </Text>
+                <View key={`act_${a.id}`} style={{ marginTop: 6 }}>
+                  {showDateHeader ? (
+                    <View style={{ alignItems: "center", marginVertical: 8 }}>
+                      <View style={{ paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, backgroundColor: c.isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }}>
+                        <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: c.mutedForeground }}>{formatChatDayPill(a.at)}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  <View style={{ alignItems: "center", marginVertical: 2 }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 14,
+                        maxWidth: "90%",
+                        backgroundColor: c.isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+                      }}
+                    >
+                      <MaterialCommunityIcons
+                        name={FEED_ICON[a.type] ?? "circle-small"}
+                        size={14}
+                        color={isWinAct ? c.positive : isLossAct ? c.negative : c.mutedForeground}
+                      />
+                      <Pressable disabled={!a.uid} onPress={() => a.uid && setProfileUid(a.uid)} style={{ flexShrink: 1 }}>
+                        <Text style={{ fontSize: 11, fontFamily: "Inter_500Medium", color: c.mutedForeground }}>{a.text}</Text>
                       </Pressable>
-                      <Text style={[styles.feedTime, { color: c.subtleForeground }]}>{ago(m.at, now)}</Text>
-                      {!closed && (
+                      {!closed && (isWinAct || isLossAct || a.type === "bet_placed") ? (
                         <Pressable
                           hitSlop={8}
+                          onPress={() => {
+                            buzz.tick();
+                            setReplyQuote({
+                              id: a.id,
+                              kind: "bet_result",
+                              authorUid: a.uid ?? "",
+                              authorName: a.name ?? "Player",
+                              text: a.text,
+                              betStatus: isWinAct ? "won" : isLossAct ? "lost" : "pending",
+                            });
+                          }}
+                        >
+                          <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#007AFF" }}>Reply</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                </View>
+              );
+            }
+
+            const m = item.m;
+            if (m.kind === "system") {
+              return (
+                <View key={`msg_${m.id}`} style={{ marginTop: 6 }}>
+                  {showDateHeader ? (
+                    <View style={{ alignItems: "center", marginVertical: 8 }}>
+                      <View style={{ paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, backgroundColor: c.isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }}>
+                        <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: c.mutedForeground }}>{formatChatDayPill(m.at)}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  <View style={{ alignItems: "center", marginVertical: 2 }}>
+                    <View style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, maxWidth: "85%", backgroundColor: c.isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
+                      <Text style={{ fontSize: 11, fontFamily: "Inter_500Medium", color: c.mutedForeground, textAlign: "center" }}>{chatText(m.text)}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            }
+
+            const mine = m.uid === uid;
+            const attached = m.betId ? betById.get(m.betId) : undefined;
+            const quote = m.replyTo ?? leagueReplyQuotes[m.id] ?? null;
+            const sameAsPrev =
+              !showDateHeader &&
+              prev?.kind === "msg" &&
+              prev.m.kind !== "system" &&
+              prev.m.uid === m.uid &&
+              m.at - prev.at < 5 * 60_000;
+            const sameAsNext =
+              !!next &&
+              next.kind === "msg" &&
+              next.m.kind !== "system" &&
+              chatDayKey(next.at) === chatDayKey(m.at) &&
+              next.m.uid === m.uid &&
+              next.at - m.at < 5 * 60_000;
+            const isFirstInGroup = !sameAsPrev;
+            const isLastInGroup = !sameAsNext;
+            const initials = (m.name || "P")
+              .split(" ")
+              .map((s: string) => s[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase();
+            const nameTint = chatSenderColor(m.uid);
+            const menuOpen = activeMenuMsgId === m.id;
+            const myReaction = uid ? m.reactors?.[uid] ?? null : null;
+
+            return (
+              <View key={`msg_${m.id}`} style={{ marginTop: sameAsPrev ? 2 : 10 }}>
+                {showDateHeader ? (
+                  <View style={{ alignItems: "center", marginVertical: 8 }}>
+                    <View style={{ paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, backgroundColor: c.isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }}>
+                      <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: c.mutedForeground }}>{formatChatDayPill(m.at)}</Text>
+                    </View>
+                  </View>
+                ) : null}
+
+                <View style={[{ maxWidth: "82%" }, mine ? { alignSelf: "flex-end", alignItems: "flex-end" } : { alignSelf: "flex-start" }]}>
+                  <View style={[{ flexDirection: "row", alignItems: "flex-end", gap: 6 }, mine && { justifyContent: "flex-end" }]}>
+                    {!mine ? (
+                      isLastInGroup ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`View ${m.name}'s profile`}
+                          onPress={() => setProfileUid(m.uid)}
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: 14,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: c.border,
+                            backgroundColor: c.secondary,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: nameTint }}>{initials}</Text>
+                        </Pressable>
+                      ) : (
+                        <View style={{ width: 28, height: 28 }} />
+                      )
+                    ) : null}
+
+                    <View style={{ flexShrink: 1, alignItems: mine ? "flex-end" : "flex-start" }}>
+                      <Pressable
+                        onPress={() => {
+                          if (closed) return;
+                          buzz.tick();
+                          setActiveMenuMsgId((cur) => (cur === m.id ? null : m.id));
+                        }}
+                        onLongPress={() => {
+                          if (closed) return;
+                          buzz.medium();
+                          setActiveMenuMsgId(m.id);
+                        }}
+                        style={[
+                          {
+                            borderRadius: 20,
+                            paddingHorizontal: 12,
+                            paddingTop: 8,
+                            paddingBottom: 7,
+                            minWidth: 68,
+                            gap: 4,
+                          },
+                          mine
+                            ? {
+                                backgroundColor: outgoingBubbleBg,
+                                borderTopRightRadius: sameAsPrev ? 8 : 20,
+                                borderBottomRightRadius: isLastInGroup ? 4 : 8,
+                              }
+                            : {
+                                backgroundColor: incomingBubbleBg,
+                                borderColor: c.border,
+                                borderWidth: c.isDark ? StyleSheet.hairlineWidth : 0,
+                                borderTopLeftRadius: sameAsPrev ? 8 : 20,
+                                borderBottomLeftRadius: isLastInGroup ? 4 : 8,
+                              },
+                        ]}
+                      >
+                        {!mine && isFirstInGroup ? (
+                          <Pressable onPress={() => setProfileUid(m.uid)}>
+                            <Text style={{ fontSize: 12, fontFamily: "Inter_700Bold", color: nameTint, marginBottom: 1 }}>{m.name}</Text>
+                          </Pressable>
+                        ) : null}
+
+                        {quote ? (
+                          <View
+                            style={{
+                              borderLeftWidth: 3,
+                              borderLeftColor: mine ? "#FFFFFF" : quote.betStatus === "won" ? "#2EE6A6" : quote.betStatus === "lost" ? "#FF4D63" : "#007AFF",
+                              borderRadius: 8,
+                              paddingHorizontal: 9,
+                              paddingVertical: 5,
+                              marginBottom: 2,
+                              backgroundColor: mine ? "rgba(0,0,0,0.18)" : c.isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: mine ? "#FFFFFF" : "#007AFF" }} numberOfLines={1}>
+                              {quote.authorName}
+                              {quote.kind === "bet_result" && quote.betStatus ? ` · ${quote.betStatus.toUpperCase()}` : ""}
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                lineHeight: 16,
+                                fontFamily: "Inter_400Regular",
+                                color: mine ? "rgba(255,255,255,0.86)" : c.mutedForeground,
+                              }}
+                              numberOfLines={2}
+                            >
+                              {chatText(quote.text)}
+                            </Text>
+                          </View>
+                        ) : null}
+
+                        {m.kind === "taunt" ? (
+                          <TauntCard taunt={m} />
+                        ) : m.kind === "bet" ? (
+                          <BetChatCard
+                            message={m}
+                            uid={uid}
+                            leagueId={league.id}
+                            now={now}
+                            onTail={(gameId, intent) => {
+                              if (closed) return;
+                              setFollow(intent);
+                              setQuickGame(gameId);
+                            }}
+                          />
+                        ) : attached && !attached.hidden ? (
+                          <View style={[styles.parlayBox, { borderColor: c.border, backgroundColor: c.secondary }]}>
+                            <Text style={[styles.memberSub, { color: c.foreground }]}>
+                              🎟 {attached.label ?? attached.teamAbbr} @ {formatOdds(attached.odds, fmt)}
+                            </Text>
+                          </View>
+                        ) : null}
+
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "flex-end", columnGap: 8, rowGap: 2 }}>
+                          <Text style={{ fontSize: 15, lineHeight: 20, fontFamily: "Inter_400Regular", color: mine ? "#FFFFFF" : c.foreground, flexShrink: 1 }}>
+                            {chatText(m.text)}
+                          </Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-end", marginBottom: -1 }}>
+                            <Text style={{ fontSize: 10, fontFamily: "Inter_500Medium", color: mine ? "rgba(255,255,255,0.72)" : c.subtleForeground }}>
+                              {formatChatClock(m.at)}
+                            </Text>
+                            {mine ? (
+                              <MaterialCommunityIcons name="check-all" size={14} color="rgba(255,255,255,0.85)" style={{ marginLeft: 2 }} />
+                            ) : null}
+                          </View>
+                        </View>
+                      </Pressable>
+
+                      <ReactionRow
+                        reactions={m.reactions}
+                        reactors={m.reactors}
+                        uid={uid}
+                        align={mine ? "right" : "left"}
+                        compact
+                        canReact={!closed}
+                        onReact={(emoji) => (closed ? false : reactToItem(league.id, "message", m.id, emoji as never))}
+                      />
+                    </View>
+                  </View>
+
+                  {menuOpen && !closed ? (
+                    <View style={[{ marginTop: 6, marginBottom: 4, gap: 6 }, mine ? { alignSelf: "flex-end" } : { alignSelf: "flex-start", marginLeft: 34 }]}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 2,
+                          paddingHorizontal: 6,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                          borderWidth: StyleSheet.hairlineWidth,
+                          borderColor: c.border,
+                          backgroundColor: c.elevated,
+                        }}
+                      >
+                        {REACTION_EMOJIS.map((emoji) => (
+                          <Pressable
+                            key={emoji}
+                            onPress={() => {
+                              buzz.tick();
+                              void reactToItem(league.id, "message", m.id, emoji);
+                              setActiveMenuMsgId(null);
+                            }}
+                            style={[
+                              { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+                              myReaction === emoji && { backgroundColor: c.isDark ? "rgba(0,122,255,0.28)" : "#E5F1FF" },
+                            ]}
+                          >
+                            <Text style={{ fontSize: 18 }}>{emoji}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          alignSelf: "flex-start",
+                          borderRadius: 12,
+                          borderWidth: StyleSheet.hairlineWidth,
+                          borderColor: c.border,
+                          backgroundColor: c.elevated,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <Pressable
                           onPress={() => {
                             buzz.tick();
                             setReplyQuote({
@@ -1950,88 +2292,36 @@ function FeedTab({
                               authorName: m.name,
                               text: chatText(m.text),
                             });
+                            setActiveMenuMsgId(null);
                           }}
+                          style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7 }}
                         >
-                          <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#007AFF" }}>Reply</Text>
+                          <MaterialCommunityIcons name="reply-outline" size={15} color="#007AFF" />
+                          <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#007AFF" }}>Reply</Text>
                         </Pressable>
-                      )}
-                      {!mine && m.kind === "text" ? (
-                        <Pressable hitSlop={8} onPress={() => setReportTarget({ kind: "league_message", uid: m.uid, name: m.name, path: `leagues/${league.id}/messages/${m.id}`, text: m.text })}>
-                          <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: c.mutedForeground }}>Report</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                    <Text style={[styles.feedText, { color: c.foreground }]}>{chatText(m.text)}</Text>
-                    {m.kind === "taunt" ? (
-                      <TauntCard taunt={m} />
-                    ) : m.kind === "bet" ? (
-                      <BetChatCard
-                        message={m}
-                        uid={uid}
-                        leagueId={league.id}
-                        now={now}
-                        onTail={(gameId, intent) => {
-                          if (closed) return;
-                          setFollow(intent);
-                          setQuickGame(gameId);
-                        }}
-                      />
-                    ) : attached && !attached.hidden ? (
-                      <View style={[styles.parlayBox, { borderColor: c.border, backgroundColor: c.secondary }]}>
-                        <Text style={[styles.memberSub, { color: c.foreground }]}>
-                          🎟 {attached.label ?? attached.teamAbbr} @ {formatOdds(attached.odds, fmt)}
-                        </Text>
+                        {!mine && m.kind === "text" ? (
+                          <Pressable
+                            onPress={() => {
+                              buzz.tick();
+                              setReportTarget({
+                                kind: "league_message",
+                                uid: m.uid,
+                                name: m.name,
+                                path: `leagues/${league.id}/messages/${m.id}`,
+                                text: m.text,
+                              });
+                              setActiveMenuMsgId(null);
+                            }}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7 }}
+                          >
+                            <MaterialCommunityIcons name="flag-outline" size={14} color={c.negative} />
+                            <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: c.negative }}>Report</Text>
+                          </Pressable>
+                        ) : null}
                       </View>
-                    ) : null}
-                    <ReactionBar
-                      reactions={m.reactions}
-                      reactors={m.reactors}
-                      uid={uid}
-                      onToggle={(emoji) => (closed ? false : reactToItem(league.id, "message", m.id, emoji))}
-                    />
-                  </Card>
+                    </View>
+                  ) : null}
                 </View>
-              );
-            }
-            const a = item.a;
-            const isWinAct = a.type === "bet_won";
-            const isLossAct = a.type === "bet_lost";
-            return (
-              <View
-                key={`act_${a.id}`}
-                style={[styles.feedRow, { backgroundColor: c.card, borderRadius: 12, borderWidth: 1, borderColor: c.border }]}
-              >
-                <MaterialCommunityIcons
-                  name={FEED_ICON[a.type] ?? "circle-small"}
-                  size={18}
-                  color={isWinAct ? c.positive : isLossAct ? c.negative : c.mutedForeground}
-                />
-                <Pressable
-                  disabled={!a.uid}
-                  onPress={() => a.uid && setProfileUid(a.uid)}
-                  style={{ flex: 1 }}
-                >
-                  <Text style={[styles.feedText, { color: c.foreground }]}>{a.text}</Text>
-                </Pressable>
-                <Text style={[styles.feedTime, { color: c.subtleForeground }]}>{ago(a.at, now)}</Text>
-                {!closed && (isWinAct || isLossAct || a.type === "bet_placed") && (
-                  <Pressable
-                    hitSlop={8}
-                    onPress={() => {
-                      buzz.tick();
-                      setReplyQuote({
-                        id: a.id,
-                        kind: "bet_result",
-                        authorUid: a.uid ?? "",
-                        authorName: a.name ?? "Player",
-                        text: a.text,
-                        betStatus: isWinAct ? "won" : isLossAct ? "lost" : "pending",
-                      });
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#007AFF" }}>Reply</Text>
-                  </Pressable>
-                )}
               </View>
             );
           })
@@ -2039,33 +2329,76 @@ function FeedTab({
       </ScrollView>
 
       {!closed && (
-        <View style={{ backgroundColor: c.card, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border, paddingBottom: Math.max(10, bottomPad - 12) }}>
+        <View
+          style={{
+            backgroundColor: c.isDark ? "rgba(18, 20, 28, 0.98)" : "rgba(249, 249, 251, 0.98)",
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: c.border,
+            paddingBottom: Math.max(10, bottomPad - 12),
+          }}
+        >
           <ReplyComposerBar quote={replyQuote} onCancel={() => setReplyQuote(null)} />
           {sendErr ? (
             <Text accessibilityRole="alert" style={{ color: c.negative, fontSize: 12, fontFamily: "Inter_500Medium", paddingHorizontal: 14, paddingTop: 8 }}>
               {sendErr}
             </Text>
           ) : null}
-          <View style={[styles.inline, { paddingHorizontal: 14, paddingTop: 10 }]}>
-            <TextInput
-              style={[styles.field, { flex: 1, color: c.foreground, borderColor: c.border, backgroundColor: c.secondary, borderRadius: 20 }]}
-              value={text}
-              onChangeText={setText}
-              placeholder={replyQuote ? `Reply to ${replyQuote.authorName}…` : "Talk smack or call your shot…"}
-              placeholderTextColor={c.subtleForeground}
-              maxLength={400}
-              returnKeyType="send"
-              onSubmitEditing={handleSend}
-            />
-            <Button
-              size="sm"
-              variant="league"
-              icon="send"
-              label="Send"
-              loading={sending}
-              disabled={!text.trim()}
-              onPress={handleSend}
-            />
+          <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 10, paddingTop: 8 }}>
+            <View
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "flex-end",
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: c.border,
+                backgroundColor: c.isDark ? "#1C1E26" : "#FFFFFF",
+                borderRadius: 20,
+                paddingLeft: 14,
+                paddingRight: 5,
+                paddingVertical: 4,
+                minHeight: 38,
+                maxHeight: 110,
+              }}
+            >
+              <TextInput
+                style={{
+                  flex: 1,
+                  fontSize: 15,
+                  lineHeight: 20,
+                  fontFamily: "Inter_400Regular",
+                  color: c.foreground,
+                  paddingTop: Platform.OS === "ios" ? 5 : 4,
+                  paddingBottom: Platform.OS === "ios" ? 5 : 4,
+                  paddingRight: 8,
+                }}
+                value={text}
+                onChangeText={setText}
+                placeholder={replyQuote ? `Reply to ${replyQuote.authorName}…` : `Message ${league.name}…`}
+                placeholderTextColor={c.mutedForeground}
+                maxLength={400}
+                multiline
+                returnKeyType="send"
+                blurOnSubmit={false}
+                onSubmitEditing={handleSend}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
+                disabled={!text.trim() || sending}
+                onPress={handleSend}
+                style={({ pressed }) => ({
+                  width: 30,
+                  height: 30,
+                  borderRadius: 15,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: text.trim() ? "#007AFF" : c.isDark ? "rgba(255,255,255,0.08)" : "#E5E5EA",
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                <MaterialCommunityIcons name="arrow-up" size={18} color={text.trim() ? "#FFFFFF" : c.mutedForeground} />
+              </Pressable>
+            </View>
           </View>
         </View>
       )}

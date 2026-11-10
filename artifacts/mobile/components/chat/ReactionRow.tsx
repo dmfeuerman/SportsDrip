@@ -9,8 +9,11 @@ import { useOptimisticReaction } from "@/hooks/useOptimisticReaction";
 import { haptic } from "@/lib/motion";
 
 /**
- * Emoji reactions under a chat message: the ones in use as chips with counts,
- * plus a smiley that opens the full picker. My pick shows instantly.
+ * Emoji reactions under a chat message:
+ *  - Shows active reaction pills tucked neatly under/on the corner of the message bubble
+ *    (like iMessage tapbacks / WhatsApp reaction pills).
+ *  - When `pickerOpen` is true (triggered by long-pressing or tapping a message), renders
+ *    the floating iOS/WhatsApp style quick-reaction bar.
  */
 export default function ReactionRow({
   reactors,
@@ -19,6 +22,7 @@ export default function ReactionRow({
   onReact,
   canReact = true,
   align = "left",
+  compact = false,
 }: {
   reactors?: Record<string, string>;
   reactions?: Record<string, number>;
@@ -27,12 +31,14 @@ export default function ReactionRow({
   onReact: (emoji: string) => Promise<unknown> | unknown;
   canReact?: boolean;
   align?: "left" | "right";
+  /** When true, hides the permanent "+" button until there are reactions or the user opens the message menu. */
+  compact?: boolean;
 }) {
   const c = useColors();
   const { mine, counts, toggle } = useOptimisticReaction(reactors, uid, reactions);
   const [picking, setPicking] = useState(false);
   const used = REACTION_EMOJIS.filter((e) => (counts[e] ?? 0) > 0);
-  if (!used.length && !canReact) return null;
+  if (!used.length && (!canReact || compact)) return null;
 
   const tap = (e: string) => {
     if (!canReact) return;
@@ -42,7 +48,13 @@ export default function ReactionRow({
   };
 
   return (
-    <View style={[styles.row, align === "right" && { justifyContent: "flex-end" }]}>
+    <View
+      style={[
+        styles.row,
+        compact && styles.rowCompact,
+        align === "right" ? { justifyContent: "flex-end", alignSelf: "flex-end" } : { alignSelf: "flex-start" },
+      ]}
+    >
       {used.map((e) => {
         const on = mine === e;
         return (
@@ -53,15 +65,24 @@ export default function ReactionRow({
               disabled={!canReact}
               hitSlop={4}
               onPress={() => tap(e)}
-              style={[styles.chip, { borderColor: on ? c.league : c.border, backgroundColor: on ? c.leagueSoft : c.secondary }]}
+              style={[
+                styles.chip,
+                {
+                  borderColor: on ? "#007AFF" : c.border,
+                  backgroundColor: on ? (c.isDark ? "rgba(0,122,255,0.22)" : "#E5F1FF") : c.elevated,
+                  shadowColor: "#000",
+                },
+              ]}
             >
               <Text style={styles.emoji}>{e}</Text>
-              <Text style={[styles.count, { color: on ? c.league : c.mutedForeground }]}>{counts[e]}</Text>
+              {(counts[e] ?? 0) > 1 || !compact ? (
+                <Text style={[styles.count, { color: on ? "#007AFF" : c.mutedForeground }]}>{counts[e]}</Text>
+              ) : null}
             </Pressable>
           </Animated.View>
         );
       })}
-      {canReact ? (
+      {canReact && !compact ? (
         picking ? (
           <Animated.View entering={FadeIn.duration(120)} style={[styles.picker, { backgroundColor: c.elevated, borderColor: c.border }]}>
             {REACTION_EMOJIS.map((e) => (
@@ -94,8 +115,22 @@ export default function ReactionRow({
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, paddingHorizontal: 4 },
-  chip: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, borderWidth: 1, minHeight: 24 },
-  emoji: { fontSize: 13 },
+  rowCompact: { marginTop: -6, zIndex: 2, paddingHorizontal: 6 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 22,
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  emoji: { fontSize: 12 },
   count: { fontSize: 11, fontFamily: "Inter_700Bold" },
   picker: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
   pick: { paddingHorizontal: 5, paddingVertical: 3, borderRadius: 999 },

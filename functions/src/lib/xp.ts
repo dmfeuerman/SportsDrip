@@ -133,6 +133,7 @@ export async function grantXp(uid: string, amount: number, key: string, reason: 
     tx.update(userRef, {
       xp: after,
       level: newLevel,
+      xpLast: { amount: Math.floor(amount), reason, key, at: Date.now() },
       ...(season ? { [`seasonXp.${season.id}`]: FieldValue.increment(Math.floor(amount)) } : {}),
       ...(credits > 0 ? { balance } : {}),
       updatedAt: FieldValue.serverTimestamp(),

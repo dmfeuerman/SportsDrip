@@ -27,7 +27,8 @@ import { BOX_DISPLAY } from "@/constants/prizeTypes";
 import { CHARGE_MS } from "@/components/PrizeBox";
 import { useColors } from "@/hooks/useColors";
 import { useBreathe, useShake } from "@/hooks/useMotion";
-import { EASE, haptic, REWARD_RARITY, rewardRarity, SPRING } from "@/lib/motion";
+import { haptic, REWARD_RARITY, rewardRarity, SPRING } from "@/lib/motion";
+import { OVERLAY, useHoldOverlay } from "@/lib/overlayTurns";
 
 interface Props {
   visible: boolean;
@@ -91,12 +92,30 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
   const slice = 360 / n;
   const table = useMemo(() => display.segments.map((s) => s.credits), [display.segments]);
 
+  // Hold the global overlay lock while the wheel modal is open so XP/level popups
+  // never mount a second iOS Modal on top of the wheel or while it is dismissing.
+  useHoldOverlay("prizeWheel", visible, OVERLAY.prizeWheel);
+
   const [phase, setPhase] = useState<"ready" | "spinning" | "reveal">("ready");
   const rot = useSharedValue(0);
   const peg = useSharedValue(0);
+  const isSpinningSV = useSharedValue(false);
   const target = useRef(0);
-  const halo = useBreathe(phase !== "reveal", 1300);
+  const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heavyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closingRef = useRef(false);
+  const halo = useBreathe(visible && phase !== "reveal", 1300);
   const { style: shakeStyle, shake } = useShake();
+
+  useEffect(() => {
+    return () => {
+      isSpinningSV.value = false;
+      cancelAnimation(rot);
+      cancelAnimation(peg);
+      if (startTimerRef.current) clearTimeout(startTimerRef.current);
+      if (heavyTimerRef.current) clearTimeout(heavyTimerRef.current);
+    };
+  }, [rot, peg, isSpinningSV]);
 
   // Peg ticks: throttled so the fast start doesn't turn into one long buzz.
   const lastTick = useRef(0);
@@ -109,63 +128,106 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
 
   useAnimatedReaction(
     // A peg sits on every wedge boundary: the pointer passes one each time the turn crosses a multiple of the slice.
-    () => Math.floor(rot.value / slice),
+    () => (isSpinningSV.value ? Math.floor(rot.value / slice) : null),
     (cur, prev) => {
-      if (prev === null || cur === prev) return;
+      if (cur === null || prev === null || cur === prev || !isSpinningSV.value) return;
       peg.value = withSequence(withTiming(1, { duration: 35 }), withTiming(0, { duration: 160 }));
       scheduleOnRN(tick);
     }
   );
 
   const reveal = useCallback(() => {
-    setPhase("reveal");
-    haptic.success();
-    setTimeout(() => haptic.heavy(), 120);
-  }, []);
+    isSpinningSV.value = false;
+    cancelAnimation(peg);
+    peg.value = 0;
+    setPhase((prev) => {
+      if (prev === "reveal") return prev;
+      haptic.success();
+      if (heavyTimerRef.current) clearTimeout(heavyTimerRef.current);
+      heavyTimerRef.current = setTimeout(() => haptic.heavy(), 120);
+      return "reveal";
+    });
+  }, [isSpinningSV, peg]);
 
-  const start = useCallback(() => {
-    if (rewardCredits === null) return;
-    // Wedges showing the awarded amount. If the display table ever drifts from
-    // the server's, the wheel still lands and the reveal shows the real number.
+  const computeTarget = useCallback(() => {
+    if (rewardCredits === null) return 0;
     const wins = display.segments.map((s, i) => (s.credits === rewardCredits ? i : -1)).filter((i) => i >= 0);
-    // Prefer a winning wedge that isn't next to the top prize (no staged near-miss).
     const top = Math.max(...display.segments.map((s) => s.credits));
     const nearTop = (i: number) =>
       rewardCredits !== top && (display.segments[(i + 1) % n]!.credits === top || display.segments[(i - 1 + n) % n]!.credits === top);
     const safe = wins.filter((i) => !nearTop(i));
     const pool = safe.length ? safe : wins;
     const winner = pool.length ? pool[Math.floor(Math.random() * pool.length)]! : 0;
-    // Land near the winning wedge's centre (± jitter), never on an edge next to a bigger prize.
     const f = 0.5 + (Math.random() - 0.5) * 0.4;
     const land = (360 - (winner + f) * slice + 3600) % 360;
     const from = rot.value % 360;
-    target.current = rot.value - from + 7 * 360 + land;
+    return rot.value - from + 7 * 360 + land;
+  }, [rewardCredits, display.segments, n, slice, rot]);
+
+  const start = useCallback(() => {
+    if (rewardCredits === null) return;
+    target.current = computeTarget();
     setPhase("spinning");
     haptic.heavy();
     if (reduced) {
+      isSpinningSV.value = false;
       rot.value = target.current;
       reveal();
       return;
     }
+    isSpinningSV.value = true;
     rot.value = withSequence(
       withTiming(rot.value - 16, { duration: WIND_MS, easing: Easing.inOut(Easing.quad) }),
       withTiming(target.current, { duration: SPIN_MS, easing: WHEEL_EASE }, (done) => {
-        if (done) scheduleOnRN(reveal);
+        if (done) {
+          isSpinningSV.value = false;
+          scheduleOnRN(reveal);
+        }
       })
     );
-  }, [rewardCredits, display.segments, n, slice, rot, reduced, reveal]);
+  }, [rewardCredits, computeTarget, rot, reduced, reveal, isSpinningSV]);
 
   const skip = useCallback(() => {
+    if (startTimerRef.current) {
+      clearTimeout(startTimerRef.current);
+      startTimerRef.current = null;
+    }
+    // Disable peg reaction BEFORE mutating rot.value so skipping never triggers a UI-thread reaction storm during unmount.
+    isSpinningSV.value = false;
     cancelAnimation(rot);
+    cancelAnimation(peg);
+    peg.value = 0;
+    if (!target.current && rewardCredits !== null) {
+      target.current = computeTarget();
+    }
     rot.value = target.current;
     reveal();
-  }, [rot, reveal]);
+  }, [rot, peg, isSpinningSV, rewardCredits, computeTarget, reveal]);
+
+  const handleClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    isSpinningSV.value = false;
+    cancelAnimation(rot);
+    cancelAnimation(peg);
+    if (startTimerRef.current) clearTimeout(startTimerRef.current);
+    if (heavyTimerRef.current) clearTimeout(heavyTimerRef.current);
+    onClose();
+  }, [isSpinningSV, rot, peg, onClose]);
 
   // Launch as soon as the server result is in: one tap ("Open!") on the box, not two.
   useEffect(() => {
     if (!visible || charging || rewardCredits === null || phase !== "ready") return;
-    const t = setTimeout(start, 350);
-    return () => clearTimeout(t);
+    startTimerRef.current = setTimeout(() => {
+      startTimerRef.current = null;
+      start();
+    }, 350);
+    return () => {
+      if (startTimerRef.current) {
+        clearTimeout(startTimerRef.current);
+        startTimerRef.current = null;
+      }
+    };
   }, [visible, charging, rewardCredits, phase, start]);
 
   const rarity = rewardCredits !== null ? rewardRarity(rewardCredits, table) : "common";
@@ -198,13 +260,13 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
   );
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose} statusBarTranslucent>
       <View style={[styles.overlay, { backgroundColor: c.overlay }]}>
         <Animated.View style={[styles.sheet, { backgroundColor: c.elevated, borderColor: phase === "reveal" ? look.color : c.border }, shakeStyle]}>
           {phase === "reveal" ? <LightBeams color={look.color} size={520} opacity={0.4} /> : null}
           <View style={styles.headRow}>
             <Text style={[styles.title, { color: display.color }]}>{display.label}</Text>
-            {phase === "reveal" || error ? <CloseButton onPress={onClose} /> : null}
+            {phase === "reveal" || error ? <CloseButton onPress={handleClose} /> : null}
           </View>
 
           {charging ? (
@@ -213,7 +275,7 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
             <View style={styles.errorWrap}>
               <MaterialCommunityIcons name="alert-circle-outline" size={40} color={c.destructive} />
               <Text style={[styles.errorText, { color: c.destructive }]}>{error}</Text>
-              <Button label="Close" onPress={onClose} style={{ alignSelf: "stretch" }} />
+              <Button label="Close" onPress={handleClose} style={{ alignSelf: "stretch" }} />
             </View>
           ) : phase !== "reveal" ? (
             <>
@@ -252,8 +314,8 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
                 <Text style={[styles.status, { color: c.mutedForeground }]}>
                   {rewardCredits === null ? "Opening…" : phase === "spinning" ? "Come on…" : "Here we go…"}
                 </Text>
-                {phase === "spinning" ? (
-                  <Pressable accessibilityRole="button" accessibilityLabel="Skip to result" hitSlop={10} onPress={skip}>
+                {rewardCredits !== null ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Skip to result" hitSlop={12} onPress={skip}>
                     <Text style={[styles.skip, { color: c.mutedForeground }]}>Skip</Text>
                   </Pressable>
                 ) : null}
@@ -276,7 +338,7 @@ export default function SpinWheel({ visible, tier, rewardCredits, error, onClose
               </Animated.View>
               <Animated.View entering={FadeIn.delay(500)} style={{ alignSelf: "stretch" }}>
                 <View style={styles.collectWrap}>
-                  <Button label="Collect" icon="hand-coin" size="lg" onPress={onClose} haptic={false} />
+                  <Button label="Collect" icon="hand-coin" size="lg" onPress={handleClose} haptic={false} />
                   <Shimmer intensity={0.45} every={1500} style={{ borderRadius: 14 }} />
                 </View>
               </Animated.View>
@@ -299,6 +361,7 @@ function ChargingBox({ tier }: { tier: BoxTier }) {
     grow.value = withSpring(1, { damping: 11, stiffness: 170 });
     if (reduced) return;
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const t0 = Date.now();
     const step = () => {
       if (!alive) return;
@@ -306,11 +369,14 @@ function ChargingBox({ tier }: { tier: BoxTier }) {
       const amp = 4 + 14 * k;
       rattle.value = withSequence(withTiming(amp, { duration: 45 }), withTiming(-amp, { duration: 90 }), withTiming(0, { duration: 45 }));
       if (k > 0.4) haptic.tick();
-      setTimeout(step, 190 - 90 * k);
+      timer = setTimeout(step, 190 - 90 * k);
     };
     step();
     return () => {
       alive = false;
+      if (timer) clearTimeout(timer);
+      cancelAnimation(rattle);
+      cancelAnimation(grow);
     };
   }, [reduced, rattle, grow]);
   const style = useAnimatedStyle(() => ({ transform: [{ scale: grow.value }, { rotate: `${rattle.value}deg` }] }));

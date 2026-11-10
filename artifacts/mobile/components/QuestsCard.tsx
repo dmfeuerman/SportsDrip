@@ -5,6 +5,7 @@ import { Pressable } from "@/components/fx/Tap";
 import React, { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { ActionChip, Card } from "@/components/ui";
+import { recordXpReason } from "@/components/XpGainPopup";
 import { useColors } from "@/hooks/useColors";
 import * as api from "@/lib/api";
 import { DEMO } from "@/lib/demo";
@@ -68,6 +69,7 @@ export default function QuestsCard() {
                 onPress={async () => {
                   setBusy(q.id);
                   try {
+                    recordXpReason(`Quest: ${q.title}`, "flag-checkered");
                     await api.claimQuest({ questId: q.id });
                     trackEvent("quest_claimed", { quest_id: q.id });
                     haptic.success();

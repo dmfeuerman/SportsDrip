@@ -6,6 +6,7 @@ import BonusVideoCard from "@/components/ads/BonusVideoCard";
 import { Pressable } from "@/components/fx/Tap";
 import PrizeBox, { CHARGE_MS } from "@/components/PrizeBox";
 import SpinWheel from "@/components/SpinWheel";
+import { recordXpReason } from "@/components/XpGainPopup";
 import { BOX_DISPLAY, BOX_ODDS, BOX_PITY_AFTER, BOX_TIERS } from "@/constants/prizeTypes";
 import { useAds } from "@/context/AdsContext";
 import { useApp, type PrizeBoxState } from "@/context/AppContext";
@@ -98,13 +99,17 @@ export default function RewardsCard() {
       opening.current = true;
       setBusy(tier);
       setReward(null);
+      recordXpReason(`Opened ${BOX_DISPLAY[tier].label}`, "gift-outline");
       // The overlay opens at once with the box rattling in it; the wheel takes over in the same overlay.
       setCharging(tier);
       setSpinning(tier);
-      const [credits] = await Promise.all([claimBox(tier), new Promise((r) => setTimeout(r, CHARGE_MS))]);
-      setReward(credits);
-      setCharging(null);
-      setBusy(null);
+      try {
+        const [credits] = await Promise.all([claimBox(tier), new Promise((r) => setTimeout(r, CHARGE_MS))]);
+        setReward(credits);
+      } finally {
+        setCharging(null);
+        setBusy(null);
+      }
     },
     [claimBox]
   );
@@ -115,6 +120,7 @@ export default function RewardsCard() {
     setSpinning(null);
     setReward(null);
     setCharging(null);
+    setBusy(null);
     opening.current = false;
     // A failed open leaves the box ready to try again; only a claimed one resets.
     if (tier && won) {

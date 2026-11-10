@@ -8,6 +8,7 @@ import { adUnit } from "@/lib/ads/units";
 import { claimAdReward } from "@/lib/api";
 import { trace } from "@/lib/devtrace";
 import { bootAdWindowOpen, isBooting, setBootAdShowing } from "@/lib/bootGate";
+import { isOverlayBusy } from "@/lib/overlayTurns";
 
 type Interstitial = import("react-native-google-mobile-ads").InterstitialAd;
 type Rewarded = import("react-native-google-mobile-ads").RewardedAd;
@@ -175,20 +176,21 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
     (reason: string) => {
       const ad = interstitial.current;
       if (!AD_POLICY.autoFullscreen) return;
-      if (!enabled || !ad || !interstitialReady.current || fullscreenOpen.current || isBooting()) return;
+      if (!enabled || !ad || !interstitialReady.current || fullscreenOpen.current || isBooting() || isOverlayBusy()) return;
       const now = Date.now();
       if (now - sessionStart.current < AD_POLICY.interstitialGraceMs) return;
       if (now - lastFullscreen.current < AD_POLICY.interstitialMinGapMs) return;
       if (shown.current >= AD_POLICY.interstitialMaxPerSession) return;
       if (AppState.currentState !== "active") return;
-      shown.current += 1;
-      interstitialReady.current = false;
-      lastFullscreen.current = now;
-      trace("ads", `interstitial at ${reason}`);
-      // Let the sheet or popup that triggered this finish animating out.
+      // Let the sheet or popup that triggered this finish animating out; if a queued modal (e.g. XpGainPopup) is waiting, skip the ad.
       setTimeout(() => {
+        if (fullscreenOpen.current || isOverlayBusy() || AppState.currentState !== "active") return;
+        shown.current += 1;
+        interstitialReady.current = false;
+        lastFullscreen.current = Date.now();
+        trace("ads", `interstitial at ${reason}`);
         ad.show().catch(() => loadInterstitial());
-      }, 400);
+      }, 600);
     },
     [enabled, loadInterstitial]
   );

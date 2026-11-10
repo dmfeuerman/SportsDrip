@@ -28,6 +28,7 @@ import { DEMO, demoBets, demoCatalog, demoInventory, demoPrizeBoxes, demoProfile
 import { FREE_MOVES, loadoutOf, MAX_LOADOUT, MOVES_BY_ID } from "@/constants/moves";
 import { backgroundOf, BACKGROUNDS_BY_ID, FREE_BACKGROUNDS } from "@/constants/backgrounds";
 import { progressOf, type LevelProgress } from "@/constants/progression";
+import { recordXpReason } from "@/components/XpGainPopup";
 
 export interface Bet {
   id: string;
@@ -111,6 +112,8 @@ export interface Profile {
   /** Lifetime XP (server-written; constants/progression.ts turns it into a level). */
   xp?: number;
   level?: number;
+  /** Most recent XP grant details written by the server (functions/src/lib/xp.ts). */
+  xpLast?: { amount: number; reason: string; key?: string; at: number; note?: string } | null;
   /** Background behind the character (constants/backgrounds.ts). Absent = Locker Room. */
   background?: string;
   /** Their invite code, and how many players have joined with it. */
@@ -596,6 +599,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       }
       const key = api.newIdempotencyKey();
       const id = `${uid}_${key}`;
+      recordXpReason("Locked in Today's Daily Free Bet", "calendar-check-outline");
       patchOpt((o) => ({
         ...o,
         bets: { ...o.bets, [id]: { ...preview, id, uid, stake: 0, freeBet: true, freeStake: 100, freeDay: day, status: "pending", placedAt: { seconds: Math.floor(Date.now() / 1000) }, settledAt: null } },
@@ -663,6 +667,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           // Instant: owned and paid for in the app now; the server call follows.
           if (inventoryRef.current.includes(itemId)) return true;
           if ((profileRef.current?.balance ?? 0) < price) throw new Error("Not enough credits.");
+          recordXpReason("Bought from the Drip Shop", "shopping-outline");
           patchOpt((o) => ({ ...o, items: { ...o.items, [itemId]: price } }));
           const key = api.newIdempotencyKey();
           enqueue(() => api.purchaseItem({ itemId, idempotencyKey: key })).catch((err) => {
@@ -724,6 +729,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           const m = MOVES_BY_ID.get(moveId);
           if (!m || !m.price) throw new Error("That move isn't in the store.");
           if ((profileRef.current?.balance ?? 0) < m.price) throw new Error("Not enough credits.");
+          recordXpReason(`Bought Dance Move: ${m.name}`, "shopping-outline");
           const cur = loadoutOf(profileRef.current?.moves);
           patchOpt((o) => ({ ...o, moves: { ...o.moves, [moveId]: m.price } }));
           const drop = cur.length < MAX_LOADOUT && !cur.includes(moveId) ? overlay({ moves: [...cur, moveId] }) : () => {};
@@ -788,6 +794,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           const b = BACKGROUNDS_BY_ID.get(backgroundId);
           if (!b || !b.price) throw new Error("That background isn't in the store.");
           if ((profileRef.current?.balance ?? 0) < b.price) throw new Error("Not enough credits.");
+          recordXpReason(`Bought Background: ${b.name}`, "shopping-outline");
           patchOpt((o) => ({ ...o, bgs: { ...o.bgs, [backgroundId]: b.price } }));
           const drop = overlay({ background: backgroundId });
           const key = api.newIdempotencyKey();

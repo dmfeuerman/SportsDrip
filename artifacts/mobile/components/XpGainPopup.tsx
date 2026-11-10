@@ -1,12 +1,14 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { collection, getDocs, limit, orderBy, query } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import { Modal, StyleSheet, Text, View } from "react-native";
 import Animated, {
+  cancelAnimation,
   Easing,
   FadeIn,
+  FadeInDown,
   interpolate,
-  runOnJS,
   useAnimatedReaction,
   useAnimatedStyle,
   useReducedMotion,
@@ -14,18 +16,113 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { LevelBadge } from "@/components/LevelBar";
 import { Button } from "@/components/ui";
-import { levelFromXp, progressOf } from "@/constants/progression";
+import { levelFromXp, progressOf, scaledXp, XP } from "@/constants/progression";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { DEMO } from "@/lib/demo";
+import { getDb } from "@/lib/firebase";
 import { haptic } from "@/lib/motion";
 import { OVERLAY, useOverlayTurn } from "@/lib/overlayTurns";
 
-type Gain = { from: number; to: number };
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+
+export interface XpReasonInfo {
+  label: string;
+  icon: IconName;
+}
+
+type Gain = { from: number; to: number; reason: XpReasonInfo };
 const KEY = (uid: string) => `sportdrip.xpSeen.v1.${uid}`;
 const STEPS = 80;
 const COINS = 10;
+
+let pendingClientReason: { info: XpReasonInfo; at: number } | null = null;
+
+/**
+ * Records what player action just triggered an XP gain so the XP popup can
+ * display the exact context immediately when the server snapshot arrives.
+ */
+export function recordXpReason(label: string, icon: IconName = "lightning-bolt") {
+  pendingClientReason = { info: { label, icon }, at: Date.now() };
+}
+
+export function describeXpReasonCode(code: string | undefined | null, note?: string | null): XpReasonInfo | null {
+  switch (code) {
+    case "bet_payout":
+      return { label: note ? `Won a Bet · ${note}` : "Won a Bet", icon: "trophy-outline" };
+    case "challenge_payout":
+      return { label: "Won a 1v1 Friend Challenge", icon: "sword-cross" };
+    case "league_bet_won":
+      return { label: "Won a League Bet", icon: "shield-star-outline" };
+    case "league_payout":
+      return { label: "Finished in the Money in a League", icon: "podium-gold" };
+    case "purchase":
+      return { label: note ? `Drip Shop · ${note}` : "Bought from the Drip Shop", icon: "shopping-outline" };
+    case "prize_box": {
+      const boxName = note
+        ? note.replace(/\b(bronze|silver|gold)\b/i, (m) => `${m[0]!.toUpperCase()}${m.slice(1).toLowerCase()} Prize`)
+        : null;
+      return { label: boxName ? `Opened ${boxName}` : "Opened a Prize Box", icon: "gift-outline" };
+    }
+    case "ad_reward":
+      return { label: "Watched a Bonus Video", icon: "play-circle-outline" };
+    case "new_friend":
+      return { label: "Added a New Friend", icon: "account-plus-outline" };
+    case "daily_pick":
+      return { label: "Locked in Today's Daily Pick", icon: "calendar-check-outline" };
+    case "quest":
+      return { label: "Completed a Weekly Quest", icon: "flag-checkered" };
+    case "referral":
+      return { label: "Friend Joined With Your Invite Code", icon: "account-heart-outline" };
+    case "joined_with_code":
+      return { label: "Joined With a Friend's Invite Code", icon: "ticket-percent-outline" };
+    default:
+      return null;
+  }
+}
+
+function inferXpReasonByAmount(fromXp: number, toXp: number): XpReasonInfo {
+  const gained = toXp - fromXp;
+  const lvl = levelFromXp(fromXp);
+  if (gained === scaledXp(XP.prizeBox, lvl)) {
+    return { label: "Opened a Prize Box", icon: "gift-outline" };
+  }
+  if (gained === scaledXp(XP.adReward, lvl)) {
+    return { label: "Watched a Bonus Video", icon: "play-circle-outline" };
+  }
+  if (gained === scaledXp(XP.newFriend, lvl)) {
+    return { label: "Added a New Friend", icon: "account-plus-outline" };
+  }
+  if (gained === scaledXp(XP.leagueBetWin, lvl)) {
+    return { label: "Won a League Bet", icon: "shield-star-outline" };
+  }
+  if (gained === scaledXp(XP.challengeWin, lvl)) {
+    return { label: "Won a 1v1 Friend Challenge", icon: "sword-cross" };
+  }
+  if (gained === scaledXp(XP.leaguePayout, lvl)) {
+    return { label: "Finished in the Money in a League", icon: "podium-gold" };
+  }
+  if (gained === scaledXp(XP.referrer, lvl)) {
+    return { label: "Friend Joined With Your Invite Code", icon: "account-heart-outline" };
+  }
+  if (gained === scaledXp(XP.referred, lvl)) {
+    return { label: "Joined With a Friend's Invite Code", icon: "ticket-percent-outline" };
+  }
+  const minBetWin = scaledXp(XP.betWin, lvl);
+  const maxBetWin = scaledXp(XP.betWin + XP.betWinBonusCap, lvl);
+  if (gained >= minBetWin && gained <= maxBetWin) {
+    return { label: "Won a Bet", icon: "trophy-outline" };
+  }
+  const minPurchase = scaledXp(XP.purchaseMin, lvl);
+  const maxPurchase = scaledXp(XP.purchaseMax, lvl);
+  if (gained >= minPurchase && gained <= maxPurchase) {
+    return { label: "Drip Shop Purchase", icon: "shopping-outline" };
+  }
+  return { label: "Completed an Action", icon: "lightning-bolt" };
+}
 
 let push: ((g: Gain) => void) | null = null;
 
@@ -38,6 +135,7 @@ export default function XpGainHost() {
   const { profile } = useApp();
   const uid = profile?.uid ?? null;
   const xp = typeof profile?.xp === "number" ? profile.xp : null;
+  const xpLast = profile?.xpLast ?? null;
   const [seen, setSeen] = useState<number | null>(null);
   const [gain, setGain] = useState<Gain | null>(null);
   const myTurn = useOverlayTurn("xpGain", !!gain, OVERLAY.xpGain);
@@ -65,12 +163,46 @@ export default function XpGainHost() {
     if (seen < 0) {
       setSeen(xp);
       AsyncStorage.setItem(KEY(uid), String(xp)).catch(() => {});
-    } else if (xp > seen) setGain({ from: seen, to: xp });
-    else if (xp < seen) {
+    } else if (xp > seen) {
+      const from = seen;
+      const to = xp;
+      // 1. Check fresh client-recorded reason (within 60s)
+      if (pendingClientReason && Date.now() - pendingClientReason.at < 60_000) {
+        const info = pendingClientReason.info;
+        pendingClientReason = null;
+        setGain({ from, to, reason: info });
+        return;
+      }
+      // 2. Check server-written profile.xpLast
+      const fromServer = xpLast?.reason ? describeXpReasonCode(xpLast.reason, xpLast.note) : null;
+      if (fromServer) {
+        setGain({ from, to, reason: fromServer });
+        return;
+      }
+      // 3. Fallback: infer immediately from XP amount, and refine from latest ledger entry if available
+      const fallback = inferXpReasonByAmount(from, to);
+      setGain({ from, to, reason: fallback });
+      if (!DEMO) {
+        const db = getDb();
+        if (db) {
+          getDocs(query(collection(db, "users", uid, "ledger"), orderBy("createdAt", "desc"), limit(1)))
+            .then((snap) => {
+              const docSnap = snap.docs[0];
+              if (!docSnap) return;
+              const data = docSnap.data() as { type?: string; note?: string };
+              const ledgerReason = describeXpReasonCode(data.type, data.note);
+              if (ledgerReason) {
+                setGain((cur) => (cur && cur.from === from && cur.to === to ? { ...cur, reason: ledgerReason } : cur));
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    } else if (xp < seen) {
       setSeen(xp);
       AsyncStorage.setItem(KEY(uid), String(xp)).catch(() => {});
     }
-  }, [uid, seen, xp, gain]);
+  }, [uid, seen, xp, gain, xpLast]);
 
   const close = () => {
     if (uid && gain) AsyncStorage.setItem(KEY(uid), String(gain.to)).catch(() => {});
@@ -79,27 +211,26 @@ export default function XpGainHost() {
   };
 
   if (!gain || !myTurn) return null;
-  return <XpGain from={gain.from} to={gain.to} onClose={close} />;
+  return <XpGain from={gain.from} to={gain.to} reason={gain.reason} onClose={close} />;
 }
 
-export function XpGain({ from, to, onClose }: Gain & { onClose: () => void }) {
+export function XpGain({ from, to, reason, onClose }: { from: number; to: number; reason?: XpReasonInfo; onClose: () => void }) {
   const c = useColors();
   const reduced = useReducedMotion();
   const gained = to - from;
   const duration = Math.min(2600, 900 + gained * 4);
+  const resolvedReason = reason ?? inferXpReasonByAmount(from, to);
 
-  // Pre-computed bar fill and XP at each step, so the worklet only interpolates.
-  const { inRange, pcts, xps } = useMemo(() => {
+  // Pre-computed bar fill at each step, so the worklet only interpolates.
+  const { inRange, pcts } = useMemo(() => {
     const inRange: number[] = [];
     const pcts: number[] = [];
-    const xps: number[] = [];
     for (let i = 0; i <= STEPS; i++) {
       const v = Math.round(from + (gained * i) / STEPS);
       inRange.push(i / STEPS);
       pcts.push(progressOf(v).pct);
-      xps.push(v);
     }
-    return { inRange, pcts, xps };
+    return { inRange, pcts };
   }, [from, gained]);
 
   const t = useSharedValue(reduced ? 1 : 0);
@@ -113,18 +244,22 @@ export function XpGain({ from, to, onClose }: Gain & { onClose: () => void }) {
       350,
       withTiming(1, { duration, easing: Easing.out(Easing.quad) }, (fin) => {
         if (fin) {
-          runOnJS(setDone)(true);
+          scheduleOnRN(setDone, true);
         }
       })
     );
+    return () => cancelAnimation(t);
   }, [reduced, t, duration]);
 
+  // No dependency array on useAnimatedReaction (Reanimated v4 native worklets auto-track shared values).
   useAnimatedReaction(
-    () => Math.round(t.value * STEPS),
-    (idx, prev) => {
-      if (idx !== prev) runOnJS(setShownXp)(xps[idx]!);
-    },
-    [xps]
+    () => Math.round(t.value * 24),
+    (stepIdx, prev) => {
+      if (stepIdx !== prev && prev !== null) {
+        const nextXp = Math.round(from + (gained * stepIdx) / 24);
+        scheduleOnRN(setShownXp, nextXp);
+      }
+    }
   );
 
   const barStyle = useAnimatedStyle(() => ({ width: `${interpolate(t.value, inRange, pcts) * 100}%` }));
@@ -144,6 +279,22 @@ export function XpGain({ from, to, onClose }: Gain & { onClose: () => void }) {
             XP EARNED
           </Animated.Text>
           <Text style={[styles.gain, { color: c.foreground }]}>+{gained.toLocaleString("en-US")} XP</Text>
+
+          <Animated.View
+            entering={FadeInDown.delay(90).duration(280)}
+            style={[
+              styles.reasonPill,
+              {
+                backgroundColor: c.alpha(c.primary, 0.14),
+                borderColor: c.alpha(c.primary, 0.4),
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name={resolvedReason.icon} size={16} color={c.primary} />
+            <Text style={[styles.reasonText, { color: c.foreground }]} numberOfLines={2}>
+              {resolvedReason.label}
+            </Text>
+          </Animated.View>
 
           <View style={styles.levelRow}>
             <LevelBadge level={p.level} size={56} glow />
@@ -183,6 +334,7 @@ function Coin({ x, y, delay, duration }: { x: number; y: number; delay: number; 
   const k = useSharedValue(0);
   useEffect(() => {
     k.value = withDelay(delay, withTiming(1, { duration, easing: Easing.in(Easing.cubic) }));
+    return () => cancelAnimation(k);
   }, [delay, duration, k]);
   const style = useAnimatedStyle(() => ({
     opacity: k.value < 0.92 ? 1 : (1 - k.value) * 12,
@@ -200,6 +352,22 @@ const styles = StyleSheet.create({
   card: { width: "100%", maxWidth: 360, gap: 14, alignItems: "center", paddingVertical: 8 },
   kicker: { fontSize: 12, fontFamily: "Inter_900Black", letterSpacing: 3 },
   gain: { fontSize: 40, fontFamily: "Inter_900Black", letterSpacing: -1.2, fontVariant: ["tabular-nums"] },
+  reasonPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: "100%",
+  },
+  reasonText: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+    flexShrink: 1,
+  },
   levelRow: { flexDirection: "row", alignItems: "center", gap: 14, alignSelf: "stretch", marginTop: 6 },
   level: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
   track: { height: 14, borderRadius: 7, overflow: "hidden" },
