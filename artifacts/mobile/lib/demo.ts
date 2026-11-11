@@ -58,7 +58,9 @@ export const demoProfile: Profile = {
   onboarded: true,
 };
 
-const team = (name: string, abbreviation: string, color: string, odds: number, record: string) => ({ name, abbreviation, color, odds, record });
+const DEMO_FORM: Array<Array<"W" | "L">> = [["W", "W", "W", "L", "W"], ["L", "W", "L", "L", "W"], ["W", "L", "W", "W", "L"], ["L", "L", "L", "W", "W"]];
+let demoFormAt = 0;
+const team = (name: string, abbreviation: string, color: string, odds: number, record: string) => ({ name, abbreviation, color, odds, record, form: DEMO_FORM[demoFormAt++ % DEMO_FORM.length]! });
 
 export const demoGames: Game[] = ([] as Game[]).concat([
   { id: "NBA:1", sport: "NBA", sportIcon: "basketball", status: "live", startsAt: now - H, startTimeLabel: "Live", homeScore: 88, awayScore: 81, homeTeam: team("Boston Celtics", "BOS", "#007A33", 1.45, "9-3"), awayTeam: team("New York Knicks", "NYK", "#F58426", 2.75, "7-5"), updatedAt: now, clock: "Q4 · 6:12", period: 4 },

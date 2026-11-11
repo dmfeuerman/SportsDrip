@@ -26,6 +26,7 @@ import { challengeTerms, type ChallengeMode } from "@/lib/challengeMath";
 import { formatOdds, formatPercent, impliedProbability, NO_LINE, untilKickoff } from "@/lib/odds";
 import { lastStakeFor, rememberStake, useOddsFormat } from "@/lib/settings";
 import type { Game, Side } from "@/types/game";
+import type { Market, Selection } from "@/lib/markets";
 
 export interface BetWallet {
   /** "credits" or a league id. */
@@ -52,6 +53,9 @@ interface Props {
   teamName: string;
   teamAbbr: string;
   teamColor: string;
+  /** Bet type and side, shown as labelled chips so the pick is unmistakable. */
+  market?: Market;
+  selection?: Selection;
   /** The pick as a sentence ("Detroit Lions -3.5", "Over 45.5 total points"). Defaults to "<team> to win". */
   pickTitle?: string;
   /** Leagues where this week's Lock of the Week is already spent. */
@@ -112,6 +116,8 @@ export default function BetModal({
   onClose,
   onConfirm,
   teamName,
+  market = "ml",
+  selection,
   teamAbbr,
   teamColor,
   pickTitle,
@@ -272,8 +278,8 @@ export default function BetModal({
   const lockingSoon = minsToStart !== null && minsToStart <= 60;
 
   const quick = useMemo(() => {
-    const picks = [0.1, 0.25, 0.5].map((p) => Math.max(MIN_STAKE, Math.floor((available * p) / 10) * 10));
-    return [...new Set(picks)].filter((x) => x <= available);
+    // Fixed quick stakes; ones the wallet can't cover (or under the minimum) are left out.
+    return [10, 50, 100].filter((x) => x >= MIN_STAKE && x <= available);
   }, [available]);
 
   function focusInput() {
@@ -365,6 +371,16 @@ export default function BetModal({
       stake: terms.creatorStake,
       odds: format === "odds" ? terms.odds : undefined,
       idempotencyKey: chKey.current,
+      preview: {
+        sport: game.sport,
+        startsAt: game.startsAt,
+        home: { name: game.homeTeam.name, abbreviation: game.homeTeam.abbreviation, color: game.homeTeam.color },
+        away: { name: game.awayTeam.name, abbreviation: game.awayTeam.abbreviation, color: game.awayTeam.color },
+        opponentName: friendName,
+        opponentStake: terms.opponentStake,
+        pot: terms.pot,
+        odds: terms.odds,
+      },
     });
     setSending(false);
     if (err) {
@@ -391,6 +407,17 @@ export default function BetModal({
       >
         <tourScroll.Provider>
         <View style={styles.topMetaRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to pick a team and bet type"
+            onPress={handleClose}
+            disabled={busy}
+            hitSlop={8}
+            style={({ pressed }) => [styles.backBtn, { backgroundColor: c.secondary, borderColor: c.border, opacity: busy ? 0.5 : pressed ? 0.7 : 1 }]}
+          >
+            <MaterialCommunityIcons name="chevron-left" size={18} color={c.foreground} />
+            <Text style={[styles.backText, { color: c.foreground }]}>Back</Text>
+          </Pressable>
           <Text style={[styles.gameLabel, { color: c.mutedForeground, flex: 1 }]} numberOfLines={1}>
             {gameSummary}
           </Text>
@@ -414,10 +441,11 @@ export default function BetModal({
         ) : null}
 
         <TourTarget id="slip.team">
-        <Animated.View entering={ZoomIn.springify().damping(13).stiffness(220)} style={[styles.teamRow, { backgroundColor: c.alpha(teamColor, 0.14), borderColor: c.alpha(teamColor, 0.45) }]}>
-          <TeamCrest abbr={teamAbbr} color={teamColor} size={42} sport={game?.sport} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={[styles.teamName, { color: c.foreground }]} numberOfLines={1}>
+        <Animated.View entering={ZoomIn.springify().damping(13).stiffness(220)} style={[styles.teamRow, { backgroundColor: c.alpha(teamColor, 0.24), borderColor: teamColor }]}>
+          <TeamCrest abbr={teamAbbr} color={teamColor} size={44} sport={game?.sport} />
+          <View style={{ flex: 1, gap: 1 }}>
+            <Text style={[styles.pickKicker, { color: c.foreground }]}>YOUR PICK</Text>
+            <Text style={[styles.teamName, { color: c.foreground }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>
               {pickTitle ?? `${teamName} to win`}
             </Text>
             <Text style={[styles.oddsLabel, { color: c.mutedForeground }]}>
@@ -425,6 +453,20 @@ export default function BetModal({
             </Text>
           </View>
         </Animated.View>
+        <View style={styles.pickChips}>
+          <View style={[styles.pickChip, { backgroundColor: teamColor, borderColor: teamColor }]}>
+            <Text style={styles.pickChipKey}>{market === "total" ? "SIDE" : "TEAM"}</Text>
+            <Text style={styles.pickChipVal} numberOfLines={1}>
+              {market === "total" ? (selection === "under" ? "Under" : "Over") : teamName}
+            </Text>
+          </View>
+          <View style={[styles.pickChip, { backgroundColor: c.secondary, borderColor: c.border }]}>
+            <Text style={[styles.pickChipKey, { color: c.mutedForeground }]}>BET TYPE</Text>
+            <Text style={[styles.pickChipVal, { color: c.foreground }]} numberOfLines={1}>
+              {market === "spread" ? "Spread" : market === "total" ? "Total Points" : "Moneyline (to win)"}
+            </Text>
+          </View>
+        </View>
         </TourTarget>
 
         {canChallenge ? (
@@ -760,11 +802,18 @@ const styles = StyleSheet.create({
   lockSoonText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   context: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
   contextText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  teamRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1 },
+  teamRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 2, overflow: "hidden" },
+  pickChips: { flexDirection: "row", gap: 8 },
+  pickChip: { flex: 1, borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6, gap: 1 },
+  pickChipKey: { fontSize: 10, letterSpacing: 1, fontFamily: "Inter_700Bold", color: "rgba(255,255,255,0.85)" },
+  pickChipVal: { fontSize: 14, fontFamily: "Inter_800ExtraBold", color: "#fff" },
+  pickKicker: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 1.2, opacity: 0.8 },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 2, borderWidth: 1, borderRadius: 999, paddingLeft: 6, paddingRight: 12, paddingVertical: 6 },
+  backText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   teamCircle: { width: 46, height: 46, borderRadius: 23, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   teamAbbr: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  teamName: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  oddsLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  teamName: { fontSize: 20, lineHeight: 24, fontFamily: "Inter_700Bold" },
+  oddsLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
   label: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   wallet: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 2, minWidth: 110, maxWidth: 180 },
   walletHead: { flexDirection: "row", alignItems: "center", gap: 4 },

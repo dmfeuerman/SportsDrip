@@ -38,7 +38,7 @@ export default function WeeklyRecapCard({ bets, now, leagueLine }: { bets: Bet[]
   const dismiss = () => markItemsSeen("recap.weekly", [key]);
 
   const share = () => {
-    const text = [`My SportDrip week: ${w}-${l}, ${net >= 0 ? "+" : ""}${net.toLocaleString()} credits`, best ? `Best hit: ${best.label ?? best.teamName} +${(best.potentialPayout - best.stake).toLocaleString()}` : null, leagueLine].filter(Boolean).join("\n");
+    const text = [`My On The House week: ${w}-${l}, ${net >= 0 ? "+" : ""}${net.toLocaleString()} credits`, best ? `Best hit: ${best.label ?? best.teamName} +${(best.potentialPayout - best.stake).toLocaleString()}` : null, leagueLine].filter(Boolean).join("\n");
     Share.share({ message: text }).catch(() => {});
   };
 

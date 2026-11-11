@@ -3,17 +3,20 @@ import * as api from "@/lib/api";
 import { DEMO, demoGames } from "@/lib/demo";
 import { demoInsights } from "@/lib/demoInsights";
 import { usePolling } from "@/hooks/usePolling";
+import { fetchInsightsOnDevice } from "@/lib/insights/onDevice";
 import type { GameStatus } from "@/types/game";
 import type { GameInsights } from "@/types/insights";
 
 /**
- * Deep stats for one game, from the getGameInsights callable.
+ * Deep stats for one game, fetched and parsed on the device
+ * (lib/insights/onDevice.ts). No Cloud Function and no Firestore reads; the
+ * getGameInsights callable is only the fallback when the device can't reach
+ * the feed.
  *
  * Session cache keyed by game, shared by every screen, so the board sheet,
- * the bet slip and the game center opened in sequence cost one call. In-flight
- * requests are shared too. While a game is live the hook re-polls every 30s;
- * the server serves a cached copy younger than 20s, so polling never reaches
- * the provider more than that.
+ * the bet slip and the game center opened in sequence cost one fetch.
+ * In-flight requests are shared too. While a game is live the hook re-polls
+ * every 30s and the cache keeps that to one fetch per 20s per game.
  */
 const cache = new Map<string, { at: number; data: GameInsights }>();
 const inflight = new Map<string, Promise<GameInsights>>();
@@ -32,7 +35,7 @@ function fetchInsights(gameId: string): Promise<GameInsights> {
   const p = (
     DEMO
       ? Promise.resolve(demoInsights(demoGames.find((g) => g.id === gameId) ?? null, gameId))
-      : api.getGameInsights({ gameId }).then((r) => r.insights)
+      : fetchInsightsOnDevice(gameId).catch(() => api.getGameInsights({ gameId }).then((r) => r.insights))
   )
     .then((data) => {
       cache.set(gameId, { at: Date.now(), data });

@@ -5,7 +5,7 @@ import React, { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import ChallengeCard from "@/components/ChallengeCard";
 import GameQuickView from "@/components/GameQuickView";
-import { Amount, ConfirmDialog, EmptyState, ErrorBanner, IconButton, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
+import { Amount, ConfirmDialog, EmptyState, ErrorBanner, IconButton, LoadingState, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useChallenges, viewOf, type ChallengeView } from "@/context/ChallengeContext";
 import { useToast } from "@/context/ToastContext";
@@ -25,7 +25,7 @@ export default function ChallengesScreen() {
   const now = useNow(30_000);
   const params = useLocalSearchParams<{ tab?: string }>();
   const { balance } = useApp();
-  const { uid, incoming, outgoing, live, history, escrowed, respond, cancel } = useChallenges();
+  const { uid, loaded, incoming, outgoing, live, history, escrowed, respond, cancel } = useChallenges();
   const { show } = useToast();
   const { games } = useGames();
   const gameById = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
@@ -151,7 +151,9 @@ export default function ChallengesScreen() {
       <ScrollView contentContainerStyle={[styles.list, { paddingBottom: bottom }]} showsVerticalScrollIndicator={false}>
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
-        {tab === "inbox" ? (
+        {!loaded && inV.length + outV.length + liveV.length + histV.length === 0 ? (
+          <LoadingState label="Loading challenges…" />
+        ) : tab === "inbox" ? (
           inV.length + outV.length === 0 ? (
             <EmptyState
               icon="sword-cross"

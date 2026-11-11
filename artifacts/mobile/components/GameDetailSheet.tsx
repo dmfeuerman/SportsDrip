@@ -2,6 +2,7 @@ import FlashPickCard from "@/components/FlashPickCard";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic } from "@/lib/motion";
 import TeamCrest from "@/components/TeamCrest";
+import { FormChips, MatchupTape, StreakBadge, VenueTag } from "@/components/TeamMeta";
 import React, { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,6 +12,7 @@ import { Pressable } from "@/components/fx/Tap";
 import KeyboardSheet from "@/components/KeyboardSheet";
 import { Linescore, MatchupInsights, ScoringTimeline, SituationCard } from "@/components/insights";
 import { useColors, type Colors } from "@/hooks/useColors";
+import { hintProviderPath } from "@/lib/insights/onDevice";
 import { useGameInsights } from "@/hooks/useGameInsights";
 import { useNow } from "@/hooks/useNow";
 import { formatSpread, hasSpreadLine, hasTotalLine, quoteMarket, SPREAD_TOTAL_ODDS, type Market, type Selection } from "@/lib/markets";
@@ -72,6 +74,7 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
     setPick(p);
   };
   const isPicked = (m: Market, sel: Selection) => pick?.market === m && pick.selection === sel;
+  if (game) hintProviderPath(game.id, game.providerPath);
   const insights = useGameInsights(game?.id ?? null, game?.status);
   const parlay = useParlay();
   const building = parlay.legs.length > 0;
@@ -98,7 +101,7 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
         </Text>
 
         <View style={styles.matchup}>
-          <TeamColumn sport={game.sport} team={game.awayTeam} score={game.awayScore} probability={priced ? prob.away : null} c={c} />
+          <TeamColumn side="away" neutral={game.neutralSite} sport={game.sport} team={game.awayTeam} score={game.awayScore} probability={priced ? prob.away : null} c={c} />
           <View style={styles.centre}>
             <Text style={[styles.at, { color: c.subtleForeground }]}>at</Text>
             <Text style={[styles.kickoff, { color: c.foreground }]}>
@@ -118,8 +121,10 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
               </Text>
             )}
           </View>
-          <TeamColumn sport={game.sport} team={game.homeTeam} score={game.homeScore} probability={priced ? prob.home : null} c={c} />
+          <TeamColumn side="home" neutral={game.neutralSite} sport={game.sport} team={game.homeTeam} score={game.homeScore} probability={priced ? prob.home : null} c={c} />
         </View>
+
+        {game.status === "upcoming" ? <MatchupTape game={game} /> : null}
 
         {onOpenCenter ? (
           <Pressable
@@ -193,7 +198,7 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
           {priced && game.oddsSource === "model" ? (
             <Row
               label="Line source"
-              value="SportDrip Model"
+              value="On The House Model"
               hint={`No sportsbook line yet. Built from team ratings and results${game.model ? ` · ${game.model.confidence} confidence` : ""}. Updates as results come in.`}
               c={c}
             />
@@ -474,12 +479,16 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
 }
 
 function TeamColumn({
+  side,
+  neutral,
   sport,
   team,
   score,
   probability,
   c,
 }: {
+  side: "home" | "away";
+  neutral?: boolean | null;
   sport: string;
   team: TeamSide;
   score: number | null;
@@ -488,7 +497,7 @@ function TeamColumn({
 }) {
   return (
     <View style={styles.teamCol}>
-      <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={50} sport={sport} />
+      <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={58} sport={sport} />
       <Text style={[styles.teamName, { color: c.foreground }]} numberOfLines={2}>
         {team.name}
       </Text>
@@ -497,6 +506,12 @@ function TeamColumn({
       ) : (
         <Text style={[styles.bigProb, { color: c.mutedForeground }]}>{probability != null ? formatPercent(probability) : "—"}</Text>
       )}
+      <View style={styles.teamMeta}>
+        <VenueTag side={side} neutral={neutral} />
+        {team.record ? <Text style={[styles.teamRecord, { color: c.cardForeground }]}>{team.record}</Text> : null}
+        <StreakBadge form={team.form} />
+      </View>
+      <FormChips form={team.form} size={15} />
     </View>
   );
 }
@@ -549,6 +564,8 @@ const styles = StyleSheet.create({
 
   matchup: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   teamCol: { flex: 1, alignItems: "center", gap: 6 },
+  teamMeta: { flexDirection: "row", alignItems: "center", gap: 5, flexWrap: "wrap", justifyContent: "center" },
+  teamRecord: { fontSize: 12, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   centre: { alignItems: "center", gap: 2, paddingTop: 18 },
   at: { fontSize: 12, fontFamily: "Inter_400Regular" },
   kickoff: { fontSize: 14, fontFamily: "Inter_700Bold" },

@@ -55,8 +55,29 @@ interface Shared {
   error: string | null;
 }
 
+/**
+ * What the app shows ahead of the server. A request sent, accepted or
+ * declined, and a friend removed, all show the moment they're tapped; the
+ * call runs behind them and each entry is dropped once the listeners agree
+ * (or straight away if the server refuses, which undoes it).
+ */
+interface Overlay {
+  /** Requests I just sent: their uid. */
+  sent: Set<string>;
+  /** Incoming requests I just answered: sender's uid. */
+  answered: Set<string>;
+  /** Friends I just accepted, shown before the friends list is re-read. */
+  added: Map<string, PublicUser>;
+  /** Friends I just removed. */
+  removed: Set<string>;
+}
+
 class FriendsStore {
-  state: Shared = { friends: [], incoming: NO_REQUESTS, outgoing: NO_REQUESTS, loading: true, error: null };
+  /** What the server last said. */
+  private server: Shared = { friends: [], incoming: NO_REQUESTS, outgoing: NO_REQUESTS, loading: true, error: null };
+  private overlay: Overlay = { sent: new Set(), answered: new Set(), added: new Map(), removed: new Set() };
+  /** Server state with the overlay applied: what screens read. */
+  state: Shared = this.server;
   private subs = new Set<() => void>();
   private refs = 0;
   private stop: (() => void) | null = null;
@@ -73,8 +94,44 @@ class FriendsStore {
   };
 
   set(next: Partial<Shared>) {
-    this.state = { ...this.state, ...next };
+    this.server = { ...this.server, ...next };
+    this.publish();
+  }
+
+  private publish() {
+    const o = this.overlay;
+    const sv = this.server;
+    // Drop overlay entries the server now reflects.
+    const friendIds = new Set(sv.friends.map((f) => f.uid));
+    for (const id of [...o.added.keys()]) if (friendIds.has(id)) o.added.delete(id);
+    for (const id of [...o.removed]) if (!friendIds.has(id)) o.removed.delete(id);
+    for (const id of [...o.sent]) if (sv.outgoing.some((r) => r.to === id) || friendIds.has(id)) o.sent.delete(id);
+
+    let { friends, incoming, outgoing } = sv;
+    if (o.added.size || o.removed.size) friends = [...friends.filter((f) => !o.removed.has(f.uid)), ...o.added.values()];
+    if (o.answered.size) incoming = incoming.filter((r) => !o.answered.has(r.from));
+    if (o.sent.size) outgoing = [...outgoing, ...[...o.sent].map((to) => ({ id: `local_${to}`, from: this.uid, to, status: "pending" as const }))];
+    const same = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+    // Keep array identities when nothing changed, so screens don't re-render for nothing.
+    this.state = {
+      ...sv,
+      friends: same(friends, this.state.friends) ? this.state.friends : friends,
+      incoming: incoming.length === 0 ? NO_REQUESTS : same(incoming, this.state.incoming) ? this.state.incoming : incoming,
+      outgoing: outgoing.length === 0 ? NO_REQUESTS : outgoing.length === this.state.outgoing.length && outgoing.every((r, i) => r.id === this.state.outgoing[i]?.id) ? this.state.outgoing : outgoing,
+    };
     this.subs.forEach((f) => f());
+  }
+
+  /** Shows a change now; returns how to finish it: `false` undoes it, `true` leaves it for the listeners to confirm. */
+  assume(change: (o: Overlay) => void, undo: (o: Overlay) => void, settled?: (o: Overlay) => void) {
+    change(this.overlay);
+    this.publish();
+    return (ok: boolean) => {
+      if (!ok) undo(this.overlay);
+      // An answered request has left the pending query by now; a late listener echo can't bring it back.
+      else if (settled) setTimeout(() => (settled(this.overlay), this.publish()), 8_000);
+      this.publish();
+    };
   }
 
   /** The enriched list. Coalesced: overlapping callers share one call, and a pull within 5 s is reused. */
@@ -85,12 +142,12 @@ class FriendsStore {
       try {
         const res = await api.listFriends({});
         this.lastPull = Date.now();
-        if (JSON.stringify(this.state.friends) !== JSON.stringify(res.friends)) this.set({ friends: res.friends });
-        if (this.state.error) this.set({ error: null });
+        if (JSON.stringify(this.server.friends) !== JSON.stringify(res.friends)) this.set({ friends: res.friends });
+        if (this.server.error) this.set({ error: null });
       } catch (err) {
         this.set({ error: api.friendlyError(err) });
       } finally {
-        if (this.state.loading) this.set({ loading: false });
+        if (this.server.loading) this.set({ loading: false });
         this.inflight = null;
       }
     })();
@@ -111,9 +168,9 @@ class FriendsStore {
     const [inc, out] = res;
     const sameIds = (prev: FriendRequest[], next: { id: string }[]) => prev.length === next.length && prev.every((r, i) => r.id === next[i]?.id);
     const map = (docs: typeof inc.docs) => docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as FriendRequest);
-    const incoming = inc.empty ? NO_REQUESTS : sameIds(this.state.incoming, inc.docs) ? this.state.incoming : map(inc.docs);
-    const outgoing = out.empty ? NO_REQUESTS : sameIds(this.state.outgoing, out.docs) ? this.state.outgoing : map(out.docs);
-    if (incoming !== this.state.incoming || outgoing !== this.state.outgoing) this.set({ incoming, outgoing });
+    const incoming = inc.empty ? NO_REQUESTS : sameIds(this.server.incoming, inc.docs) ? this.server.incoming : map(inc.docs);
+    const outgoing = out.empty ? NO_REQUESTS : sameIds(this.server.outgoing, out.docs) ? this.server.outgoing : map(out.docs);
+    if (incoming !== this.server.incoming || outgoing !== this.server.outgoing) this.set({ incoming, outgoing });
   };
 
   acquire() {
@@ -256,14 +313,18 @@ export function useFriends(uid: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incoming]);
 
-  const wrap = useCallback(async (fn: () => Promise<unknown>) => {
+  const sendersRef = useRef(senders);
+  sendersRef.current = senders;
+  const wrap = useCallback(async (fn: () => Promise<unknown>, done?: (ok: boolean) => void) => {
     try {
       setError(null);
       await fn();
+      done?.(true);
       // Don't wait on the listener to reflect what we just did.
       void sync().catch(() => {});
       return true;
     } catch (err) {
+      done?.(false);
       if (alive.current) setError(api.friendlyError(err));
       return false;
     }
@@ -277,17 +338,52 @@ export function useFriends(uid: string | null) {
     (q: string) => api.searchUsers({ q }).then((r) => r.results),
     []
   );
+  // Each of these shows its result at once (FriendsStore.assume) and is undone, with the error shown, if the server refuses.
   const sendRequest = useCallback(
-    (toUid: string) => wrap(() => api.sendFriendRequest({ toUid })),
-    [wrap]
+    (toUid: string) =>
+      wrap(
+        () => api.sendFriendRequest({ toUid }),
+        store?.assume(
+          (o) => o.sent.add(toUid),
+          (o) => o.sent.delete(toUid),
+          (o) => o.sent.delete(toUid)
+        )
+      ),
+    [wrap, store]
   );
   const respond = useCallback(
-    (fromUid: string, accept: boolean) => wrap(() => api.respondFriendRequest({ fromUid, accept })),
-    [wrap]
+    (fromUid: string, accept: boolean) => {
+      const who = sendersRef.current[fromUid];
+      return wrap(
+        () => api.respondFriendRequest({ fromUid, accept }),
+        store?.assume(
+          (o) => {
+            o.answered.add(fromUid);
+            if (accept && who) o.added.set(fromUid, { ...who, uid: fromUid });
+          },
+          (o) => {
+            o.answered.delete(fromUid);
+            o.added.delete(fromUid);
+          },
+          (o) => o.answered.delete(fromUid)
+        )
+      );
+    },
+    [wrap, store]
   );
   const remove = useCallback(
-    (otherUid: string) => wrap(() => api.removeFriend({ otherUid })),
-    [wrap]
+    (otherUid: string) =>
+      wrap(
+        () => api.removeFriend({ otherUid }),
+        store?.assume(
+          (o) => {
+            o.removed.add(otherUid);
+            o.added.delete(otherUid);
+          },
+          (o) => o.removed.delete(otherUid)
+        )
+      ),
+    [wrap, store]
   );
 
   /** Sets, not arrays — FriendsScreen was rebuilding these on every render. */

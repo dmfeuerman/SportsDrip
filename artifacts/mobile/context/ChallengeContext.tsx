@@ -78,10 +78,14 @@ export interface CreateChallengeArgs {
   odds?: number;
   message?: string;
   idempotencyKey: string;
+  /** What the composer already knows, so the challenge shows under Sent straight away. */
+  preview?: Pick<Challenge, "sport" | "startsAt" | "home" | "away" | "opponentName" | "opponentStake" | "pot" | "odds">;
 }
 
 interface ChallengeContextType {
   uid: string | null;
+  /** False until the challenges have been read once: don't say "none" before then. */
+  loaded: boolean;
   challenges: Challenge[];
   /** Waiting on me to accept or decline. */
   incoming: Challenge[];
@@ -113,8 +117,39 @@ const NONE: Challenge[] = [];
 const OPEN = new Set(["pending", "accepted"]);
 
 export function ChallengeProvider({ uid, children }: { uid: string | null; children: React.ReactNode }) {
-  const { reportSyncFailure } = useApp();
-  const [challenges, setChallenges] = useState<Challenge[]>(NONE);
+  const { reportSyncFailure, profile } = useApp();
+  const myName = profile?.displayName ?? "You";
+  const [serverChallenges, setChallenges] = useState<Challenge[]>(NONE);
+  const [loaded, setLoaded] = useState(false);
+  // Shown ahead of the server: challenges just sent, and ones just accepted, declined or withdrawn.
+  // The listener's copy takes over once it agrees; a refusal undoes the change.
+  const [sent, setSent] = useState<Record<string, Challenge>>({});
+  const [statusOpt, setStatusOpt] = useState<Record<string, Challenge["status"]>>({});
+  const without = <T,>(rec: Record<string, T>, id: string) => {
+    if (!(id in rec)) return rec;
+    const next = { ...rec };
+    delete next[id];
+    return next;
+  };
+  const challenges = useMemo(() => {
+    const have = new Set(serverChallenges.map((c) => c.id));
+    const mine = Object.values(sent).filter((c) => !have.has(c.id));
+    const merged = mine.length ? [...mine, ...serverChallenges] : serverChallenges;
+    if (!Object.keys(statusOpt).length) return merged;
+    return merged.map((c) => (statusOpt[c.id] && c.status === "pending" ? { ...c, status: statusOpt[c.id]! } : c));
+  }, [serverChallenges, sent, statusOpt]);
+  useEffect(() => {
+    const byId = new Map(serverChallenges.map((c) => [c.id, c]));
+    setSent((p) => (Object.keys(p).some((id) => byId.has(id)) ? Object.fromEntries(Object.entries(p).filter(([id]) => !byId.has(id))) : p));
+    setStatusOpt((p) => {
+      const keep = Object.entries(p).filter(([id]) => byId.get(id)?.status === "pending");
+      return keep.length === Object.keys(p).length ? p : Object.fromEntries(keep);
+    });
+  }, [serverChallenges]);
+  useEffect(() => {
+    setSent({});
+    setStatusOpt({});
+  }, [uid]);
   const [friends, setFriends] = useState<PublicUser[]>(DEMO ? demoFriends : []);
   const [friendsLoading, setFriendsLoading] = useState(false);
   const friendsAt = useRef(0);
@@ -125,8 +160,10 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
   useEffect(() => {
     if (!enabled || !uid) {
       setChallenges(NONE);
+      setLoaded(true);
       return;
     }
+    setLoaded(false);
     const db = getDb();
     if (!db) return;
     const base = collection(db, "challenges");
@@ -143,10 +180,12 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
           const list = snap.docs.map((d) => ({ ...(d.data() as Challenge), id: d.id }));
           if (fallback) list.sort((a, b) => b.createdAtMs - a.createdAtMs);
           setChallenges(list.length ? list : NONE);
+          setLoaded(true);
         },
         (err) => {
-          if (!fallback && err.code === "failed-precondition") listen(unordered, true);
-          else if (__DEV__) console.warn(`[challenges] listener: ${err.code} — ${err.message}`);
+          if (!fallback && err.code === "failed-precondition") return listen(unordered, true);
+          setLoaded(true);
+          if (__DEV__) console.warn(`[challenges] listener: ${err.code} — ${err.message}`);
         }
       );
     };
@@ -196,8 +235,38 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
               ...(args.mode === "odds" && typeof args.odds === "number" ? { odds: args.odds } : {}),
               ...(trimmed ? { message: trimmed } : {}),
             };
-            // Instant: the composer closes now; a refusal comes back as a toast.
-            api.createChallenge(payload).catch((err) => reportSyncFailure(api.friendlyError(err), "The challenge wasn't sent."));
+            // Instant: the composer closes and the challenge is listed now; a refusal takes it back off and comes back as a toast.
+            const id = `${uid}_${args.idempotencyKey}`; // the id createChallenge gives it
+            if (args.preview && uid) {
+              const now = Date.now();
+              const draft: Challenge = {
+                ...args.preview,
+                id,
+                gameId: args.gameId,
+                mode: args.mode,
+                creatorUid: uid,
+                opponentUid: args.opponentUid,
+                participants: [uid, args.opponentUid],
+                creatorName: myName,
+                creatorSide: args.side,
+                creatorStake: args.stake,
+                message: trimmed || null,
+                status: "pending",
+                outcome: null,
+                winnerUid: null,
+                finalHomeScore: null,
+                finalAwayScore: null,
+                createdAtMs: now,
+                respondedAtMs: null,
+                closedAtMs: null,
+                settledAtMs: null,
+              };
+              setSent((p) => ({ ...p, [id]: draft }));
+            }
+            api.createChallenge(payload).catch((err) => {
+              setSent((p) => without(p, id));
+              reportSyncFailure(api.friendlyError(err), "The challenge wasn't sent.");
+            });
             return null;
           } catch (err) {
             return api.friendlyError(err);
@@ -205,7 +274,7 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
         },
         "Already sending…"
       ),
-    [enabled, once, reportSyncFailure]
+    [enabled, once, reportSyncFailure, uid, myName]
   );
 
   const respond = useCallback(
@@ -213,10 +282,14 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
       once<{ error: string | null; status?: string }>(
         `respond:${challengeId}`,
         async () => {
+          // Instant: it leaves the inbox now. Put back if the server refuses or the game has already started.
+          setStatusOpt((p) => ({ ...p, [challengeId]: accept ? "accepted" : "declined" }));
           try {
             const res = await api.respondChallenge({ challengeId, accept });
+            if (res.status === "expired") setStatusOpt((p) => ({ ...p, [challengeId]: "expired" }));
             return { error: null, status: res.status };
           } catch (err) {
+            setStatusOpt((p) => without(p, challengeId));
             return { error: api.friendlyError(err) };
           }
         },
@@ -230,7 +303,11 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
       once<string | null>(
         `cancel:${challengeId}`,
         async () => {
-          api.cancelChallenge({ challengeId }).catch((err) => reportSyncFailure(api.friendlyError(err), "The challenge is still open."));
+          setStatusOpt((p) => ({ ...p, [challengeId]: "cancelled" }));
+          api.cancelChallenge({ challengeId }).catch((err) => {
+            setStatusOpt((p) => without(p, challengeId));
+            reportSyncFailure(api.friendlyError(err), "The challenge is still open.");
+          });
           return null;
         },
         null
@@ -282,6 +359,7 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
   const value = useMemo<ChallengeContextType>(
     () => ({
       uid,
+      loaded,
       challenges,
       ...derived,
       headToHead,
@@ -292,7 +370,7 @@ export function ChallengeProvider({ uid, children }: { uid: string | null; child
       respond,
       cancel,
     }),
-    [uid, challenges, derived, headToHead, friends, friendsLoading, loadFriends, create, respond, cancel]
+    [uid, loaded, challenges, derived, headToHead, friends, friendsLoading, loadFriends, create, respond, cancel]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

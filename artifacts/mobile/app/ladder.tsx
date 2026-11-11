@@ -2,7 +2,7 @@ import BannerSlot from "@/components/ads/BannerSlot";
 import { doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { Card, EmptyState, Pill, ScreenHeader, useBottomPad } from "@/components/ui";
+import { Card, EmptyState, LoadingState, Pill, ScreenHeader, useBottomPad } from "@/components/ui";
 import theme from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
@@ -20,10 +20,23 @@ export default function LadderScreen() {
   const arm = useExperiment(EXPERIMENTS.ladder, profile?.uid);
   const cohortId = profile?.ladder?.cohortId ?? null;
   const [cohort, setCohort] = useState<{ tier: string; members: string[] } | null>(null);
+  // True while a placed player's cohort is still being read: not "opens Monday" yet.
+  const [cohortLoading, setCohortLoading] = useState(!!cohortId);
   useEffect(() => {
     const db = getDb();
-    if (!db || !cohortId) return;
-    return onSnapshot(doc(db, "ladderCohorts", cohortId), (s) => setCohort(s.exists() ? (s.data() as { tier: string; members: string[] }) : null), () => {});
+    if (!db || !cohortId) {
+      setCohortLoading(false);
+      return;
+    }
+    setCohortLoading(true);
+    return onSnapshot(
+      doc(db, "ladderCohorts", cohortId),
+      (s) => {
+        setCohort(s.exists() ? (s.data() as { tier: string; members: string[] }) : null);
+        setCohortLoading(false);
+      },
+      () => setCohortLoading(false)
+    );
   }, [cohortId]);
   const ids = useMemo(() => cohort?.members ?? [], [cohort]);
   const profiles = usePublicProfiles(ids);
@@ -33,7 +46,11 @@ export default function LadderScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: c.background }}>
         <ScreenHeader title="Ladder" back />
-        <EmptyState icon="stairs-up" title="Ladder opens Monday" body="Play this week to get placed with players like you." />
+        {arm !== CONTROL && cohortLoading ? (
+          <LoadingState label="Loading your ladder…" />
+        ) : (
+          <EmptyState icon="stairs-up" title="Ladder opens Monday" body="Play this week to get placed with players like you." />
+        )}
       </View>
     );
   }

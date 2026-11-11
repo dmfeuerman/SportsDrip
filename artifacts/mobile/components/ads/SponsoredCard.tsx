@@ -5,6 +5,7 @@ import { useAds } from "@/context/AdsContext";
 import { useColors } from "@/hooks/useColors";
 import sdk from "@/lib/ads/sdk";
 import { adUnit } from "@/lib/ads/units";
+import { useAdFreeHere } from "@/lib/ads/zones";
 
 /**
  * A native ad drawn in the app's own card language, so it sits in a feed like
@@ -13,7 +14,8 @@ import { adUnit } from "@/lib/ads/units";
  */
 export default function SponsoredCard({ style, compact }: { style?: StyleProp<ViewStyle>; compact?: boolean }) {
   const { enabled } = useAds();
-  if (!sdk || !enabled) return null;
+  const adFree = useAdFreeHere();
+  if (!sdk || !enabled || adFree) return null;
   return compact ? <CompactSponsoredCard style={style} /> : <NativeSponsoredCard style={style} />;
 }
 

@@ -16,7 +16,7 @@ import FeaturedGameCard, { pickFeatured } from "@/components/FeaturedGameCard";
 import { betNet } from "@/components/BetRecordPanel";
 import FirstWeekChecklist from "@/components/FirstWeekChecklist";
 import LadderPromotionHost from "@/components/LadderPromotionHost";
-import QuestsCard from "@/components/QuestsCard";
+import LevelChallengesCard from "@/components/LevelChallengesCard";
 import StreakWagerCard from "@/components/StreakWagerCard";
 import RewardsCard from "@/components/RewardsCard";
 import WinBackCard from "@/components/WinBackCard";
@@ -27,7 +27,7 @@ import WeeklyRecapCard from "@/components/WeeklyRecapCard";
 import CrewFeedModule from "@/components/CrewFeed";
 import GameQuickView from "@/components/GameQuickView";
 import SponsoredCard from "@/components/ads/SponsoredCard";
-import { Amount, Button, Card, EmptyState, IconButton, Pill, SectionHeader, useBottomPad, useTopPad } from "@/components/ui";
+import { Amount, Button, Card, EmptyState, IconButton, LoadingState, Pill, SectionHeader, useBottomPad, useTopPad } from "@/components/ui";
 import { DEFAULT_AVATAR } from "@/constants/avatarOptions";
 import { useApp } from "@/context/AppContext";
 import { useChallenges } from "@/context/ChallengeContext";
@@ -69,14 +69,14 @@ export default function HomeScreen() {
   const bottom = useBottomPad();
   const now = useNow(30_000);
 
-  const { profile, balance, bets, totalWon, progress, background } = useApp();
+  const { profile, balance, bets, betsLoaded, totalWon, progress, background } = useApp();
   const hasPlayed = bets.length > 0;
   const [showCard, setShowCard] = useState(false);
   const { nextAfter } = useLevelRewards();
   const onScene = isSceneBackdrop(background);
-  const { myLeagueBets, leagues } = useLeague();
+  const { myLeagueBets, leagues, ready: leaguesReady } = useLeague();
   const { summaries, totalDebt } = useLeagueSummaries();
-  const { notifications } = useNotifications();
+  const { notifications, unreadCount } = useNotifications();
   const { unreadChatCount } = useChat();
   const { byId } = useCatalog();
   const { games } = useGames();
@@ -173,11 +173,19 @@ export default function HomeScreen() {
           footer={<TourTarget id="home.level" style={{ flex: 1 }}><LevelBar progress={progress} nextReward={nextAfter(progress.level)} onPress={() => router.push("/levels" as never)} /></TourTarget>}
           header={
             <>
-              <Text accessibilityRole="header" style={[styles.h1, { color: onScene ? "#FFFFFF" : c.foreground, flex: 1 }, onScene && styles.onScene]} numberOfLines={1}>
-                Hello {name}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text accessibilityRole="header" style={[styles.h1, { color: onScene ? "#FFFFFF" : c.foreground }, onScene && styles.onScene]} numberOfLines={1}>
+                  Hello {name}
+                </Text>
+                {profile?.username ? (
+                  <Text style={[styles.handle, { color: onScene ? "rgba(255,255,255,0.85)" : c.mutedForeground }, onScene && styles.onScene]} numberOfLines={1}>
+                    @{profile.username}
+                  </Text>
+                ) : null}
+              </View>
               <TourTarget id="home.help"><IconButton icon="help-circle-outline" label="Tutorials" onPress={openTourMenu} /></TourTarget>
               <TourTarget id="home.chat"><IconButton icon="chat-processing-outline" label="Chat" badge={unreadChatCount} onPress={() => router.push("/messages" as never)} /></TourTarget>
+              <TourTarget id="home.activity"><IconButton icon="bell-outline" label="Notifications" badge={unreadCount} onPress={() => router.push("/activity")} /></TourTarget>
             </>
           }
         />
@@ -243,7 +251,9 @@ export default function HomeScreen() {
           onAction={() => router.push("/bets")}
         />
         </TourTarget>
-        {openTotal === 0 ? (
+        {openTotal === 0 && !betsLoaded ? (
+          <LoadingState label="Loading your bets…" />
+        ) : openTotal === 0 ? (
           <EmptyState icon="ticket-outline" title="Nothing Riding" body="Back a team on the board — results pop up here the moment the game's final." action="Browse Games" onAction={() => router.navigate("/(tabs)/games")} />
         ) : (
           <>
@@ -292,12 +302,9 @@ export default function HomeScreen() {
         {/* First-week checklist: compact row, full list opens over the screen */}
         <FirstWeekChecklist />
 
-        {hasPlayed ? (
-          <>
-            <LadderPromotionHost />
-            <QuestsCard />
-          </>
-        ) : null}
+        {/* XP challenges show from day one: level 1 is "explore the app". */}
+        <LevelChallengesCard />
+        {hasPlayed ? <LadderPromotionHost /> : null}
 
         <WeeklyRecapCard
           bets={bets}
@@ -306,7 +313,6 @@ export default function HomeScreen() {
         />
 
         {/* Leagues */}
-        <SponsoredCard compact style={{ marginVertical: 12 }} />
 
         <Zone title="Crew" sub="Challenges, leagues and what your friends did" />
         {/* Friend challenges: anything waiting on an answer, or riding on a game */}
@@ -342,7 +348,9 @@ export default function HomeScreen() {
         <TourTarget id="home.leagues">
         <SectionHeader title="Your Leagues" action={leagues.length ? "See All" : undefined} onAction={() => router.navigate("/(tabs)/leagues")} />
         </TourTarget>
-        {summaries.length === 0 ? (
+        {summaries.length === 0 && !leaguesReady ? (
+          <LoadingState label="Loading your leagues…" />
+        ) : summaries.length === 0 ? (
           <EmptyState
             icon="trophy-outline"
             title="Compete With Friends"
@@ -382,7 +390,8 @@ export default function HomeScreen() {
         <CrewFeedModule />
 
         </tourScroll.Provider>
-        <SponsoredCard style={{ marginTop: 12 }} />
+        {/* The one ad on Home: below everything, after the player has seen their own stuff. */}
+        <SponsoredCard compact style={{ marginTop: 12 }} />
       </ScrollView>
       <BetBreakdownModal
         item={breakdown}
@@ -459,6 +468,7 @@ const styles = StyleSheet.create({
   zoneRule: { flex: 1, height: StyleSheet.hairlineWidth, minWidth: 12 },
   container: { flex: 1 },
   content: { paddingHorizontal: 16, gap: 12 },
+  handle: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginTop: 1 },
   h1: { fontSize: 28, lineHeight: 32, fontFamily: "Inter_900Black", letterSpacing: -1 },
   onScene: { textShadowColor: "rgba(0,0,0,0.55)", textShadowRadius: 8, textShadowOffset: { width: 0, height: 1 } },
   wallet: { gap: 8, padding: 18, borderRadius: 22, overflow: "hidden" },

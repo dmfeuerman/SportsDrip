@@ -29,7 +29,7 @@ import { useFriends } from "@/hooks/useFriends";
 import TokenBalance from "@/components/TokenBalance";
 import { FilterPills } from "@/components/ui";
 import { SPORT_COLORS } from "@/constants/colors";
-import { SPORT_ICONS } from "@/constants/leagueTypes";
+import { SPORT_ICONS, isLeagueStarted } from "@/constants/leagueTypes";
 import { AD_POLICY } from "@/constants/ads";
 import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
@@ -137,7 +137,7 @@ export default function GamesScreen() {
   }, [bets, leagues, myLeagueBets, challenges.byGame, challenges.uid]);
 
   // Thin banners only for players with a real social graph (10+ friends or leagues).
-  const thinOn = friends.length > 10 || leagues.length > 10;
+  const thinOn = AD_POLICY.boardThinBanners && (friends.length > 10 || leagues.length > 10);
   const rows: Row[] = useMemo(() => {
     const q = query.trim().toLowerCase();
     const teamHit = (t: { name: string; abbreviation: string }) => t.name.toLowerCase().includes(q) || t.abbreviation.toLowerCase().includes(q);
@@ -250,6 +250,8 @@ export default function GamesScreen() {
     for (const lg of activeLeagues) {
       if (!lg.allowedSports.includes(pending.game.sport)) continue;
       if (pending.game.startsAt >= lg.endsAt) continue;
+      // No league bets until the league has started: the slip stays on credits.
+      if (!isLeagueStarted(lg)) continue;
       const me = lg.members[uid];
       if (!me) continue;
       out.push({ id: lg.id, label: lg.name, balance: me.leagueTokens, kind: "league" });
@@ -347,6 +349,8 @@ export default function GamesScreen() {
         tourEvent("bet:placed");
       } else {
         const key = pending.key;
+        const lt = (q.side ?? pending.side) === "home" ? pending.game.homeTeam : pending.game.awayTeam;
+        const lo = (q.side ?? pending.side) === "home" ? pending.game.awayTeam : pending.game.homeTeam;
         placeLeagueBet({
           leagueId: walletId,
           gameId: pending.game.id,
@@ -359,6 +363,21 @@ export default function GamesScreen() {
           stake,
           idempotencyKey: `${pending.key}${walletId.slice(-4)}`,
           expectedOdds: oddsVal,
+          // Shown in the league's bets and My Bets straight away, until the server's copy arrives.
+          preview: {
+            sport: pending.game.sport,
+            side: q.side ?? pending.side,
+            market: Q.market,
+            selection: Q.selection,
+            line: Q.line ?? null,
+            label: q.label,
+            startsAt: pending.game.startsAt,
+            teamName: Q.teamName || lt.name,
+            teamAbbr: Q.teamAbbr || lt.abbreviation,
+            teamColor: Q.teamColor || lt.color,
+            opponentAbbr: Q.opponentAbbr || lo.abbreviation,
+            odds: oddsVal,
+          },
 
         }).then((why) => {
           if (why) show({ id: `lbet_fail_${key}`, kind: "warning", title: "Bet didn't go through", body: `${why} Your league balance wasn't charged.` });
@@ -606,6 +625,8 @@ export default function GamesScreen() {
           teamAbbr={team.abbreviation}
           teamColor={team.color}
           pickTitle={pendingQuote?.label}
+          market={pending.market ?? "ml"}
+          selection={pending.selection ?? pending.side}
           lockUsed={lockUsedMap}
           odds={pendingQuote ? pendingQuote.odds : sideOdds(pending.game, pending.side)}
           game={pending.game}

@@ -43,6 +43,8 @@ interface Props {
   backdropCam?: SharedValue<BackdropCam>;
   /** lg only. Tap on the character. */
   onTap?: () => void;
+  /** lg only. Spinner while equipped clothes load. */
+  loadingSpinner?: boolean;
 }
 
 /**
@@ -51,7 +53,7 @@ interface Props {
  * falls back to a flat silhouette rather than taking the screen down.
  */
 const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDisplay(
-  { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, move, active, backdropCam, onTap },
+  { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, move, active, backdropCam, onTap, loadingSpinner },
   ref
 ) {
   const look = useMemo(() => normalizeAvatar(avatar), [avatar]);
@@ -80,6 +82,7 @@ const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDispla
           active={active}
           backdropCam={backdropCam}
           onTap={onTap}
+          loadingSpinner={loadingSpinner}
         />
       </View>
     </GLBoundary>

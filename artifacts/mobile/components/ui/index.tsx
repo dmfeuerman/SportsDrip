@@ -27,7 +27,7 @@ import { titleCase } from "@/lib/titleCase";
 export { titleCase };
 
 /**
- * SportDrip UI kit.
+ * On The House UI kit.
  *
  * Every screen was hand-rolling its own buttons, pills, headers and empty
  * states — forty StyleSheets with sizes that drifted a point or two apart and
@@ -707,11 +707,27 @@ export function FilterPills<T extends string>({
   style?: StyleProp<ViewStyle>;
 }) {
   const c = useColors();
+  // Keep the selected pill on screen: when the selection changes (a tap, or a
+  // screen opened straight onto a far category), scroll the row to centre it.
+  const scroller = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const pills = useRef(new Map<string, { x: number; w: number }>());
+  const [rowW, setRowW] = useState(0);
+  const [measured, setMeasured] = useState(0);
+  const first = useRef(true);
+  useEffect(() => {
+    const p = pills.current.get(value);
+    if (!p || !rowW) return;
+    scroller.current?.scrollTo({ x: Math.max(0, p.x - (rowW - p.w) / 2), animated: !first.current });
+    first.current = false;
+    // `measured` re-runs this once the selected pill's position is known.
+  }, [value, rowW, measured]);
   return (
     <ScrollView
+      ref={scroller}
       horizontal
       showsHorizontalScrollIndicator={false}
       style={style}
+      onLayout={(e) => setRowW(e.nativeEvent.layout.width)}
       contentContainerStyle={[styles.pillsRow, { paddingHorizontal: inset, gap }]}
     >
       {options.map((o) => {
@@ -720,6 +736,12 @@ export function FilterPills<T extends string>({
         return (
           <Pressable
             key={o.value}
+            onLayout={(e) => {
+              const { x, width } = e.nativeEvent.layout;
+              const had = pills.current.get(o.value);
+              pills.current.set(o.value, { x, w: width });
+              if (on && (!had || Math.abs(had.x - x) > 1 || Math.abs(had.w - width) > 1)) setMeasured((n) => n + 1);
+            }}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
             accessibilityLabel={titleCase(o.label)}
@@ -806,6 +828,17 @@ export function EmptyState({
           {action && onAction ? <Button label={action} onPress={onAction} /> : null}
         </View>
       )}
+    </View>
+  );
+}
+
+/** Stands in for a list while its first read is in flight, so an empty state never shows before the data has had a chance to arrive. */
+export function LoadingState({ label = "Loading…" }: { label?: string }) {
+  const c = useColors();
+  return (
+    <View accessibilityRole="progressbar" accessibilityLabel={label} style={[styles.empty, { backgroundColor: c.card, borderColor: c.border }]}>
+      <ActivityIndicator color={c.mutedForeground} />
+      <Text style={[styles.emptyBody, { color: c.mutedForeground }]}>{label}</Text>
     </View>
   );
 }

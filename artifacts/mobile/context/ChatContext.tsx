@@ -181,6 +181,19 @@ function buildInitialDemoDms(myUid: string): Record<string, DirectMessage[]> {
         text: "After this game settles let's run a 1v1 challenge on Sunday NFL!",
         at: now - 12 * 60_000,
       },
+      {
+        id: "loan_dm_demo_loan_1",
+        threadId: mayaThread,
+        senderUid: "maya",
+        senderName: "Maya R",
+        recipientUid: myUid,
+        recipientName: "You",
+        kind: "loan",
+        loanId: "dm_demo_loan_1",
+        amount: 500,
+        text: "Asked to borrow 500 credits (10% · 550 back) — For Celtics ML tonight",
+        at: now - 5 * 60_000,
+      },
     ],
     [theoThread]: [
       {

@@ -29,7 +29,7 @@ export function inviteLink(code: string): string {
 /** Share-sheet copy for a league invite. The link opens the app; the code is the fallback. */
 export function inviteMessage(league: { name: string; code: string; buyIn: number }): string {
   const cost = league.buyIn > 0 ? ` Buy-in is ${league.buyIn.toLocaleString()} credits.` : " It's free to join.";
-  return `Join my "${league.name}" league on SportDrip.${cost}\n\n${inviteLink(league.code)}\n\nOr enter code ${league.code} in Leagues → Join.`;
+  return `Join my "${league.name}" league on On The House.${cost}\n\n${inviteLink(league.code)}\n\nOr enter code ${league.code} in Leagues → Join.`;
 }
 
 interface Pending {

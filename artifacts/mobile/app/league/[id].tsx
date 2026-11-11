@@ -5,7 +5,7 @@ import { haptic as buzz } from "@/lib/motion";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { Pressable, Switch } from "@/components/fx/Tap";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import { QuotedParent, ReplyComposerBar, WinLossReplyThread, type ReplyQuote } from "@/components/chat/ReplyThread";
@@ -20,6 +20,7 @@ import PlayerProfileSheet from "@/components/PlayerProfileSheet";
 import ReportDialog, { type ReportTarget } from "@/components/ReportDialog";
 import ReactionRow from "@/components/chat/ReactionRow";
 import BetChatCard from "@/components/chat/BetChatCard";
+import { LeagueLoanChatCard, LoanNegotiateModal } from "@/components/chat/FriendMoneyCard";
 import BracketFill from "@/components/BracketFill";
 import CoopGoalCard from "@/components/CoopGoalCard";
 import TauntCard from "@/components/chat/TauntCard";
@@ -104,9 +105,20 @@ export default function LeagueDetailScreen() {
   const fmt = useOddsFormat();
   const bottom = useBottomPad(false);
   const params = useLocalSearchParams<{ id: string; tab?: Tab; created?: string }>();
-  const { leagues, getLeague, uid, error, clearError } = useLeague();
+  const { leagues, getLeague, pendingLeague, dismissPending, ready, uid, error, clearError } = useLeague();
   const league = getLeague(params.id);
+  // A join or create that is still running (or was refused) for this league.
+  const waiting = pendingLeague(params.id);
   const detail = useLeagueDetail(league);
+  // The league list can arrive a moment after this screen opens (just joined, opened from a
+  // notification, cold start): wait for it before saying the league doesn't exist.
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    setGaveUp(false);
+    if (league) return;
+    const t = setTimeout(() => setGaveUp(true), 12_000);
+    return () => clearTimeout(t);
+  }, [!!league, params.id]);
   const [tab, setTab] = useState<Tab>(
     // Chat is the front door once a league is running; before it starts, the table carries the invite and preseason cards.
     params.tab ?? (params.created || !league || !isLeagueStarted(league, Date.now()) ? "standings" : "feed")
@@ -125,12 +137,45 @@ export default function LeagueDetailScreen() {
     }
   }, [tab, league, detail.messages]);
 
-  if (!league) {
+  const toLeagues = () => {
+    dismissPending(params.id);
+    router.navigate("/(tabs)/leagues");
+  };
+  if (waiting?.error && (!league || league.optimistic)) {
     return (
       <View style={[styles.container, { backgroundColor: c.background }]}>
-        <ScreenHeader back title="League" />
+        <ScreenHeader back title={waiting.name || "League"} />
         <View style={{ padding: 16 }}>
-          <EmptyState icon="trophy-broken" title="League Not Found" body="You may have left it, or it's still loading." action="All Leagues" onAction={() => router.navigate("/(tabs)/leagues")} />
+          <EmptyState
+            icon="alert-circle-outline"
+            title={waiting.kind === "create" ? "Couldn't Create League" : "Couldn't Join League"}
+            body={waiting.error}
+            action={waiting.retry ? "Try Again" : "All Leagues"}
+            onAction={waiting.retry ?? toLeagues}
+            secondary={waiting.retry ? "All Leagues" : undefined}
+            onSecondary={waiting.retry ? toLeagues : undefined}
+          />
+        </View>
+      </View>
+    );
+  }
+  if (!league) {
+    const loading = (!!waiting || !ready) && !gaveUp;
+    return (
+      <View style={[styles.container, { backgroundColor: c.background }]}>
+        <ScreenHeader back title={waiting?.name || "League"} subtitle={loading && waiting ? "Joining…" : undefined} />
+        <View style={{ padding: 16 }}>
+          {loading ? (
+            <Card style={{ alignItems: "center", gap: 12, paddingVertical: 32 }} accessibilityLabel="Loading league">
+              <ActivityIndicator color={c.league} />
+              <Text style={[styles.cardTitle, { color: c.foreground }]}>{waiting ? `Joining ${waiting.name || "league"}…` : "Loading league…"}</Text>
+              <Text style={[styles.muted, { color: c.mutedForeground, textAlign: "center" }]}>
+                {waiting ? "You're in as soon as the league confirms your seat." : "Getting standings, bets and chat."}
+              </Text>
+            </Card>
+          ) : (
+            <EmptyState icon="trophy-broken" title="League Not Found" body="You may have left it, or it has been removed." action="All Leagues" onAction={toLeagues} />
+          )}
         </View>
       </View>
     );
@@ -152,12 +197,13 @@ export default function LeagueDetailScreen() {
   const startLabel = new Date(leagueStartsAt(league)).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
   const invite = () => {
-    if (closed || started) return;
+    // No invite code until the server has created the league.
+    if (closed || started || !league.code) return;
     trackEvent("share_card_tapped", { surface: "league_invite", league_id: league.id });
     Share.share({
       message: inviteMessage(league),
       url: inviteLink(league.code),
-      title: `Join ${league.name} on SportDrip`,
+      title: `Join ${league.name} on On The House`,
     }).catch(() => {});
   };
 
@@ -172,7 +218,7 @@ export default function LeagueDetailScreen() {
             : closed
               ? "Closed · read-only"
               : !started
-                ? `Starts ${startLabel} · code ${league.code}`
+                ? league.code ? `Starts ${startLabel} · code ${league.code}` : `Starts ${startLabel} · setting up…`
                 : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
         }
         right={
@@ -245,6 +291,7 @@ export default function LeagueDetailScreen() {
           activity={detail.activity}
           messages={detail.messages}
           bets={detail.bets}
+          loans={detail.loans}
           uid={uid}
           now={detail.now}
           closed={closed}
@@ -262,14 +309,16 @@ export default function LeagueDetailScreen() {
               <Card style={styles.closedBanner} accessibilityLabel="This league is closed. You can view its history, but nothing can be changed.">
                 <MaterialCommunityIcons name="lock-outline" size={18} color={c.mutedForeground} />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={[styles.cardTitle, { color: c.foreground }]}>League Closed</Text>
+                  <Text style={[styles.cardTitle, { color: c.foreground }]}>{league.cancelled ? "League Cancelled" : "League Closed"}</Text>
                   <Text style={[styles.muted, { color: c.mutedForeground }]}>
-                    {ended ? "The season is over." : "The season is over — final results are being tallied."} Standings, bets, loans and the feed are view-only.
+                    {league.cancelled
+                      ? "Nobody accepted the invite before the start date, so it was cancelled and any buy-in was refunded."
+                      : `${ended ? "The season is over." : "The season is over — final results are being tallied."} Standings, bets, loans and the feed are view-only.`}
                   </Text>
                 </View>
               </Card>
             )}
-            {ended && (
+            {ended && !league.cancelled && (
               <ActionChip
                 label="Your Season Wrapped"
                 icon="gift-outline"
@@ -277,14 +326,14 @@ export default function LeagueDetailScreen() {
                 onPress={() => router.push({ pathname: "/wrapped/[id]", params: { id: league.id } } as never)}
               />
             )}
-            {!closed && !started && tab === "standings" && <PreseasonCard league={league} uid={uid} onInvite={invite} />}
+            {!closed && !started && !league.optimistic && tab === "standings" && <PreseasonCard league={league} uid={uid} onInvite={invite} />}
             {!closed && !started && params.created && league.memberIds.length === 1 && tab === "standings" && (
               <Card tone="league" style={{ gap: 8 }}>
                 <Text style={[styles.cardTitle, { color: c.foreground }]}>League Created</Text>
-                <Text style={[styles.muted, { color: c.mutedForeground }]}>Share code {league.code} or invite friends below. Everyone starts with {league.startingLeagueTokens.toLocaleString()} tokens.</Text>
+                <Text style={[styles.muted, { color: c.mutedForeground }]}>{league.code ? `Share code ${league.code} or invite friends below.` : "Your invite code is on its way."} Everyone starts with {league.startingLeagueTokens.toLocaleString()} tokens.</Text>
               </Card>
             )}
-            {tab === "standings" && !closed && <CoopGoalCard league={league} uid={uid} />}
+            {tab === "standings" && !closed && !league.optimistic && <CoopGoalCard league={league} uid={uid} />}
             {tab === "standings" && (
               <StandingsTab
                 league={league}
@@ -751,7 +800,7 @@ function InvitePanel({ league, onShare }: { league: League; onShare: () => void 
     <Card style={{ gap: 10 }}>
       <View style={styles.inline}>
         <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Invite Friends</Text>
-        <Button size="sm" variant="secondary" icon="share-variant" label={league.code} onPress={onShare} />
+        <Button size="sm" variant="secondary" icon="share-variant" label={league.code || "…"} disabled={!league.code} onPress={onShare} />
       </View>
       {candidates.length === 0 ? (
         <Text style={[styles.muted, { color: c.mutedForeground }]}>Share the code — anyone with it can join{league.buyIn > 0 ? ` for ${league.buyIn.toLocaleString()} credits` : ""}.</Text>
@@ -763,16 +812,21 @@ function InvitePanel({ league, onShare }: { league: League; onShare: () => void 
               <Text style={[styles.memberName, { color: c.foreground, flex: 1 }]} numberOfLines={1}>
                 {f.displayName} <Text style={{ color: c.mutedForeground }}>@{f.username}</Text>
               </Text>
+              {st?.startsWith("error:") ? (
+                <Text style={{ color: c.negative, fontSize: 11, fontFamily: "Inter_500Medium", maxWidth: 140 }} numberOfLines={2}>
+                  {st.slice(6)}
+                </Text>
+              ) : null}
               <Button
                 size="sm"
-                label={st === "sent" ? "Invited" : "Invite"}
+                label={st === "sent" ? "Invited" : st?.startsWith("error:") ? "Retry" : "Invite"}
                 variant={st === "sent" ? "secondary" : "primary"}
                 loading={st === "busy"}
                 disabled={st === "sent"}
                 onPress={async () => {
                   setSent((p) => ({ ...p, [f.uid]: "busy" }));
                   const e = await inviteFriend(league.id, f.uid);
-                  setSent((p) => ({ ...p, [f.uid]: e ? "" : "sent" }));
+                  setSent((p) => ({ ...p, [f.uid]: e ? `error:${e}` : "sent" }));
                 }}
               />
             </View>
@@ -1178,10 +1232,18 @@ function ModePicksCard({
                   variant={picked ? "league" : "secondary"}
                   label={team.abbreviation}
                   loading={busyGame === `${g.id}_${side}`}
-                  onPress={async () => {
-                    setBusyGame(`${g.id}_${side}`);
-                    await makePick(league.id, g.id, side);
-                    setBusyGame(null);
+                  onPress={() => {
+                    // Instant: the pick shows now, the server confirms behind it.
+                    buzz.light();
+                    const opp = side === "home" ? g.awayTeam : g.homeTeam;
+                    void makePick(league.id, g.id, side, {
+                      sport: g.sport,
+                      teamName: team.name,
+                      teamAbbr: team.abbreviation,
+                      teamColor: team.color,
+                      opponentAbbr: opp.abbreviation,
+                      startsAt: g.startsAt,
+                    });
                   }}
                 />
               );
@@ -1857,6 +1919,7 @@ function FeedTab({
   activity,
   messages,
   bets,
+  loans,
   uid,
   now,
   closed,
@@ -1867,6 +1930,7 @@ function FeedTab({
   activity: Array<{ id: string; type: string; uid?: string; name?: string; text: string; at: number }>;
   messages: LeagueMessage[];
   bets: LeagueBet[];
+  loans: LeagueLoan[];
   uid: string | null;
   now: number;
   closed: boolean;
@@ -1875,7 +1939,7 @@ function FeedTab({
 }) {
   const c = useColors();
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
-  const { sendMessage, reactToItem } = useLeague();
+  const { sendMessage, reactToItem, requestLoan } = useLeague();
   const { leagueReplyQuotes, recordLeagueMessageQuote, setActiveChatId } = useChat();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -1885,6 +1949,7 @@ function FeedTab({
   const [profileUid, setProfileUid] = useState<string | null>(null);
   const [quickGame, setQuickGame] = useState<string | null>(null);
   const [follow, setFollow] = useState<FollowIntent | null>(null);
+  const [loanModalOpen, setLoanModalOpen] = useState(false);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView> | null>(null);
 
   useEffect(() => {
@@ -1892,17 +1957,45 @@ function FeedTab({
     return () => setActiveChatId(null);
   }, [league.id, setActiveChatId]);
 
+  const loanById = useMemo(() => {
+    const map = new Map<string, LeagueLoan>();
+    for (const l of loans) map.set(l.id, l);
+    return map;
+  }, [loans]);
+
   // Orient chronologically: oldest at top, newest messages at the bottom!
   const items = useMemo(() => {
+    const baseMessages = messages.slice();
+    const existingLoanIds = new Set(baseMessages.map((m) => m.loanId).filter(Boolean));
+    for (const l of loans) {
+      if (l.kind === "peer" && !existingLoanIds.has(l.id)) {
+        const rate = l.counterRate ?? l.proposedRate ?? l.ratePct;
+        baseMessages.push({
+          id: `loan_${l.id}`,
+          uid: l.borrowerId,
+          name: l.borrowerName,
+          kind: "loan",
+          loanId: l.id,
+          amount: l.principal,
+          rate,
+          text: `${l.borrowerName} requested ${l.principal.toLocaleString()} tokens at ${rate}% flat${l.message ? ` — "${l.message}"` : ""}`,
+          at: l.createdAt,
+          reactions: l.reactions,
+          reactors: l.reactors,
+        });
+      }
+    }
     const merged: Array<
       | { kind: "msg"; at: number; m: LeagueMessage }
       | { kind: "act"; at: number; a: { id: string; type: string; uid?: string; name?: string; text: string; at: number } }
     > = [
-      ...messages.map((m) => ({ kind: "msg" as const, at: m.at, m })),
-      ...activity.map((a) => ({ kind: "act" as const, at: a.at, a })),
+      ...baseMessages.map((m) => ({ kind: "msg" as const, at: m.at, m })),
+      ...activity
+        .filter((a) => a.type !== "loan_request")
+        .map((a) => ({ kind: "act" as const, at: a.at, a })),
     ];
     return merged.sort((x, y) => x.at - y.at);
-  }, [messages, activity]);
+  }, [messages, loans, activity]);
 
   const betById = useMemo(() => {
     const map = new Map<string, LeagueBet>();
@@ -2055,6 +2148,7 @@ function FeedTab({
 
             const mine = m.uid === uid;
             const attached = m.betId ? betById.get(m.betId) : undefined;
+            const attachedLoan = m.loanId ? loanById.get(m.loanId) : undefined;
             const quote = m.replyTo ?? leagueReplyQuotes[m.id] ?? null;
             const sameAsPrev =
               !showDateHeader &&
@@ -2203,6 +2297,15 @@ function FeedTab({
                               setQuickGame(gameId);
                             }}
                           />
+                        ) : m.kind === "loan" && attachedLoan ? (
+                          <LeagueLoanChatCard
+                            league={league}
+                            loan={attachedLoan}
+                            myUid={uid}
+                            now={now}
+                            closed={closed}
+                            onReply={(q) => setReplyQuote(q)}
+                          />
                         ) : attached && !attached.hidden ? (
                           <View style={[styles.parlayBox, { borderColor: c.border, backgroundColor: c.secondary }]}>
                             <Text style={[styles.memberSub, { color: c.foreground }]}>
@@ -2226,15 +2329,17 @@ function FeedTab({
                         </View>
                       </Pressable>
 
-                      <ReactionRow
-                        reactions={m.reactions}
-                        reactors={m.reactors}
-                        uid={uid}
-                        align={mine ? "right" : "left"}
-                        compact
-                        canReact={!closed}
-                        onReact={(emoji) => (closed ? false : reactToItem(league.id, "message", m.id, emoji as never))}
-                      />
+                      {m.kind !== "loan" ? (
+                        <ReactionRow
+                          reactions={m.reactions}
+                          reactors={m.reactors}
+                          uid={uid}
+                          align={mine ? "right" : "left"}
+                          compact
+                          canReact={!closed}
+                          onReact={(emoji) => (closed ? false : reactToItem(league.id, "message", m.id, emoji as never))}
+                        />
+                      ) : null}
                     </View>
                   </View>
 
@@ -2258,7 +2363,12 @@ function FeedTab({
                             key={emoji}
                             onPress={() => {
                               buzz.tick();
-                              void reactToItem(league.id, "message", m.id, emoji);
+                              void reactToItem(
+                                league.id,
+                                m.kind === "loan" && m.loanId ? "loan" : "message",
+                                m.kind === "loan" && m.loanId ? m.loanId : m.id,
+                                emoji
+                              );
                               setActiveMenuMsgId(null);
                             }}
                             style={[
@@ -2344,6 +2454,26 @@ function FeedTab({
             </Text>
           ) : null}
           <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 10, paddingTop: 8 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Request a loan in ${league.name}`}
+              onPress={() => {
+                buzz.tick();
+                setLoanModalOpen(true);
+              }}
+              style={({ pressed }) => ({
+                width: 34,
+                height: 34,
+                borderRadius: 17,
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 2,
+                backgroundColor: c.leagueSoft,
+                opacity: pressed ? 0.75 : 1,
+              })}
+            >
+              <MaterialCommunityIcons name="hand-coin-outline" size={20} color={c.league} />
+            </Pressable>
             <View
               style={{
                 flex: 1,
@@ -2402,6 +2532,22 @@ function FeedTab({
           </View>
         </View>
       )}
+
+      <LoanNegotiateModal
+        visible={loanModalOpen}
+        onClose={() => setLoanModalOpen(false)}
+        title="Request League Loan in Chat"
+        subtitle={`Post an interactive loan card in ${league.name} so members can fund, counter, or react.`}
+        currency="league"
+        currencyLabel="league tokens"
+        initialAmount={Math.min(1000, Math.floor(league.startingLeagueTokens * 0.2))}
+        initialRate={league.bankInterestRate || 10}
+        maxAmount={Math.floor(league.startingLeagueTokens * PEER_LOAN_MAX_PCT)}
+        mode="create"
+        onSubmit={async ({ amount, rate, note }) => {
+          return await requestLoan(league.id, amount, rate, note);
+        }}
+      />
 
       <ReportDialog target={reportTarget} onClose={() => setReportTarget(null)} />
       <PlayerProfileSheet
@@ -2490,7 +2636,7 @@ function InfoTab({
           <View style={{ flex: 1, gap: 6 }}>
             <Text style={[styles.cardTitle, { color: c.foreground }]}>Scan to Join</Text>
             <Text style={[styles.muted, { color: c.mutedForeground }]}>
-              Point a phone camera at this to open {league.name} in SportDrip{league.buyIn > 0 ? ` (${league.buyIn.toLocaleString()}-credit buy-in)` : ""}.
+              Point a phone camera at this to open {league.name} in On The House{league.buyIn > 0 ? ` (${league.buyIn.toLocaleString()}-credit buy-in)` : ""}.
             </Text>
             <Text style={[styles.qrCode, { color: c.foreground }]} selectable>
               {league.code}
@@ -2629,10 +2775,10 @@ function InfoTab({
             label={iVoted ? "Withdraw my vote to end" : "Vote to end season now"}
             variant={iVoted ? "secondary" : "league"}
             loading={voteBusy}
-            onPress={async () => {
-              setVoteBusy(true);
-              await voteEndLeague(league.id, !iVoted);
-              setVoteBusy(false);
+            onPress={() => {
+              // Instant: the vote count moves now.
+              buzz.light();
+              void voteEndLeague(league.id, !iVoted);
             }}
           />
         </Card>

@@ -17,7 +17,6 @@ import {
   View,
 } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
-import SponsoredCard from "@/components/ads/SponsoredCard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
@@ -27,10 +26,12 @@ import { Button, IconButton } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useChallenges } from "@/context/ChallengeContext";
 import { useChat } from "@/context/ChatContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { useFriends } from "@/hooks/useFriends";
 import type { PublicUser } from "@/lib/api";
+import * as api from "@/lib/api";
 
 /** Stable empty result set. A fresh `[]` is a new identity every render. */
 const EMPTY_RESULTS: PublicUser[] = [];
@@ -53,9 +54,18 @@ export default function FriendsPanel({ embedded = false }: { embedded?: boolean 
     clearError,
     search,
     sendRequest,
-    respond,
+    respond: respondRequest,
     remove,
   } = useFriends(profile?.uid ?? null);
+  // Answering a request also clears its notification, so the red badge goes with it.
+  const { notifications, markRead } = useNotifications();
+  const respond = useCallback(
+    (fromUid: string, accept: boolean) => {
+      markRead(notifications.filter((n) => !n.read && n.type === "friend_request" && n.data?.fromUid === fromUid).map((n) => n.id));
+      return respondRequest(fromUid, accept);
+    },
+    [respondRequest, notifications, markRead]
+  );
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PublicUser[]>([]);
@@ -65,6 +75,39 @@ export default function FriendsPanel({ embedded = false }: { embedded?: boolean 
   const clock = useNow(60_000);
   const params = useLocalSearchParams<{ open?: string }>();
   const [busy, setBusy] = useState<string | null>(null);
+  // Add by friend code (the invite code on everyone's Friends screen).
+  const [friendCode, setFriendCode] = useState("");
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeNote, setCodeNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const addByCode = async () => {
+    const code = friendCode.trim().toUpperCase();
+    if (!code || codeBusy) return;
+    setCodeBusy(true);
+    setCodeNote(null);
+    try {
+      const r = await api.checkReferralCode({ code });
+      if (!r.valid || !r.uid) {
+        buzz.error();
+        setCodeNote({ ok: false, text: code === profile?.referralCode ? "That's your own code." : "No player with that code. Check it and try again." });
+        return;
+      }
+      if (friendUids.has(r.uid)) {
+        setCodeNote({ ok: true, text: `You're already friends with ${r.displayName}.` });
+        return;
+      }
+      const ok = await sendRequest(r.uid);
+      if (ok) {
+        buzz.success();
+        setFriendCode("");
+        setCodeNote({ ok: true, text: `Friend request sent to ${r.displayName}${r.username ? ` (@${r.username})` : ""}.` });
+      }
+    } catch (e) {
+      buzz.error();
+      setCodeNote({ ok: false, text: api.friendlyError(e) });
+    } finally {
+      setCodeBusy(false);
+    }
+  };
   const { incoming: challengeInbox, live: challengesLive, headToHead } = useChallenges();
   const challengesNew = useUnseenCount("challenges.inbox", challengeInbox.map((ch) => ch.id), false);
   const { unreadChatCount, unreadForFriend } = useChat();
@@ -97,11 +140,10 @@ export default function FriendsPanel({ embedded = false }: { embedded?: boolean 
     };
   }, [query, search]);
 
-  const act = useCallback(async (key: string, fn: () => Promise<unknown>) => {
-    setBusy(key);
+  // Instant: useFriends shows the result at once (and undoes it with an error if the server refuses), so no spinner.
+  const act = useCallback((_key: string, fn: () => Promise<unknown>) => {
     buzz.light();
-    await fn();
-    setBusy(null);
+    void fn();
   }, []);
 
   const searching_ui = query.trim().length >= 2;
@@ -211,6 +253,41 @@ export default function FriendsPanel({ embedded = false }: { embedded?: boolean 
           )}
         </View>
         </TourTarget>
+        <View style={[styles.searchBox, { backgroundColor: colors.secondary, borderColor: colors.border, marginTop: 8 }]}>
+          <MaterialCommunityIcons name="ticket-account" size={18} color={colors.mutedForeground} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.foreground }]}
+            value={friendCode}
+            onChangeText={(t) => {
+              setFriendCode(t.toUpperCase());
+              setCodeNote(null);
+            }}
+            placeholder="Add by friend code"
+            placeholderTextColor={colors.mutedForeground}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={16}
+            returnKeyType="send"
+            onSubmitEditing={() => void addByCode()}
+            accessibilityLabel="Friend code"
+          />
+          {codeBusy ? (
+            <ActivityIndicator size="small" color={colors.mutedForeground} />
+          ) : (
+            <Pressable accessibilityRole="button" accessibilityLabel="Add friend by code" disabled={!friendCode.trim()} onPress={() => void addByCode()} hitSlop={8}>
+              <Text style={{ color: friendCode.trim() ? colors.primary : colors.mutedForeground, fontFamily: "Inter_700Bold", fontSize: 14 }}>Add</Text>
+            </Pressable>
+          )}
+        </View>
+        {codeNote ? (
+          <Text style={{ color: codeNote.ok ? colors.positive : colors.destructive, fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 6, marginHorizontal: 4 }}>{codeNote.text}</Text>
+        ) : null}
+        {profile?.username ? (
+          <Text selectable style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 6, marginHorizontal: 4 }}>
+            You're <Text style={{ color: colors.foreground, fontFamily: "Inter_700Bold" }}>@{profile.username}</Text>
+            {profile.referralCode ? <> · your code <Text style={{ color: colors.foreground, fontFamily: "Inter_700Bold" }}>{profile.referralCode}</Text></> : null}
+          </Text>
+        ) : null}
       </View>
 
       {error && (
@@ -240,7 +317,6 @@ export default function FriendsPanel({ embedded = false }: { embedded?: boolean 
       )}
 
       <FlatList
-        ListFooterComponent={<SponsoredCard compact style={{ marginVertical: 12 }} />}
         data={searching_ui ? results : friends}
         keyExtractor={(u) => u.uid}
         contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}

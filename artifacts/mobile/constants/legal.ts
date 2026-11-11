@@ -25,15 +25,15 @@ export interface LegalSection {
 export const TERMS: LegalSection[] = [
   {
     heading: "1. Who can play",
-    body: "SportDrip is for people 18 and older. By creating an account you confirm you are at least 18. We may close accounts we believe belong to someone younger.",
+    body: "On The House is for people 18 and older. By creating an account you confirm you are at least 18. We may close accounts we believe belong to someone younger.",
   },
   {
-    heading: "2. SportDrip is a free game, not gambling",
-    body: "SportDrip is a social prediction game played with virtual credits. No purchase is necessary, you can't pay money to get credits, and nothing in SportDrip can be cashed out, redeemed or exchanged for money, prizes or anything of value. Odds and lines are for entertainment only.",
+    heading: "2. On The House is a free game, not gambling",
+    body: "On The House is a social prediction game played with virtual credits. No purchase is necessary, you can't pay money to get credits, and nothing in On The House can be cashed out, redeemed or exchanged for money, prizes or anything of value. Odds and lines are for entertainment only.",
   },
   {
     heading: "3. Virtual credits and items",
-    body: "Credits, prize-box rewards, clothing, moves, backgrounds and other in-app items (\"virtual items\") have no monetary value and are not your property. We grant you a limited, revocable, non-transferable licence to use them inside SportDrip only. You may not sell, buy, trade, transfer or offer virtual items or accounts for money or anything of value outside the app. We may change, rebalance or remove virtual items, and may remove credits or items obtained through bugs, cheating, automation, account sharing or any sale or trade outside the app, and may suspend the accounts involved.",
+    body: "Credits, prize-box rewards, clothing, moves, backgrounds and other in-app items (\"virtual items\") have no monetary value and are not your property. We grant you a limited, revocable, non-transferable licence to use them inside On The House only. You may not sell, buy, trade, transfer or offer virtual items or accounts for money or anything of value outside the app. We may change, rebalance or remove virtual items, and may remove credits or items obtained through bugs, cheating, automation, account sharing or any sale or trade outside the app, and may suspend the accounts involved.",
   },
   {
     heading: "4. Transfers and league loans",
@@ -41,7 +41,7 @@ export const TERMS: LegalSection[] = [
   },
   {
     heading: "5. Community Guidelines — zero tolerance",
-    body: "SportDrip has zero tolerance for objectionable content or abusive users. Do not post hate speech, slurs, harassment, threats, sexual content, spam, or anything illegal, and do not impersonate others. You can report any message or player and block anyone. We review reports within 24 hours, remove offending content and may suspend or permanently ban offending accounts without notice.",
+    body: "On The House has zero tolerance for objectionable content or abusive users. Do not post hate speech, slurs, harassment, threats, sexual content, spam, or anything illegal, and do not impersonate others. You can report any message or player and block anyone. We review reports within 24 hours, remove offending content and may suspend or permanently ban offending accounts without notice.",
   },
   {
     heading: "6. Your account",
@@ -49,15 +49,15 @@ export const TERMS: LegalSection[] = [
   },
   {
     heading: "7. Sports data",
-    body: "Scores, schedules and lines are provided by third parties and may be delayed or wrong. Team names identify the teams only; SportDrip is not affiliated with or endorsed by any league, team or player.",
+    body: "Scores, schedules and lines are provided by third parties and may be delayed or wrong. Team names identify the teams only; On The House is not affiliated with or endorsed by any league, team or player.",
   },
   {
     heading: "8. Ads",
-    body: "SportDrip is free and supported by ads. Watching an optional rewarded ad may grant virtual credits, which follow the rules above.",
+    body: "On The House is free and supported by ads. Watching an optional rewarded ad may grant virtual credits, which follow the rules above.",
   },
   {
     heading: "9. Changes and termination",
-    body: "We may update these terms; if a change matters we will ask you to accept it in the app. We may suspend or end the service or your access at any time. To the extent the law allows, SportDrip is provided \"as is\" without warranties, and our liability is limited to the maximum extent permitted.",
+    body: "We may update these terms; if a change matters we will ask you to accept it in the app. We may suspend or end the service or your access at any time. To the extent the law allows, On The House is provided \"as is\" without warranties, and our liability is limited to the maximum extent permitted.",
   },
   {
     heading: "10. Contact",
@@ -72,11 +72,11 @@ export const PRIVACY: LegalSection[] = [
   },
   {
     heading: "How we use it",
-    body: "To run the game (accounts, leagues, friends, chat), confirm you're 18+, send your birthday-month gift, send notifications you've allowed, keep the game fair and safe (moderation, fraud and cheating prevention), fix bugs, and show ads that keep SportDrip free. We do not use your phone number for marketing texts and we do not sell your personal information.",
+    body: "To run the game (accounts, leagues, friends, chat), confirm you're 18+, send your birthday-month gift, send notifications you've allowed, keep the game fair and safe (moderation, fraud and cheating prevention), fix bugs, and show ads that keep On The House free. We do not use your phone number for marketing texts and we do not sell your personal information.",
   },
   {
     heading: "Who we share it with",
-    body: "Service providers that run SportDrip for us: Google Firebase (hosting, database, sign-in, functions), Google AdMob (ads), Expo (push notifications), and Apple/Google if you use their sign-in. Other players see your username, display name, avatar, stats, trophies and the messages you send them. We may disclose data if the law requires it.",
+    body: "Service providers that run On The House for us: Google Firebase (hosting, database, sign-in, functions), Google AdMob (ads), Expo (push notifications), and Apple/Google if you use their sign-in. Other players see your username, display name, avatar, stats, trophies and the messages you send them. We may disclose data if the law requires it.",
   },
   {
     heading: "Your choices",
@@ -88,7 +88,7 @@ export const PRIVACY: LegalSection[] = [
   },
   {
     heading: "Age",
-    body: "SportDrip is not for anyone under 18 and we do not knowingly collect data from children. If you believe a minor has an account, contact us and we will delete it.",
+    body: "On The House is not for anyone under 18 and we do not knowingly collect data from children. If you believe a minor has an account, contact us and we will delete it.",
   },
   {
     heading: "Contact",

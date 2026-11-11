@@ -144,7 +144,7 @@ function useBetBeforeKickoff() {
   }, [games, show]);
 }
 
-/** Keeps the on-device reminders (kickoff, streak, free bet) in step with your open picks. */
+/** Keeps the on-device reminders (kickoff, favourite team, streak, free bet) in step with your open picks. */
 function useLocalReminders() {
   const { profile, bets } = useApp();
   const { games } = useGames();
@@ -157,6 +157,14 @@ function useLocalReminders() {
     if (!uid) return;
     const today = nyDayOf(now);
     const startOf = new Map(games.map((g) => [g.id, g.startsAt]));
+    const followed = new Set(profile?.teamReminders ? (profile.favoriteTeams ?? []).map((t) => `${t.sport}:${t.abbr}`) : []);
+    const teamGames = followed.size
+      ? games.flatMap((g) => {
+          if (g.status !== "upcoming" || g.disrupted) return [];
+          const abbr = followed.has(`${g.sport}:${g.homeTeam.abbreviation}`) ? g.homeTeam.abbreviation : followed.has(`${g.sport}:${g.awayTeam.abbreviation}`) ? g.awayTeam.abbreviation : null;
+          return abbr ? [{ gameId: g.id, abbr, label: `${g.awayTeam.abbreviation} @ ${g.homeTeam.abbreviation}`, startsAt: g.startsAt }] : [];
+        })
+      : [];
     const plan = planReminders({
       now,
       name,
@@ -164,9 +172,10 @@ function useLocalReminders() {
       streak,
       pickedToday: lastDay === today,
       freeBetToday: bets.some((b) => b.freeBet && b.freeDay === today && b.status !== "cancelled"),
+      teamGames,
     });
     void syncReminders(plan);
-  }, [uid, name, bets, games, streak, lastDay, now]);
+  }, [uid, name, bets, games, streak, lastDay, now, profile?.teamReminders, profile?.favoriteTeams]);
 }
 
 /** A popup whenever a new trophy lands on the shelf (league finishes, achievements, punishments). */

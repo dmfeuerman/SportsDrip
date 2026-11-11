@@ -4,8 +4,9 @@ import { Platform } from "react-native";
 /**
  * On-device reminders, written in the player's avatar's voice. These are
  * scheduled locally, so they need no APNs key and no server: kickoff of a
- * game you have a pick on, a streak that is about to lapse, and tomorrow's
- * free bet. Nothing is scheduled inside quiet hours (23:00 to 08:00 local),
+ * game you have a pick on, a favourite team about to play (this replaced the
+ * server's 5-minute teamReminders job), a streak that is about to lapse, and
+ * tomorrow's free bet. Nothing is scheduled inside quiet hours (23:00 to 08:00 local),
  * at most MAX_KICKOFFS kickoff reminders are queued, and none of the copy
  * asks for a bet after a loss.
  */
@@ -23,6 +24,8 @@ export interface ReminderInput {
   /** A pick, free bet or daily pick already made today. */
   pickedToday: boolean;
   freeBetToday: boolean;
+  /** Upcoming games of followed teams, when the player has team reminders on. */
+  teamGames?: Array<{ gameId: string; abbr: string; label: string; startsAt: number }>;
 }
 
 export interface Reminder {
@@ -65,6 +68,22 @@ export function planReminders(i: ReminderInput): Reminder[] {
       title: `${b.teamAbbr} kicks off in 5`,
       body: `It's your avatar. We've got ${b.teamAbbr} riding. Come watch it with me.`,
       data: { url: `/game/${b.gameId}` },
+    });
+  }
+
+  // Favourite team: the next game without a pick on it, 50 minutes before it locks. One a day.
+  const team = (i.teamGames ?? [])
+    .filter((g) => !seen.has(g.gameId) && !i.openBets.some((b) => b.gameId === g.gameId))
+    .map((g) => ({ ...g, at: g.startsAt - 50 * 60_000 }))
+    .filter((g) => g.at > i.now && g.startsAt - i.now < 36 * 3600_000 && !inQuietHours(g.at))
+    .sort((a, b) => a.at - b.at)[0];
+  if (team) {
+    out.push({
+      id: `${PREFIX}team`,
+      at: team.at,
+      title: `${team.abbr} plays in 50 min`,
+      body: `${team.label}. Get your pick in before it locks.`,
+      data: { url: `/game/${team.gameId}` },
     });
   }
 

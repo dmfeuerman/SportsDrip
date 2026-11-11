@@ -9,7 +9,8 @@ export function openSocialNotification(n: AppNotification) {
     const tab = n.type === "challenge_received" || n.type === "challenge_declined" || n.type === "challenge_expired" || n.type === "challenge_cancelled" ? "inbox" : n.type === "challenge_accepted" ? "live" : "history";
     router.navigate({ pathname: "/challenges", params: { tab } });
   } else if (n.type === "league_invite" && n.data?.code) {
-    router.navigate({ pathname: "/(tabs)/leagues", params: { code: n.data.code } });
+    // t forces the join sheet to reopen even when this same code was opened before.
+    router.navigate({ pathname: "/(tabs)/leagues", params: { code: n.data.code, via: "notification", t: String(Date.now()) } });
   } else if (n.type === "level_up") {
     router.navigate("/levels" as never);
   } else if (n.type === "friend_request" || n.type === "friend_accepted" || n.type === "referral_bonus") {
@@ -25,7 +26,7 @@ export function openSocialNotification(n: AppNotification) {
   } else if (n.type === "gift_received") {
     router.navigate("/(tabs)/avatar");
   } else if (n.type === "birthday_gift") {
-    router.navigate("/shop");
+    router.navigate({ pathname: "/customize", params: { category: "hat" } });
   } else if (n.leagueId) {
     router.navigate({ pathname: "/league/[id]", params: { id: n.leagueId } });
   } else if (n.type.startsWith("loan_") || n.type.startsWith("stimulus_")) {

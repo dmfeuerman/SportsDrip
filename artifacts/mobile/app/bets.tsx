@@ -11,7 +11,7 @@ import { FlatList, StyleSheet, Text, View } from "react-native";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import GameQuickView from "@/components/GameQuickView";
-import { ActionChip, Amount, EmptyState, FilterPills, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
+import { ActionChip, Amount, EmptyState, FilterPills, LoadingState, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useChallenges } from "@/context/ChallengeContext";
 import { useLeague } from "@/context/LeagueContext";
@@ -28,7 +28,7 @@ export default function MyBetsScreen() {
   const c = useColors();
   const bottomPad = useBottomPad(false);
   const params = useLocalSearchParams<{ wallet?: string }>();
-  const { bets, balance, totalWon, totalStaked, cancelBet, profile } = useApp();
+  const { bets, betsLoaded, balance, totalWon, totalStaked, cancelBet, profile } = useApp();
   const parlays = useMyParlays(profile?.uid);
   const { show } = useToast();
   const { leagues, myLeagueBets } = useLeague();
@@ -38,6 +38,8 @@ export default function MyBetsScreen() {
   const [tab, setTab] = useState<Tab>("open");
   const [wallet, setWallet] = useState<string>(params.wallet ?? "all");
   const [busy, setBusy] = useState<string | null>(null);
+  // Parlays cancelled on this screen: gone from Open at once, before the listener reports it.
+  const [cancelledParlays, setCancelledParlays] = useState<Record<string, boolean>>({});
   const [quickGame, setQuickGame] = useState<string | null>(null);
   const [breakdown, setBreakdown] = useState<BetBreakdownItem | null>(null);
   const { incoming: chIn, outgoing: chOut, live: chLive, escrowed } = useChallenges();
@@ -176,20 +178,21 @@ export default function MyBetsScreen() {
           wallet === "all" || wallet === "credits" ? (
             <View style={{ gap: 10, marginBottom: 10 }}>
               {parlays
-                .filter((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending"))
+                .filter((p) => (tab === "open" ? p.status === "pending" && !cancelledParlays[p.id] : p.status !== "pending"))
                 .map((p) => (
                   <ParlayTicket
                     key={p.id}
                     p={p}
                     busy={busy === p.id}
                     onCancel={async () => {
-                      setBusy(p.id);
+                      // Instant: it leaves Open now; it comes back, with the reason, if the server refuses.
+                      setCancelledParlays((m) => ({ ...m, [p.id]: true }));
                       try {
                         await api.cancelParlay({ parlayId: p.id });
                       } catch (e) {
+                        setCancelledParlays((m) => ({ ...m, [p.id]: false }));
                         show({ kind: "warning", title: "Couldn't cancel", body: api.friendlyError(e) });
                       }
-                      setBusy(null);
                     }}
                   />
                 ))}
@@ -197,7 +200,9 @@ export default function MyBetsScreen() {
           ) : undefined
         }
         ListEmptyComponent={
-          parlays.some((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending")) && (wallet === "all" || wallet === "credits") ? undefined : (
+          parlays.some((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending")) && (wallet === "all" || wallet === "credits") ? undefined : !betsLoaded ? (
+          <LoadingState label="Loading your bets…" />
+          ) : (
           <EmptyState
             icon={tab === "open" ? "ticket-outline" : "history"}
             title={tab === "open" ? "No open bets" : "Nothing settled yet"}

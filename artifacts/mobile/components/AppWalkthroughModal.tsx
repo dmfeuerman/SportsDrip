@@ -7,6 +7,7 @@ import { Pressable } from "@/components/fx/Tap";
 import { Button, CloseButton, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { closeWalkthrough, useWalkthroughState } from "@/lib/settings";
+import { APP_NAME } from "@/constants/brand";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
@@ -27,22 +28,22 @@ const SLIDES: Slide[] = [
     icon: "lightning-bolt",
     tone: "money",
     title: "Two Wallets: Credits & League Tokens",
-    subtitle: "Credits are your personal bankroll for picks, drip and 1v1 challenges. League Tokens only live inside a league season.",
+    subtitle: `Everything in ${APP_NAME} is free: no real money, ever. Credits are your personal bankroll for picks, drip and 1v1 challenges. League Tokens only live inside a league season.`,
     bullets: [
       {
         icon: "gift-outline",
         title: "Free Daily Bet",
-        desc: "Every day you get a free 100-credit pick on any upcoming game — you keep the winnings, it costs you nothing.",
+        desc: "Every day you open the app you get a free 100-credit bet on any upcoming game. Find it on Home, pick a side and press Lock In Bet. You keep the winnings; it costs you nothing.",
       },
       {
         icon: "scoreboard-outline",
         title: "Moneylines, Spreads, Totals & Parlays",
-        desc: "Back NFL, NBA, MLB, NHL, NCAAF, NCAAB and Soccer. Stack legs into a parlay from the bet slip.",
+        desc: "Back NFL, NBA, MLB, NHL, NCAAF, NCAAB and Soccer. Every team shows its record, streak and last five. Tap + Parlay on a pick to stack 2 to 10 legs into one ticket.",
       },
       {
         icon: "ticket-confirmation-outline",
         title: "Result Breakdowns",
-        desc: "Tap any settled bet on Home, Activity or a Player Profile for the full ticket.",
+        desc: "Tap any bet on Home, Activity or a Player Profile for the full ticket. Open bets can be cancelled there until kickoff.",
       },
     ],
   },
@@ -117,7 +118,7 @@ const SLIDES: Slide[] = [
       {
         icon: "home-city-outline",
         title: "The House & Loans",
-        desc: "Low on tokens? Borrow from The House or a league-mate — repay before the season ends to climb.",
+        desc: "Low on tokens? Borrow from The House or a league-mate at a flat rate: borrow 100 at 10%, pay back 110, never more.",
       },
     ],
   },
@@ -152,12 +153,12 @@ const SLIDES: Slide[] = [
     icon: "tshirt-crew-outline",
     tone: "money",
     title: "Earn Rewards, Dress the Part",
-    subtitle: "Spend credits on 3D gear, dance moves and backgrounds for your character.",
+    subtitle: "Spend credits in the Drip Shop on gear, dance moves and scenes, then wear them from your Locker.",
     bullets: [
       {
         icon: "treasure-chest",
         title: "Prize Boxes",
-        desc: "Start Bronze, Silver and Gold boxes, open them when the timer's up, and spin for credits. Your streak adds a bonus.",
+        desc: "On Home, press Start timer on a Bronze, Silver or Gold box, open it when the timer's up, and spin for credits. Your streak adds a bonus.",
       },
       {
         icon: "star-four-points",
@@ -167,7 +168,7 @@ const SLIDES: Slide[] = [
       {
         icon: "gift-outline",
         title: "Gift a Friend",
-        desc: "Open any item and tap Gift to send it straight to a friend's wardrobe.",
+        desc: "Open any item and press Gift to a friend to send it straight to their wardrobe.",
       },
     ],
   },
@@ -192,7 +193,7 @@ const SLIDES: Slide[] = [
       {
         icon: "help-circle-outline",
         title: "Re-open Anytime",
-        desc: "Tap the ? button on Home or the Locker, or Settings → App Walkthrough, to revisit this guide.",
+        desc: "Tap ? on Home or in the Locker (or Settings → Tutorials), then How it all works, to revisit this guide. The hands-on tutorials live in the same menu.",
       },
     ],
   },

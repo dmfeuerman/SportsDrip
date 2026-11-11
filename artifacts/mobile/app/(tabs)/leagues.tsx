@@ -1,4 +1,3 @@
-import SponsoredCard from "@/components/ads/SponsoredCard";
 import BackToLevels from "@/components/BackToLevels";
 import { TourTarget } from "@/components/tour/TourTarget";
 import { tourEvent, tourPractice } from "@/lib/tour/store";
@@ -39,7 +38,7 @@ export default function LeaguesScreen() {
     setSeg(v);
     if (v === "friends") tourEvent("leagues:friends");
   };
-  const { leagues, createLeague, joinLeague, error, clearError, ready } = useLeague();
+  const { leagues, startLeague, joinLeague, error, clearError, ready } = useLeague();
   const { summaries } = useLeagueSummaries();
   const latest = useLatestActivity(leagues.filter((l) => l.status === "active").map((l) => l.id));
 
@@ -94,7 +93,6 @@ export default function LeaguesScreen() {
         keyExtractor={(r, i) => (r.kind === "league" ? r.s.league.id : `h${i}`)}
         contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
         showsVerticalScrollIndicator={false}
-        ListFooterComponent={rows.length ? <SponsoredCard compact style={{ marginVertical: 12 }} /> : undefined}
         renderItem={({ item, index }) =>
           item.kind === "header" ? (
             index === 0 ? <TourTarget id="leagues.list"><SectionHeader title={item.title} /></TourTarget> : <SectionHeader title={item.title} />
@@ -149,10 +147,12 @@ export default function LeaguesScreen() {
             tourEvent("league:created");
             return null;
           }
-          const res = await createLeague({ name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled, bracketTemplateId, startsAt });
-          if ("error" in res) return res.error;
+          if (buyIn > balance) return `You need ${buyIn.toLocaleString()} credits for the buy-in.`;
+          // Instant: the league opens now, built from the form; the server creates it behind the screen.
+          // A refusal shows on the league screen with a retry.
+          const { leagueId } = startLeague({ name, startingLeagueTokens, duration, sports, buyIn, prizeDistribution, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours, mode, matchupsEnabled, matchupCadence, stimulusEnabled, bracketTemplateId, startsAt });
           buzz.success();
-          router.push({ pathname: "/league/[id]", params: { id: res.leagueId, created: "1" } });
+          router.push({ pathname: "/league/[id]", params: { id: leagueId, created: "1" } });
           return null;
         }}
       />
@@ -161,8 +161,18 @@ export default function LeaguesScreen() {
         initialCode={params.code}
         balance={balance}
         onClose={() => setShowJoin(false)}
-        onJoin={async (code) => {
-          const res = await joinLeague(code, params.via === "link" ? "link" : params.via === "notification" ? "notification" : "code");
+        onJoin={async (code, preview) => {
+          const source = params.via === "link" ? "link" : params.via === "notification" ? "notification" : "code";
+          if (preview) {
+            // Instant: the sheet has already looked the league up, so open it now and join behind
+            // the screen. A refusal (league full, already started) shows there.
+            void joinLeague(code, source, preview);
+            buzz.success();
+            setShowJoin(false);
+            router.push({ pathname: "/league/[id]", params: { id: preview.leagueId } });
+            return null;
+          }
+          const res = await joinLeague(code, source);
           if ("error" in res) return res.error;
           buzz.success();
           setShowJoin(false);
@@ -196,7 +206,7 @@ function LeagueCard({ s, latest }: { s: LeagueSummary; latest?: string }) {
             {league.name}
           </Text>
           <View style={styles.pills}>
-            <Pill label={closed ? "Closed" : `${s.daysLeft}d left`} tone={closed ? "neutral" : "accent"} icon={closed ? "lock-outline" : "clock-outline"} />
+            <Pill label={closed ? (league.cancelled ? "Cancelled" : "Closed") : `${s.daysLeft}d left`} tone={closed ? "neutral" : "accent"} icon={closed ? "lock-outline" : "clock-outline"} />
             <Pill label={`${s.memberCount} ${s.memberCount === 1 ? "player" : "players"}`} icon="account-multiple" />
             {league.mode && league.mode !== "bankroll" ? (
               <Pill label={league.mode === "pickem" ? "Pick'em" : "Survivor"} tone="league" icon={league.mode === "pickem" ? "checkbox-marked-circle-outline" : "skull-outline"} />

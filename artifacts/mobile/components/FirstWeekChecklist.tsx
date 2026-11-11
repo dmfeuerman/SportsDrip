@@ -56,7 +56,7 @@ export default function FirstWeekChecklist() {
   const items = [
     { key: "avatar", label: "Create Your Avatar", done: true, href: "/(tabs)/avatar" },
     { key: "teams", label: "Pick Your Teams", done: (profile?.favoriteTeams?.length ?? 0) > 0, href: "/(tabs)/avatar" },
-    { key: "daily", label: "Make your first Daily Pick", done: !!profile?.streak?.longest, href: "/(tabs)" },
+    { key: "daily", label: "Place a Daily Free Bet", done: !!profile?.streak?.longest, href: "/(tabs)" },
     { key: "friend", label: "Add a Friend", done: friends.length > 0, href: "/(tabs)/leagues?seg=friends" },
     { key: "league", label: "Join a League", done: leagues.length > 0, href: "/(tabs)/leagues" },
     { key: "settled", label: "Get a Pick Settled", done: settled, href: "/(tabs)/games" },

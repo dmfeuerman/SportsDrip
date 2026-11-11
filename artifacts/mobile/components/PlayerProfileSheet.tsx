@@ -609,7 +609,7 @@ function Body({
           actions={[
             { label: "Character & Outfit", icon: "account-edit-outline", onPress: () => goEdit(() => router.push("/customize")) },
             { label: "Favorite Teams", icon: "heart-outline", variant: "secondary", onPress: () => goEdit(() => router.navigate({ pathname: "/(tabs)/avatar", params: { editTeams: "1" } })) },
-            { label: "Scene", icon: "image-filter-hdr", variant: "secondary", onPress: () => goEdit(() => router.push({ pathname: "/shop", params: { tab: "backgrounds" } })) },
+            { label: "Scene", icon: "image-filter-hdr", variant: "secondary", onPress: () => goEdit(() => router.push({ pathname: "/customize", params: { category: "scenes" } })) },
             { label: "Featured Trophy", icon: "trophy-outline", variant: "secondary", onPress: () => goEdit(() => router.push("/trophies" as never)) },
           ]}
           onCancel={() => setEditMenu(false)}

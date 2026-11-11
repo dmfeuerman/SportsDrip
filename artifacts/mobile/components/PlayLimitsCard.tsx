@@ -1,8 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React from "react";
 import { StyleSheet, Switch, Text, View } from "react-native";
-import { Pressable } from "@/components/fx/Tap";
-import { Card, ChoiceDialog, SegmentedControl } from "@/components/ui";
+import { Card, SegmentedControl } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import * as api from "@/lib/api";
@@ -23,15 +22,11 @@ export default function PlayLimitsCard() {
   const c = useColors();
   const { profile, writeProfile } = useApp();
   const cap = profile?.limits?.dailyPicks ?? null;
-  const breakUntil = profile?.limits?.breakUntil ?? 0;
-  const onBreak = breakUntil > Date.now();
-  const [pickBreak, setPickBreak] = useState(false);
 
   // Instant: the control flips now, the server saves it after (and undoes it with a toast if it refuses).
   const run = (args: Parameters<typeof api.setPlayLimits>[0]) => {
     const limits = { ...(profile?.limits ?? {}) };
     if ("dailyPicks" in args) limits.dailyPicks = args.dailyPicks ?? null;
-    if (args.breakDays) limits.breakUntil = Date.now() + args.breakDays * 86_400_000;
     writeProfile({ limits }, () => api.setPlayLimits(args));
     haptic.success();
   };
@@ -53,13 +48,6 @@ export default function PlayLimitsCard() {
           options={CAPS}
         />
       </View>
-      <Divider />
-      <Row
-        icon="pause-circle-outline"
-        title="Take a Break"
-        sub={onBreak ? `On a break until ${new Date(breakUntil).toLocaleDateString()}` : "Pause picks for 1, 7 or 30 days"}
-        onPress={onBreak ? undefined : () => setPickBreak(true)}
-      />
       <Divider />
       <ToggleRow
         icon="fire"
@@ -94,41 +82,7 @@ export default function PlayLimitsCard() {
         }}
       />
 
-      <ChoiceDialog
-        visible={pickBreak}
-        title="Take a Break?"
-        body="You won't be able to make picks until the break ends."
-        actions={([1, 7, 30] as const).map((d) => ({
-          label: d === 1 ? "1 Day" : `${d} Days`,
-          variant: "secondary" as const,
-          onPress: () => {
-            setPickBreak(false);
-            run({ breakDays: d });
-          },
-        }))}
-        onCancel={() => setPickBreak(false)}
-      />
     </Card>
-  );
-}
-
-function Row({ icon, title, sub, onPress }: { icon: Icon; title: string; sub?: string; onPress?: () => void }) {
-  const c = useColors();
-  const body = (
-    <>
-      <MaterialCommunityIcons name={icon} size={20} color={c.primary} />
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.rowTitle, { color: c.foreground }]}>{title}</Text>
-        {sub ? <Text style={[styles.rowSub, { color: c.mutedForeground }]}>{sub}</Text> : null}
-      </View>
-      {onPress ? <MaterialCommunityIcons name="chevron-right" size={20} color={c.mutedForeground} /> : null}
-    </>
-  );
-  if (!onPress) return <View style={styles.row}>{body}</View>;
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.secondary }]}>
-      {body}
-    </Pressable>
   );
 }
 

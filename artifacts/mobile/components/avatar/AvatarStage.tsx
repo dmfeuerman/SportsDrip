@@ -71,6 +71,8 @@ export interface AvatarStageProps {
   /** Keeps the character centred and fully visible in the uncovered part of the stage. */
   insets?: React.MutableRefObject<StageInsets>;
   style?: ViewStyle;
+  /** Show a spinner while the equipped garments are still loading (try-on). */
+  loadingSpinner?: boolean;
 }
 
 interface ViewState {
@@ -121,7 +123,7 @@ const touchMid = (e: GestureResponderEvent): [number, number] => {
  * AvatarPortrait, which is rendered from the same rig offscreen.
  */
 const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function AvatarStage(
-  { avatar, outfit, focus = "full", interactive = true, controls, onGesture, autoRotate = false, cheerSignal = 0, reaction = null, move = null, active = true, insets, style, backdropCam, onTap },
+  { avatar, outfit, focus = "full", interactive = true, controls, onGesture, autoRotate = false, cheerSignal = 0, reaction = null, move = null, active = true, insets, style, backdropCam, onTap, loadingSpinner = false },
   ref
 ) {
   const assets = useAvatarAssets(avatar, outfit);
@@ -274,7 +276,8 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
         <View style={[StyleSheet.absoluteFill, overlayInsets]} pointerEvents="none">
           {/* The last still of this exact look (cached across launches) stands in until the live
               character's first frame, so the player sees themselves at once rather than a silhouette. */}
-          <AvatarPortrait avatar={avatar} outfit={outfit} framing="hero" />
+          {/* Try-on screens skip the still: it can disagree with the live look; the spinner covers the wait. */}
+          {loadingSpinner ? null : <AvatarPortrait avatar={avatar} outfit={outfit} framing="hero" />}
           <View style={[StyleSheet.absoluteFill, styles.centre]}>
             {assets.status !== "error" ? null : (
               <>
@@ -290,7 +293,7 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
         </View>
       ) : null}
       {assets.base && glReady.ready ? (
-        <View style={styles.fill} {...(tapHandlers ?? {})}>
+        <View style={[styles.fill, loadingSpinner && !complete ? { opacity: 0 } : null]} {...(tapHandlers ?? {})}>
         <Canvas
           style={styles.fill}
           frameloop={active ? "always" : "never"}
@@ -324,6 +327,13 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
             onFirstFrame={onFirstFrame}
           />
         </Canvas>
+        </View>
+      ) : null}
+      {loadingSpinner && !complete && assets.status !== "error" ? (
+        <View style={[StyleSheet.absoluteFill, styles.centre]} pointerEvents="none">
+          <View style={styles.spinnerPill}>
+            <ActivityIndicator size="large" color="#ffffff" />
+          </View>
         </View>
       ) : null}
       {showControls ? (
@@ -634,6 +644,7 @@ function StageScene({
 const styles = StyleSheet.create({
   fill: { flex: 1, alignSelf: "stretch", minHeight: 180 },
   centre: { alignItems: "center", justifyContent: "center" },
+  spinnerPill: { padding: 14, borderRadius: 999, backgroundColor: "rgba(0,0,0,0.45)" },
   failText: { color: "#c9d2cd", fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 120 },
   devError: { color: "#ff8a80", fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 6, paddingHorizontal: 16, textAlign: "center" },
   zoom: { position: "absolute", right: 10, bottom: 10, gap: 8 },

@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import TeamCrest from "@/components/TeamCrest";
+import { TeamInfoLine } from "@/components/TeamMeta";
 import { haptic as buzz } from "@/lib/motion";
 import React, { memo, useEffect, useRef, useState } from "react";
 import { quoteMarket } from "@/lib/markets";
@@ -139,6 +140,8 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
         </View>
         <TeamRow
           sport={game.sport}
+          side="away"
+          neutral={game.neutralSite}
           team={game.awayTeam}
           score={game.awayScore}
           probability={prob.away}
@@ -154,6 +157,8 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
         />
         <TeamRow
           sport={game.sport}
+          side="home"
+          neutral={game.neutralSite}
           team={game.homeTeam}
           score={game.homeScore}
           probability={prob.home}
@@ -414,6 +419,8 @@ function LiveClock({ game, c }: { game: Game; c: Colors }) {
 
 function TeamRow({
   sport,
+  side,
+  neutral,
   team,
   score,
   probability,
@@ -429,6 +436,8 @@ function TeamRow({
 }: {
   tourId?: string;
   sport: string;
+  side: "home" | "away";
+  neutral?: boolean | null;
   team: TeamSide;
   score: number | null;
   probability: number;
@@ -457,12 +466,7 @@ function TeamRow({
             {team.name}
           </Text>
         </View>
-        <View style={styles.nameLine}>
-          {team.record ? (
-            <Text style={[styles.record, { color: c.mutedForeground }]}>{team.record}</Text>
-          ) : null}
-          {team.form?.length ? <Form form={team.form} c={c} /> : null}
-        </View>
+        <TeamInfoLine team={team} side={side} neutral={neutral} />
       </View>
 
       {score !== null && (
@@ -577,27 +581,7 @@ function OddsButton({
 /** Team colour + abbreviation. Official logos aren't shown (trademarked). */
 function TeamMark({ team, sport, c: _c }: { team: TeamSide; sport: string; c: Colors }) {
   return (
-    <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={28} sport={sport} />
-  );
-}
-
-function Form({ form, c }: { form: Array<"W" | "L" | "D">; c: Colors }) {
-  return (
-    <View style={styles.form}>
-      {form.slice(0, 5).map((r, i) => (
-        <View
-          key={i}
-          style={[
-            styles.formPip,
-            {
-              backgroundColor:
-                r === "W" ? c.positive : r === "L" ? c.alpha(c.negative, 0.75) : c.push,
-              opacity: 1 - i * 0.13,
-            },
-          ]}
-        />
-      ))}
-    </View>
+    <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={32} sport={sport} />
   );
 }
 
@@ -685,7 +669,7 @@ function Footer({
       {modelLine && (
         <View
           accessible
-          accessibilityLabel="SportDrip model line. No sportsbook line yet."
+          accessibilityLabel="On The House model line. No sportsbook line yet."
           style={[styles.noLinePill, { backgroundColor: c.alpha(c.accent, 0.14) }]}
         >
           <MaterialCommunityIcons name="chart-bell-curve-cumulative" size={11} color={c.accent} />
@@ -756,9 +740,6 @@ const styles = StyleSheet.create({
   nameLine: { flexDirection: "row", alignItems: "center", gap: 6 },
   rank: { fontSize: 11, fontFamily: "Inter_700Bold" },
   teamName: { fontSize: 15, fontFamily: "Inter_700Bold", flexShrink: 1, letterSpacing: -0.2 },
-  record: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  form: { flexDirection: "row", gap: 3 },
-  formPip: { width: 12, height: 3, borderRadius: 2 },
   score: { fontSize: 22, fontFamily: "Inter_900Black", minWidth: 32, textAlign: "right", letterSpacing: -0.5 },
 
   oddsBtn: { width: 80, borderWidth: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center", gap: 1 },

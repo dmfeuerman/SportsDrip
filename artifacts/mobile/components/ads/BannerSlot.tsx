@@ -5,6 +5,7 @@ import { useColors } from "@/hooks/useColors";
 import sdk from "@/lib/ads/sdk";
 import { adUnit } from "@/lib/ads/units";
 import { useAdsLive } from "@/lib/ads/adsLive";
+import { useAdFreeHere } from "@/lib/ads/zones";
 
 /**
  * Inline adaptive banner at the foot of a read-only screen (trophies, levels,
@@ -16,7 +17,8 @@ export default function BannerSlot({ style, thin = false }: { style?: StyleProp<
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const unit = adUnit("banner");
-  if (!sdk || !enabled || !unit || failed) return null;
+  const adFree = useAdFreeHere();
+  if (!sdk || !enabled || !unit || failed || adFree) return null;
   const S = sdk;
   return (
     <View style={[styles.wrap, loaded ? styles.shown : null, style]}>

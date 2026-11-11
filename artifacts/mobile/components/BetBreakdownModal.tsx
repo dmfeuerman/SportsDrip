@@ -115,7 +115,7 @@ export default function BetBreakdownModal({
     void shareViewOrText({
       kind: "bet_ticket",
       id: item.id,
-      message: `${item.label ?? item.teamName} (${formatOdds(item.odds, fmt)}) · Stake ${item.stake.toLocaleString()} → ${item.payout.toLocaleString()} (${item.status.toUpperCase()}) on SportDrip`,
+      message: `${item.label ?? item.teamName} (${formatOdds(item.odds, fmt)}) · Stake ${item.stake.toLocaleString()} → ${item.payout.toLocaleString()} (${item.status.toUpperCase()}) on On The House`,
     });
   };
 

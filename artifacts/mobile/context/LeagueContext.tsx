@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   limit,
   onSnapshot,
   orderBy,
@@ -19,6 +20,7 @@ import React, {
   useState,
 } from "react";
 import {
+  DURATION_DAYS,
   isLeagueClosed,
   LEAGUE_CLOSED_MESSAGE,
   LOAN_REQUESTS_CLOSED_MESSAGE,
@@ -42,7 +44,9 @@ import {
   type MatchupCadence,
   type Sport,
 } from "@/constants/leagueTypes";
+import { leagueEndFor } from "@/constants/seasons";
 import { useNow } from "@/hooks/useNow";
+import { weekKey } from "@/lib/markets";
 import { trackEvent } from "@/lib/analytics";
 import * as api from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -74,16 +78,64 @@ export interface CreateLeagueInput {
 
 export type JoinSource = "code" | "link" | "signup" | "notification";
 
+/**
+ * A league this phone is still joining or creating. The league screen shows it
+ * (by name, or in full for one being created) while the server call runs, and
+ * shows `error` if the call was refused.
+ */
+export interface PendingLeague {
+  id: string;
+  name: string;
+  kind: "join" | "create";
+  error?: string;
+  /** Runs the same request again (create only). */
+  retry?: () => void;
+}
+
+/** What the join sheet already knows about a league from its invite code. */
+export interface JoinPreview {
+  leagueId: string;
+  name: string;
+}
+
+/** The display fields of a league bet, for showing it before the server has written it. */
+export type LeagueBetPreview = Pick<
+  LeagueBet,
+  "sport" | "side" | "market" | "selection" | "line" | "label" | "teamName" | "teamAbbr" | "teamColor" | "opponentAbbr" | "odds" | "startsAt"
+>;
+/** The display fields of a pick'em / survivor pick. */
+export type PickPreview = Pick<LeaguePick, "sport" | "teamName" | "teamAbbr" | "teamColor" | "opponentAbbr" | "startsAt">;
+
+/** Tokens the app shows moved before the league document says so. */
+interface TokenHold {
+  leagueId: string;
+  delta: number;
+  /** Server balance when the hold was made; once it changes, the server has applied the move. */
+  base: number;
+}
+/** How long a confirmed overlay may wait for its snapshot before it's dropped anyway. */
+const SETTLE_MS = 6000;
+const NO_BETS: LeagueBet[] = [];
+const NO_PICKS: LeaguePick[] = [];
+
 /** Every mutation resolves to an error message, or null on success. */
 type Result = Promise<string | null>;
 
 interface LeagueContextType {
   ready: boolean;
   uid: string | null;
+  /** Leagues you're in. Includes one just joined or created, before the listener has caught up. */
   leagues: League[];
   /** Leagues still open for play — excludes closed (ended or past endsAt). */
   activeLeagues: League[];
+  /** Also returns a league still being created (`optimistic: true`), which `leagues` leaves out. */
   getLeague: (id: string) => League | undefined;
+  /** A join or create still in flight (or refused) for this league id. */
+  pendingLeague: (id: string) => PendingLeague | undefined;
+  dismissPending: (id: string) => void;
+  /** Bets and picks made on this phone that the server hasn't echoed back yet. */
+  optimisticBets: LeagueBet[];
+  optimisticPicks: LeaguePick[];
   isClosed: (id: string) => boolean;
   /** Your open + settled league bets, per league. */
   myLeagueBets: Record<string, LeagueBet[]>;
@@ -91,25 +143,33 @@ interface LeagueContextType {
   clearError: () => void;
 
   createLeague: (input: CreateLeagueInput) => Promise<{ leagueId: string } | { error: string }>;
-  /** `source` is analytics only: where the code came from. */
-  joinLeague: (code: string, source?: JoinSource) => Promise<{ leagueId: string } | { error: string }>;
+  /**
+   * Instant create: the league exists in the app at once under the returned id
+   * (open its screen straight away); `done` resolves to an error message or null.
+   */
+  startLeague: (input: CreateLeagueInput) => { leagueId: string; done: Promise<string | null> };
+  /**
+   * `source` is analytics only: where the code came from. With `preview` (from
+   * the invite lookup) the league screen can be opened before this resolves.
+   */
+  joinLeague: (code: string, source?: JoinSource, preview?: JoinPreview) => Promise<{ leagueId: string } | { error: string }>;
   leaveLeague: (leagueId: string) => Result;
   endLeague: (leagueId: string) => Result;
   voteEndLeague: (leagueId: string, vote: boolean) => Result;
   updateBankSettings: (leagueId: string, enabled: boolean, rate: number, intervalHours: number) => Result;
   updateLeagueSettings: (args: api.UpdateLeagueSettingsArgs) => Result;
   inviteFriend: (leagueId: string, friendUid: string) => Result;
-  placeLeagueBet: (args: api.PlaceLeagueBetArgs) => Result;
+  placeLeagueBet: (args: api.PlaceLeagueBetArgs & { preview?: LeagueBetPreview }) => Result;
   reportResult: (leagueId: string, betId: string, reason: string) => Result;
   voidLeagueBet: (leagueId: string, betId: string, reason: string) => Result;
   reactToItem: (
     leagueId: string,
-    targetType: "message" | "messages" | "activity" | "bet" | "leagueBets",
+    targetType: "message" | "messages" | "activity" | "bet" | "leagueBets" | "loan" | "loans",
     targetId: string,
     emoji: ReactionEmoji
   ) => Result;
   sendMessage: (leagueId: string, text: string, replyTo?: LeagueMessage["replyTo"], gameId?: string) => Result;
-  makePick: (leagueId: string, gameId: string, side: "home" | "away") => Result;
+  makePick: (leagueId: string, gameId: string, side: "home" | "away", preview?: PickPreview) => Result;
   createGroupParlay: (args: Parameters<typeof api.createGroupParlay>[0]) => Result;
   addParlayLeg: (args: Parameters<typeof api.addParlayLeg>[0]) => Result;
   rideParlay: (leagueId: string, parlayId: string, stake: number) => Result;
@@ -117,7 +177,7 @@ interface LeagueContextType {
   takeBankLoan: (leagueId: string, amount: number) => Result;
   repayLoan: (leagueId: string, loanId: string, amount: number) => Result;
   requestLoan: (leagueId: string, amount: number, rate: number, message?: string) => Result;
-  peerLoanAction: (leagueId: string, loanId: string, action: api.PeerLoanActionName, rate?: number) => Result;
+  peerLoanAction: (leagueId: string, loanId: string, action: api.PeerLoanActionName, rate?: number, amount?: number, message?: string) => Result;
   /** Bank stimulus vote: ask, vote yes/no, or withdraw. */
   stimulus: (args: api.LeagueStimulusArgs) => Result;
 }
@@ -135,15 +195,120 @@ function normalizeLeagueBet(id: string, raw: Record<string, unknown>): LeagueBet
 }
 
 export function LeagueProvider({ children, uid }: { children: React.ReactNode; uid: string | null }) {
-  const [leagues, setLeagues] = useState<League[]>(DEMO ? demoLeagues : NO_LEAGUES);
-  const [myLeagueBets, setMyLeagueBets] = useState<Record<string, LeagueBet[]>>(
+  const [serverLeagues, setLeagues] = useState<League[]>(DEMO ? demoLeagues : NO_LEAGUES);
+  const [serverLeagueBets, setMyLeagueBets] = useState<Record<string, LeagueBet[]>>(
     DEMO ? Object.fromEntries(Object.entries(demoLeagueBets).map(([k, v]) => [k, v.filter((b) => b.uid === uid)])) : {}
   );
   const [ready, setReady] = useState(DEMO);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef<Set<string>>(new Set());
+
+  // ── optimistic layer ─────────────────────────────────────────────────────
+  // Joining, creating and leaving a league, league bets, picks, loans and the
+  // end-season vote all show in the app the moment they're made. The server
+  // call runs behind them and the Firestore listeners take over once they
+  // reflect it; a refused call rolls the change back and raises a toast.
+  /** Confirmed by the server's reply, not in the leagues listener yet. */
+  const [seeded, setSeeded] = useState<Record<string, League>>({});
+  /** Being created: built from the form, not on the server yet. Never in `leagues` (nothing may listen to it). */
+  const [drafts, setDrafts] = useState<Record<string, League>>({});
+  const [pending, setPending] = useState<Record<string, PendingLeague>>({});
+  /** Left, listener still shows it. */
+  const [left, setLeft] = useState<Record<string, true>>({});
+  const [optBets, setOptBets] = useState<Record<string, LeagueBet>>({});
+  const [optPicks, setOptPicks] = useState<Record<string, LeaguePick>>({});
+  const [holds, setHolds] = useState<Record<string, TokenHold>>({});
+  const [voteOpt, setVoteOpt] = useState<Record<string, boolean>>({});
+  const dropKey = <T,>(set: React.Dispatch<React.SetStateAction<Record<string, T>>>, key: string) =>
+    set((p) => {
+      if (!(key in p)) return p;
+      const next = { ...p };
+      delete next[key];
+      return next;
+    });
+
+  const leagues = useMemo(() => {
+    const have = new Set(serverLeagues.map((l) => l.id));
+    const extra = Object.values(seeded).filter((l) => !have.has(l.id));
+    let list = extra.length ? [...extra, ...serverLeagues] : serverLeagues;
+    if (Object.keys(left).length) list = list.filter((l) => !left[l.id]);
+    const holdList = Object.values(holds);
+    if (!uid || (!holdList.length && !Object.keys(voteOpt).length)) return list;
+    return list.map((l) => {
+      const me = l.members?.[uid];
+      let next = l;
+      if (me) {
+        let delta = 0;
+        for (const h of holdList) if (h.leagueId === l.id && h.base === me.leagueTokens) delta += h.delta;
+        if (delta) next = { ...next, members: { ...next.members, [uid]: { ...me, leagueTokens: Math.max(0, me.leagueTokens + delta) } } };
+      }
+      const vote = voteOpt[l.id];
+      if (vote !== undefined && (l.endVotes ?? []).includes(uid) !== vote) {
+        next = { ...next, endVotes: vote ? [...(l.endVotes ?? []), uid] : (l.endVotes ?? []).filter((u) => u !== uid) };
+      }
+      return next;
+    });
+  }, [serverLeagues, seeded, left, holds, voteOpt, uid]);
+
+  const optimisticBets = useMemo(() => {
+    const list = Object.values(optBets).filter((b) => !(serverLeagueBets[b.leagueId] ?? NO_BETS).some((x) => x.id === b.id));
+    return list.length ? list : NO_BETS;
+  }, [optBets, serverLeagueBets]);
+  const optimisticPicks = useMemo(() => {
+    const list = Object.values(optPicks);
+    return list.length ? list : NO_PICKS;
+  }, [optPicks]);
+  const myLeagueBets = useMemo(() => {
+    if (!optimisticBets.length) return serverLeagueBets;
+    const out = { ...serverLeagueBets };
+    for (const b of optimisticBets) out[b.leagueId] = [b, ...(out[b.leagueId] ?? NO_BETS)];
+    return out;
+  }, [serverLeagueBets, optimisticBets]);
+
+  // The listeners caught up: drop what they now show.
+  useEffect(() => {
+    const have = new Set(serverLeagues.map((l) => l.id));
+    setSeeded((p) => (Object.keys(p).some((id) => have.has(id)) ? Object.fromEntries(Object.entries(p).filter(([id]) => !have.has(id))) : p));
+    setPending((p) => (Object.keys(p).some((id) => have.has(id)) ? Object.fromEntries(Object.entries(p).filter(([id]) => !have.has(id))) : p));
+    setLeft((p) => (Object.keys(p).some((id) => !have.has(id)) ? Object.fromEntries(Object.entries(p).filter(([id]) => have.has(id))) : p));
+    setHolds((p) => {
+      const keep = Object.entries(p).filter(([, h]) => {
+        const l = serverLeagues.find((x) => x.id === h.leagueId);
+        const tokens = uid ? l?.members?.[uid]?.leagueTokens : undefined;
+        return tokens === undefined || tokens === h.base;
+      });
+      return keep.length === Object.keys(p).length ? p : Object.fromEntries(keep);
+    });
+    setVoteOpt((p) => {
+      const keep = Object.entries(p).filter(([id, vote]) => {
+        const l = serverLeagues.find((x) => x.id === id);
+        return !!l && !!uid && (l.endVotes ?? []).includes(uid) !== vote;
+      });
+      return keep.length === Object.keys(p).length ? p : Object.fromEntries(keep);
+    });
+  }, [serverLeagues, uid]);
+  useEffect(() => {
+    setOptBets((p) => {
+      const keep = Object.entries(p).filter(([id, b]) => !(serverLeagueBets[b.leagueId] ?? NO_BETS).some((x) => x.id === id));
+      return keep.length === Object.keys(p).length ? p : Object.fromEntries(keep);
+    });
+  }, [serverLeagueBets]);
+  // Another account signed in: nothing optimistic carries over.
+  useEffect(() => {
+    setSeeded({});
+    setDrafts({});
+    setPending({});
+    setLeft({});
+    setOptBets({});
+    setOptPicks({});
+    setHolds({});
+    setVoteOpt({});
+  }, [uid]);
+
   const leaguesRef = useRef(leagues);
   leaguesRef.current = leagues;
+  const serverLeaguesRef = useRef(serverLeagues);
+  serverLeaguesRef.current = serverLeagues;
   const now = useNow(30_000);
   const closedKey = leagues.filter((l) => isLeagueClosed(l, now)).map((l) => l.id).join(",");
 
@@ -226,25 +391,47 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
     }
   }, []);
 
-  const { reportSyncFailure } = useApp();
+  const { reportSyncFailure, profile } = useApp();
+  const myName = profile?.displayName ?? "You";
+  const myNameRef = useRef(myName);
+  myNameRef.current = myName;
   /**
    * Instant: the caller carries on as if it worked (sheets close, the app
-   * moves on) while the call runs; a refusal arrives as a toast.
+   * moves on) while the call runs; a refusal arrives as a toast. `show` puts
+   * the result on screen now and returns how to take it off again: called
+   * with `false` when the server refuses, `true` once it has agreed (the
+   * overlay then lingers until the listener shows the same thing).
    */
   const instant = useCallback(
-    (leagueId: string, key: string, fn: () => Promise<unknown>): Result => {
+    (leagueId: string, key: string, fn: () => Promise<unknown>, show?: () => (ok: boolean) => void): Result => {
       const league = leaguesRef.current.find((l) => l.id === leagueId);
       if (league && isLeagueClosed(league)) {
         setError(LEAGUE_CLOSED_MESSAGE);
         return Promise.resolve(LEAGUE_CLOSED_MESSAGE);
       }
       if (inFlight.current.has(key)) return Promise.resolve(null);
+      const settle = show?.();
       void run(key, fn).then((why) => {
+        settle?.(!why);
         if (why) reportSyncFailure(why);
       });
       return Promise.resolve(null);
     },
     [run, reportSyncFailure]
+  );
+
+  /** Shows league tokens moved by `delta` until the league document reflects it. */
+  const holdTokens = useCallback(
+    (leagueId: string, key: string, delta: number) => {
+      const me = uid ? serverLeaguesRef.current.find((l) => l.id === leagueId)?.members?.[uid] : undefined;
+      if (!me || !delta) return () => {};
+      setHolds((p) => ({ ...p, [key]: { leagueId, delta, base: me.leagueTokens } }));
+      return (ok: boolean) => {
+        if (ok) setTimeout(() => dropKey(setHolds, key), SETTLE_MS);
+        else dropKey(setHolds, key);
+      };
+    },
+    [uid]
   );
 
   const guarded = useCallback(
@@ -259,56 +446,178 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
     [run]
   );
 
-  const createLeague = useCallback(
-    async (input: CreateLeagueInput) => {
+  /** Puts a league the server has confirmed into `leagues` without waiting for the listener. */
+  const seedLeague = useCallback(async (leagueId: string, data?: League | null) => {
+    if (serverLeaguesRef.current.some((l) => l.id === leagueId)) return;
+    let league: League | null = data ? { ...data, id: leagueId } : null;
+    if (!league) {
+      const db = getDb();
+      if (!db) return;
       try {
-        setError(null);
-        const preset = input.prizeDistribution.preset === "custom" ? "winner-all" : input.prizeDistribution.preset;
-        const res = await api.createLeague({
-          idempotencyKey: api.newIdempotencyKey(),
-          name: input.name,
-          startingLeagueTokens: input.startingLeagueTokens,
-          duration: input.duration,
-          sports: input.sports,
-          buyIn: input.buyIn,
-          prizePreset: preset,
-          bankLoanEnabled: input.bankLoanEnabled,
-          bankInterestRate: input.bankInterestRate,
-          bankInterestIntervalHours: input.bankInterestIntervalHours,
-          mode: input.mode ?? "bankroll",
-          matchupsEnabled: input.mode === "matchups" || Boolean(input.matchupsEnabled),
-          matchupCadence: input.matchupCadence ?? "weekly",
-          stimulusEnabled: Boolean(input.stimulusEnabled),
-          ...(input.mode === "bracket" && input.bracketTemplateId ? { bracketTemplateId: input.bracketTemplateId } : {}),
-          ...(input.startsAt ? { startNow: false, startsAt: input.startsAt } : { startNow: true }),
-        });
-        if (!res.duplicate) {
-          trackEvent("league_created", {
-            league_id: res.leagueId,
-            duration: input.duration,
-            buy_in: input.buyIn,
-            starting_tokens: input.startingLeagueTokens,
-            sports: input.sports.length,
-            bank: input.bankLoanEnabled,
-          });
-        }
-        return { leagueId: res.leagueId };
-      } catch (err) {
-        return { error: api.friendlyError(err) };
+        // One read, capped: the listener delivers the same document if this is slow.
+        const snap = await Promise.race([
+          getDoc(doc(db, "leagues", leagueId)),
+          new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+        ]);
+        if (snap?.exists()) league = { ...(snap.data() as League), id: leagueId };
+      } catch {
+        // The listener still brings it in.
       }
-    },
-    []
-  );
-
-  const joinLeague = useCallback(async (code: string, source: JoinSource = "code") => {
-    try {
-      const res = await api.joinLeague({ code: code.trim().toUpperCase() });
-      if (!res.duplicate) trackEvent("league_joined", { league_id: res.leagueId, source });
-      return { leagueId: res.leagueId };
-    } catch (err) {
-      return { error: api.friendlyError(err) };
+    }
+    if (league) {
+      const ready = league;
+      setSeeded((p) => ({ ...p, [leagueId]: ready }));
     }
   }, []);
+
+  const startLeague = useCallback(
+    (input: CreateLeagueInput): { leagueId: string; done: Promise<string | null> } => {
+      const key = api.newIdempotencyKey();
+      // Same id the server derives (functions/src/callable/leagues.ts createLeague).
+      const leagueId = `lg_${(uid ?? "").slice(0, 8)}_${key}`;
+      const now = Date.now();
+      const startsAt = input.startsAt && input.startsAt > now ? input.startsAt : now;
+      const fixedDays = input.duration === "Full Season" ? undefined : DURATION_DAYS[input.duration];
+      const h2h = input.mode === "matchups" || Boolean(input.matchupsEnabled);
+      const draft: League | null = uid
+        ? {
+            optimistic: true,
+            id: leagueId,
+            name: input.name,
+            code: "",
+            mode: input.mode ?? "bankroll",
+            bracketTemplateId: input.mode === "bracket" ? (input.bracketTemplateId ?? null) : null,
+            matchupsEnabled: h2h,
+            matchupCadence: input.matchupCadence ?? "weekly",
+            stimulusEnabled: Boolean(input.stimulusEnabled),
+            stimulus: null,
+            createdAt: now,
+            startsAt,
+            scheduledStart: startsAt > now,
+            endsAt: leagueEndFor(input.duration, fixedDays, input.sports, startsAt),
+            duration: input.duration,
+            status: "active",
+            creatorId: uid,
+            startingLeagueTokens: input.startingLeagueTokens,
+            buyIn: input.buyIn,
+            pot: input.buyIn,
+            prizeDistribution: input.prizeDistribution,
+            allowedSports: input.sports,
+            bankLoanEnabled: input.bankLoanEnabled,
+            bankInterestRate: input.bankInterestRate,
+            bankInterestIntervalHours: input.bankInterestIntervalHours,
+            memberIds: [uid],
+            members: {
+              [uid]: {
+                uid,
+                displayName: myNameRef.current,
+                avatarColor: "#E2564A",
+                leagueTokens: input.startingLeagueTokens,
+                startingLeagueTokens: input.startingLeagueTokens,
+                joinedAt: now,
+                betsWon: 0,
+                betsLost: 0,
+                betsPush: 0,
+                pickPoints: 0,
+                h2h: { w: 0, l: 0, t: 0 },
+              },
+            },
+            endVotes: [],
+            lastActivityAt: now,
+            payoutStatus: "none",
+          }
+        : null;
+
+      const attempt = async (): Promise<string | null> => {
+        if (draft) {
+          setDrafts((p) => ({ ...p, [leagueId]: draft }));
+          setPending((p) => ({ ...p, [leagueId]: { id: leagueId, name: input.name, kind: "create" } }));
+        }
+        try {
+          setError(null);
+          const preset = input.prizeDistribution.preset === "custom" ? "winner-all" : input.prizeDistribution.preset;
+          const res = await api.createLeague({
+            idempotencyKey: key,
+            name: input.name,
+            startingLeagueTokens: input.startingLeagueTokens,
+            duration: input.duration,
+            sports: input.sports,
+            buyIn: input.buyIn,
+            prizePreset: preset,
+            bankLoanEnabled: input.bankLoanEnabled,
+            bankInterestRate: input.bankInterestRate,
+            bankInterestIntervalHours: input.bankInterestIntervalHours,
+            mode: input.mode ?? "bankroll",
+            matchupsEnabled: h2h,
+            matchupCadence: input.matchupCadence ?? "weekly",
+            stimulusEnabled: Boolean(input.stimulusEnabled),
+            ...(input.mode === "bracket" && input.bracketTemplateId ? { bracketTemplateId: input.bracketTemplateId } : {}),
+            ...(input.startsAt ? { startNow: false, startsAt: input.startsAt } : { startNow: true }),
+          });
+          if (!res.duplicate) {
+            trackEvent("league_created", {
+              league_id: res.leagueId,
+              duration: input.duration,
+              buy_in: input.buyIn,
+              starting_tokens: input.startingLeagueTokens,
+              sports: input.sports.length,
+              bank: input.bankLoanEnabled,
+            });
+          }
+          // It's real now: the draft (with its invite code) joins `leagues` until the listener delivers the server's copy.
+          if (draft) await seedLeague(res.leagueId, { ...draft, optimistic: undefined, code: res.code });
+          dropKey(setDrafts, leagueId);
+          dropKey(setPending, leagueId);
+          return null;
+        } catch (err) {
+          const msg = api.friendlyError(err);
+          setPending((p) => ({
+            ...p,
+            [leagueId]: { id: leagueId, name: input.name, kind: "create", error: msg, retry: () => void attempt() },
+          }));
+          return msg;
+        }
+      };
+      return { leagueId, done: attempt() };
+    },
+    [uid, seedLeague]
+  );
+
+  const createLeague = useCallback(
+    async (input: CreateLeagueInput) => {
+      const { leagueId, done } = startLeague(input);
+      const err = await done;
+      if (err) {
+        dropKey(setDrafts, leagueId);
+        dropKey(setPending, leagueId);
+        return { error: err };
+      }
+      return { leagueId };
+    },
+    [startLeague]
+  );
+
+  const joinLeague = useCallback(
+    async (code: string, source: JoinSource = "code", preview?: JoinPreview) => {
+      if (preview) setPending((p) => ({ ...p, [preview.leagueId]: { id: preview.leagueId, name: preview.name, kind: "join" } }));
+      try {
+        const res = await api.joinLeague({ code: code.trim().toUpperCase() });
+        if (!res.duplicate) trackEvent("league_joined", { league_id: res.leagueId, source });
+        // Until the leagues listener notices the new membership, the league
+        // screen waits on this entry instead of saying "not found".
+        if (!serverLeaguesRef.current.some((l) => l.id === res.leagueId)) {
+          setPending((p) => ({ ...p, [res.leagueId]: { id: res.leagueId, name: p[res.leagueId]?.name ?? preview?.name ?? "", kind: "join" } }));
+        }
+        await seedLeague(res.leagueId, res.league);
+        return { leagueId: res.leagueId };
+      } catch (err) {
+        const msg = api.friendlyError(err);
+        if (preview) setPending((p) => ({ ...p, [preview.leagueId]: { id: preview.leagueId, name: preview.name, kind: "join", error: msg } }));
+        return { error: msg };
+      }
+    },
+    [seedLeague]
+  );
 
   const sendMessage = useCallback(
     async (leagueId: string, rawText: string, replyTo?: LeagueMessage["replyTo"], gameId?: string): Result => {
@@ -354,7 +663,14 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
         uid,
         leagues,
         activeLeagues: leagues.filter((l) => !closed.has(l.id)),
-        getLeague: (id) => leagues.find((l) => l.id === id),
+        getLeague: (id) => leagues.find((l) => l.id === id) ?? drafts[id],
+        pendingLeague: (id) => pending[id],
+        dismissPending: (id) => {
+          dropKey(setPending, id);
+          dropKey(setDrafts, id);
+        },
+        optimisticBets,
+        optimisticPicks,
         isClosed: (id) => {
           const l = leaguesRef.current.find((x) => x.id === id);
           return !!l && isLeagueClosed(l);
@@ -363,20 +679,73 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
         error,
         clearError: () => setError(null),
         createLeague,
+        startLeague,
         joinLeague,
-        leaveLeague: (leagueId) => guarded(leagueId, `leave:${leagueId}`, () => api.leaveLeague({ leagueId })),
+        // Awaited (it can be refused: open bets, loans), but once the server agrees the league is gone from the list at once.
+        leaveLeague: (leagueId) =>
+          guarded(leagueId, `leave:${leagueId}`, async () => {
+            await api.leaveLeague({ leagueId });
+            dropKey(setSeeded, leagueId);
+            setLeft((p) => ({ ...p, [leagueId]: true }));
+          }),
         endLeague: (leagueId) => guarded(leagueId, `end:${leagueId}`, () => api.endLeague({ leagueId })),
         voteEndLeague: (leagueId, vote) =>
-          instant(leagueId, `voteend:${leagueId}`, () => api.voteEndLeague({ leagueId, vote })),
+          instant(
+            leagueId,
+            `voteend:${leagueId}`,
+            () => api.voteEndLeague({ leagueId, vote }),
+            () => {
+              setVoteOpt((p) => ({ ...p, [leagueId]: vote }));
+              return (ok) => {
+                if (ok) setTimeout(() => dropKey(setVoteOpt, leagueId), SETTLE_MS);
+                else dropKey(setVoteOpt, leagueId);
+              };
+            }
+          ),
         updateBankSettings: (leagueId, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours) =>
           guarded(leagueId, `bank:${leagueId}`, () =>
             api.updateLeagueSettings({ leagueId, bankLoanEnabled, bankInterestRate, bankInterestIntervalHours })
           ),
         updateLeagueSettings: (args) =>
           guarded(args.leagueId, `settings:${args.leagueId}`, () => api.updateLeagueSettings(args)),
+        // Awaited (not instant) so the Invite button only says "Invited" once the server has sent it.
         inviteFriend: (leagueId, friendUid) =>
-          instant(leagueId, `invite:${leagueId}:${friendUid}`, () => api.inviteToLeague({ leagueId, friendUid })),
-        placeLeagueBet: (args) => instant(args.leagueId, `lbet:${args.idempotencyKey}`, () => api.placeLeagueBet(args)),
+          guarded(leagueId, `invite:${leagueId}:${friendUid}`, () => api.inviteToLeague({ leagueId, friendUid })),
+        placeLeagueBet: ({ preview, ...args }) =>
+          instant(
+            args.leagueId,
+            `lbet:${args.idempotencyKey}`,
+            () => api.placeLeagueBet(args),
+            () => {
+              // Same id the server gives it (placeLeagueBet), so the listener's copy replaces this one.
+              const id = `${uid}_${args.idempotencyKey}`;
+              const release = holdTokens(args.leagueId, `bet:${id}`, -args.stake);
+              if (preview && uid) {
+                const bet: LeagueBet = {
+                  ...preview,
+                  id,
+                  leagueId: args.leagueId,
+                  uid,
+                  displayName: myNameRef.current,
+                  gameId: args.gameId,
+                  stake: args.stake,
+                  potentialPayout: Math.round(args.stake * preview.odds),
+                  status: "pending",
+                  placedAt: Date.now(),
+                  lock: !!args.lock,
+                  hidden: !!args.hidden,
+                  tailOf: args.tailOf ?? null,
+                  fadeOf: args.fadeOf ?? null,
+                };
+                setOptBets((p) => ({ ...p, [id]: bet }));
+              }
+              return (ok) => {
+                release(ok);
+                // Confirmed bets stay until the bets listener shows them.
+                if (!ok) dropKey(setOptBets, id);
+              };
+            }
+          ),
         reportResult: (leagueId, betId, reason) =>
           instant(leagueId, `dispute:${betId}`, () => api.reportResult({ leagueId, betId, reason })),
         voidLeagueBet: (leagueId, betId, reason) =>
@@ -387,8 +756,39 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
             return api.reactToItem({ leagueId, targetType, targetId, emoji });
           }),
         sendMessage,
-        makePick: (leagueId, gameId, side) =>
-          instant(leagueId, `pick:${leagueId}:${gameId}`, () => api.makePick({ leagueId, gameId, side })),
+        makePick: (leagueId, gameId, side, preview) =>
+          instant(
+            leagueId,
+            `pick:${leagueId}:${gameId}`,
+            () => api.makePick({ leagueId, gameId, side }),
+            () => {
+              const league = leaguesRef.current.find((l) => l.id === leagueId);
+              if (!preview || !uid || !league || (league.mode !== "pickem" && league.mode !== "survivor")) return () => {};
+              const week = weekKey(preview.startsAt || Date.now());
+              // Same id the server uses (functions/src/callable/picks.ts): one pick a week in survivor, one a game in pick'em.
+              const id = league.mode === "survivor" ? `${uid}_${week}` : `${uid}_${gameId}`;
+              const key = `${leagueId}:${id}`;
+              const pick: LeaguePick = {
+                ...preview,
+                id,
+                leagueId,
+                uid,
+                displayName: myNameRef.current,
+                mode: league.mode,
+                week,
+                gameId,
+                side,
+                status: "pending",
+                placedAt: Date.now(),
+                settledAt: null,
+              };
+              setOptPicks((p) => ({ ...p, [key]: pick }));
+              return (ok) => {
+                if (ok) setTimeout(() => setOptPicks((p) => (p[key] === pick ? Object.fromEntries(Object.entries(p).filter(([k]) => k !== key)) : p)), SETTLE_MS);
+                else setOptPicks((p) => (p[key] === pick ? Object.fromEntries(Object.entries(p).filter(([k]) => k !== key)) : p));
+              };
+            }
+          ),
         createGroupParlay: (args) =>
           guarded(args.leagueId, `parlay:${args.idempotencyKey}`, () => api.createGroupParlay(args)),
         addParlayLeg: (args) =>
@@ -399,12 +799,18 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
           instant(leagueId, `plock:${parlayId}`, () => api.lockParlay({ leagueId, parlayId })),
         stimulus: (args) => instant(args.leagueId, `stimulus:${args.leagueId}`, () => api.leagueStimulus(args)),
         takeBankLoan: (leagueId, amount) =>
-          instant(leagueId, `borrow:${leagueId}`, () =>
-            api.takeBankLoan({ leagueId, amount, idempotencyKey: api.newIdempotencyKey() })
+          instant(
+            leagueId,
+            `borrow:${leagueId}`,
+            () => api.takeBankLoan({ leagueId, amount, idempotencyKey: api.newIdempotencyKey() }),
+            () => holdTokens(leagueId, `borrow:${leagueId}`, amount)
           ),
         repayLoan: (leagueId, loanId, amount) =>
-          instant(leagueId, `repay:${loanId}`, () =>
-            api.repayLoan({ leagueId, loanId, amount, idempotencyKey: api.newIdempotencyKey() })
+          instant(
+            leagueId,
+            `repay:${loanId}`,
+            () => api.repayLoan({ leagueId, loanId, amount, idempotencyKey: api.newIdempotencyKey() }),
+            () => holdTokens(leagueId, `repay:${loanId}`, -amount)
           ),
         requestLoan: (leagueId, amount, rate, message) => {
           if (!PEER_LOAN_REQUESTS_ENABLED) {
@@ -415,11 +821,11 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
             api.requestPeerLoan({ leagueId, amount, rate, message, idempotencyKey: api.newIdempotencyKey() })
           );
         },
-        peerLoanAction: (leagueId, loanId, action, rate) =>
-          instant(leagueId, `peer:${loanId}`, () => api.peerLoanAction({ leagueId, loanId, action, rate })),
+        peerLoanAction: (leagueId, loanId, action, rate, amount, message) =>
+          instant(leagueId, `peer:${loanId}`, () => api.peerLoanAction({ leagueId, loanId, action, rate, amount, message })),
       };
     },
-    [ready, uid, leagues, closedKey, myLeagueBets, error, createLeague, joinLeague, guarded, instant, run, sendMessage]
+    [ready, uid, leagues, drafts, pending, optimisticBets, optimisticPicks, closedKey, myLeagueBets, error, createLeague, startLeague, joinLeague, guarded, instant, holdTokens, run, sendMessage]
   );
 
   return <LeagueContext.Provider value={value}>{children}</LeagueContext.Provider>;
@@ -453,8 +859,9 @@ export interface LeagueDetail {
  * or a loan is repaid, with no write.
  */
 export function useLeagueDetail(league: League | undefined): LeagueDetail {
+  const { optimisticBets, optimisticPicks } = useLeague();
   const [loans, setLoans] = useState<LeagueLoan[]>([]);
-  const [bets, setBets] = useState<LeagueBet[]>([]);
+  const [serverBets, setBets] = useState<LeagueBet[]>([]);
   const [activity, setActivity] = useState<LeagueActivity[]>([]);
   const [rawMessages, setMessages] = useState<LeagueMessage[]>([]);
   const blockedUids = useBlockedUids();
@@ -463,15 +870,44 @@ export function useLeagueDetail(league: League | undefined): LeagueDetail {
   const [audit, setAudit] = useState<LeagueAuditEntry[]>([]);
   const [reports, setReports] = useState<LeagueReport[]>([]);
   const [matchups, setMatchups] = useState<LeagueMatchupDoc[]>([]);
-  const [picks, setPicks] = useState<LeaguePick[]>([]);
+  const [serverPicks, setPicks] = useState<LeaguePick[]>([]);
   const [parlays, setParlays] = useState<LeagueParlay[]>([]);
   const [rivalries, setRivalries] = useState<LeagueRivalry[]>([]);
   const [loading, setLoading] = useState(true);
   const now = useNow(30_000);
   const leagueId = league?.id;
+  // A league still being created isn't on the server: listening to it would be refused, and a refused listener never retries.
+  const draft = !!league?.optimistic;
+
+  // Bets and picks made on this phone show at once; the listener's copy replaces them.
+  const bets = useMemo(() => {
+    const mine = optimisticBets.filter((b) => b.leagueId === leagueId && !serverBets.some((x) => x.id === b.id));
+    return mine.length ? [...mine, ...serverBets] : serverBets;
+  }, [optimisticBets, serverBets, leagueId]);
+  const picks = useMemo(() => {
+    const mine = optimisticPicks.filter((p) => p.leagueId === leagueId);
+    if (!mine.length) return serverPicks;
+    const ids = new Set(mine.map((p) => p.id));
+    return [...mine, ...serverPicks.filter((p) => !ids.has(p.id))];
+  }, [optimisticPicks, serverPicks, leagueId]);
 
   useEffect(() => {
     if (!leagueId) return;
+    // Switching leagues: don't show the last league's data under this one's name while it loads.
+    setLoans([]);
+    setBets([]);
+    setActivity([]);
+    setMessages([]);
+    setAudit([]);
+    setReports([]);
+    setMatchups([]);
+    setPicks([]);
+    setParlays([]);
+    setRivalries([]);
+    if (draft) {
+      setLoading(false);
+      return;
+    }
     if (DEMO) {
       setLoans(demoLoans[leagueId] ?? []);
       setBets(demoLeagueBets[leagueId] ?? []);
@@ -551,7 +987,7 @@ export function useLeagueDetail(league: League | undefined): LeagueDetail {
       ),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [leagueId]);
+  }, [leagueId, draft]);
 
   const standings = useMemo(() => {
     if (!league) return [];

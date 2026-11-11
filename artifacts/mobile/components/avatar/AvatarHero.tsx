@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
+import { reportChallengeAction } from "@/lib/api";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
@@ -63,6 +64,7 @@ export default function AvatarHero({
     buzz.light();
     setPicking(false);
     setMove((m) => ({ id, n: (m?.n ?? 0) + 1 }));
+    reportChallengeAction("danced");
   }, []);
   // Tapping the character cycles through the loadout, one move per tap.
   const nextMove = useRef(0);

@@ -23,11 +23,12 @@ export default function JoinLeagueSheet({
   initialCode?: string;
   balance: number;
   onClose: () => void;
-  onJoin: (code: string) => Promise<string | null>;
+  /** `preview` is what the invite lookup found, so the league can be opened before the join finishes. */
+  onJoin: (code: string, preview?: { leagueId: string; name: string }) => Promise<string | null>;
 }) {
   const c = useColors();
   const [code, setCode] = useState(initialCode ?? "");
-  const [preview, setPreview] = useState<{ leagueName: string; buyIn: number } | null | "missing">(null);
+  const [preview, setPreview] = useState<{ leagueId: string | null; leagueName: string; buyIn: number } | null | "missing">(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +51,11 @@ export default function JoinLeagueSheet({
     getDoc(doc(db, "leagueInvites", clean))
       .then((s) => {
         if (!alive) return;
-        setPreview(s.exists() ? { leagueName: s.get("leagueName") as string, buyIn: (s.get("buyIn") as number) ?? 0 } : "missing");
+        setPreview(
+          s.exists()
+            ? { leagueId: (s.get("leagueId") as string | undefined) ?? null, leagueName: s.get("leagueName") as string, buyIn: (s.get("buyIn") as number) ?? 0 }
+            : "missing"
+        );
       })
       .catch(() => alive && setPreview(null));
     return () => {
@@ -64,7 +69,7 @@ export default function JoinLeagueSheet({
   async function submit() {
     setBusy(true);
     setError(null);
-    const err = await onJoin(code.trim().toUpperCase());
+    const err = await onJoin(code.trim().toUpperCase(), found?.leagueId ? { leagueId: found.leagueId, name: found.leagueName } : undefined);
     setBusy(false);
     if (err) setError(err);
   }

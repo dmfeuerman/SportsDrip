@@ -55,7 +55,7 @@ export default function CheckoutScreen() {
   /** Back to where you were shopping: the creator or the Drip Shop (from the Locker's cart, that's the shop). */
   const continueShopping = () => {
     if ((from === "customize" || from === "shop") && router.canGoBack()) router.back();
-    else router.replace("/shop");
+    else router.replace({ pathname: "/customize", params: { category: "hat" } });
   };
   const continueLabel = from === "customize" ? "Keep customizing" : "Continue shopping";
   const clearCart = () => {
@@ -172,7 +172,7 @@ export default function CheckoutScreen() {
                   void shareViewOrText({
                     viewRef: showcaseRef,
                     kind: "purchase",
-                    message: `New fit just dropped: ${bought.map((i) => i.name).join(", ")} — on SportDrip`,
+                    message: `New fit just dropped: ${bought.map((i) => i.name).join(", ")} — on On The House`,
                   })
                 }
                 style={styles.stretch}

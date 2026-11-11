@@ -122,7 +122,7 @@ export default function DailyPickCard() {
   const open = !!game && game.status === "upcoming" && game.startsAt > now + 60_000;
   const onPlacedGame = !!placed && game?.id === placed.gameId;
   // What's highlighted: your new choice, else the bet you have, else the top-right option (home moneyline).
-  const current: Choice | null = choice ?? (onPlacedGame ? placedChoice : open ? { market: "ml", selection: "home" } : null);
+  const current: Choice | null = choice ?? (onPlacedGame ? placedChoice : null);
   const changed = !!placed && !(onPlacedGame && same(current, placedChoice));
   const canSwitch = !!placed && placed.status === "pending" && !!placed.startsAt && placed.startsAt > now && open;
 
@@ -167,6 +167,15 @@ export default function DailyPickCard() {
     const ok = placed ? await switchFreeBet(placed.id, args) : await placeFreeBet(args);
     if (!ok) return;
     haptic.success();
+    // Same top banner as the "starts within the hour" alert, confirming what is now locked in.
+    show({
+      id: `lockin_${Date.now()}`,
+      kind: "live",
+      icon: placed ? "swap-horizontal" : "lock-check",
+      title: placed ? "Lock In updated" : "Locked in",
+      body: `${q.label || t.abbreviation} · ${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`,
+      durationMs: 6000,
+    });
     trackEvent("daily_pick_made", { side: sd });
     setChoice(null);
     setGameId(null);
@@ -241,13 +250,13 @@ export default function DailyPickCard() {
   const actionLabel = !placed
     ? current && game
       ? `Lock In Bet · ${quote?.label ?? ""}`
-      : "Lock In Bet"
+      : "Pick a Team to Lock In"
     : `Switch to ${quote?.label ?? "this pick"}`;
   const showAction = open && (!placed ? true : changed && canSwitch);
 
   /** Two team buttons (moneyline) — always on the card, even once locked in. */
   const teamButtons = game ? (
-    <View style={styles.row}>
+    <View style={[styles.row, { marginTop: 6 }]}>
       {(["away", "home"] as const).map((sd) => {
         const t = sd === "home" ? game.homeTeam : game.awayTeam;
         const q = quoteMarket(game, "ml", sd);
@@ -265,14 +274,24 @@ export default function DailyPickCard() {
             onPress={() => pick(ch)}
             style={({ pressed }) => [
               styles.team,
-              { borderColor: on ? tint : c.border, backgroundColor: on ? c.alpha(tint, 0.18) : c.secondary, opacity: !open && !isBet ? 0.5 : pressed ? 0.85 : 1 },
+              {
+                borderColor: on ? tint : c.border,
+                borderWidth: on ? 3 : 1.5,
+                backgroundColor: on ? tint : c.secondary,
+                opacity: !open && !isBet ? 0.5 : current && !on ? 0.55 : pressed ? 0.85 : 1,
+              },
             ]}
           >
+            {on ? (
+              <View style={[styles.badge, { backgroundColor: c.background, borderColor: tint }]}>
+                <MaterialCommunityIcons name={isBet ? "lock" : "check-bold"} size={11} color={tint} />
+                <Text style={[styles.badgeText, { color: c.foreground }]}>{isBet ? "YOUR BET" : "SELECTED"}</Text>
+              </View>
+            ) : null}
             <View style={styles.teamTop}>
-              <Text style={[styles.abbr, { color: c.foreground }]}>{t.abbreviation}</Text>
-              {isBet ? <MaterialCommunityIcons name="lock" size={14} color={tint} /> : null}
+              <Text style={[styles.abbr, { color: on ? "#fff" : c.foreground }]}>{t.abbreviation}</Text>
             </View>
-            <Text style={[styles.sub, { color: c.mutedForeground }]} numberOfLines={1}>
+            <Text style={[styles.sub, { color: on ? "#fff" : c.mutedForeground }]} numberOfLines={1}>
               {q.odds ? `${formatOdds(q.odds, fmt)} · +${winningsAt(q.odds)}` : sd === "home" ? "Home" : "Away"}
             </Text>
           </Pressable>
@@ -320,6 +339,11 @@ export default function DailyPickCard() {
       </Pressable>
 
       {teamButtons}
+      {!placed && open ? (
+        <Text style={[styles.sub, { color: current ? c.foreground : c.mutedForeground, textAlign: "center" }]}>
+          {current && quote ? `Your pick: ${quote.label} to ${current.market === "ml" ? "win" : current.market === "spread" ? "cover the spread" : current.selection === "over" ? "go over" : "stay under"}` : "Tap a team to pick who wins"}
+        </Text>
+      ) : null}
       {placed && !onPlacedGame && game ? (
         <Text style={[styles.sub, { color: c.mutedForeground }]}>Your free bet is on another game. Lock in here to move it.</Text>
       ) : null}
@@ -434,12 +458,12 @@ export default function DailyPickCard() {
                           accessibilityRole="button"
                           accessibilityState={{ selected: on }}
                           onPress={() => pick(ch)}
-                          style={[styles.option, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.alpha(c.primary, 0.16) : c.secondary }]}
+                          style={[styles.option, { borderColor: on ? c.primary : c.border, borderWidth: on ? 3 : 1.5, backgroundColor: on ? c.primary : c.secondary }]}
                         >
-                          <Text style={[styles.optionLabel, { color: c.foreground }]} numberOfLines={1}>
-                            {q.label} {isBet ? "🔒" : ""}
+                          <Text style={[styles.optionLabel, { color: on ? "#fff" : c.foreground }]} numberOfLines={1}>
+                            {on ? "✓ " : ""}{q.label} {isBet ? "🔒" : ""}
                           </Text>
-                          <Text style={[styles.sub, { color: c.mutedForeground }]}>{q.odds ? `${formatOdds(q.odds, fmt)} · +${winningsAt(q.odds)}` : "no price"}</Text>
+                          <Text style={[styles.sub, { color: on ? "#fff" : c.mutedForeground }]}>{q.odds ? `${formatOdds(q.odds, fmt)} · +${winningsAt(q.odds)}` : "no price"}</Text>
                         </Pressable>
                       );
                     })}
@@ -498,6 +522,8 @@ const styles = StyleSheet.create({
   betTypes: { fontSize: 12, fontFamily: "Inter_700Bold" },
   pager: { flexDirection: "row", alignItems: "center", gap: 6 },
   streakRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  badge: { position: "absolute", top: -9, flexDirection: "row", alignItems: "center", gap: 3, borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 },
+  badgeText: { fontSize: 9, letterSpacing: 0.6, fontFamily: "Inter_800ExtraBold" },
   teamTop: { flexDirection: "row", alignItems: "center", gap: 4 },
   sheet: { gap: 12, padding: 16 },
   group: { fontSize: 10, letterSpacing: 1, fontFamily: "Inter_700Bold" },

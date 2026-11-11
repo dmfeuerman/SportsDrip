@@ -16,11 +16,19 @@ import {
 import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import MoveCard from "@/components/MoveCard";
+import BackgroundCard from "@/components/BackgroundCard";
+import StarterKitCard from "@/components/StarterKitCard";
+import { TourTarget } from "@/components/tour/TourTarget";
+import { MAX_LOADOUT } from "@/constants/moves";
+import { useMoves, type StoreMove } from "@/hooks/useMoves";
+import { useBackgrounds, type StoreBackground } from "@/hooks/useBackgrounds";
+import { STARTER_ITEMS } from "@/lib/tour/tours";
 import { Chips, Field, Stops, Swatches } from "@/components/avatar/EditorControls";
 import ItemIcon from "@/components/avatar/ItemIcon";
 import CartButton from "@/components/CartButton";
 import CartExitDialog from "@/components/CartExitDialog";
-import { Button, ChoiceDialog, ConfirmDialog, ErrorBanner } from "@/components/ui";
+import { Button, ChoiceDialog, ErrorBanner } from "@/components/ui";
 import {
   EYE_COLORS,
   EYE_SHAPES,
@@ -35,6 +43,7 @@ import {
   SKIN_TONES,
 } from "@/constants/avatarOptions";
 import { useApp } from "@/context/AppContext";
+import * as api from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import { useCartItems } from "@/hooks/useCartItems";
 import { storeOrder, useCatalog } from "@/hooks/useCatalog";
@@ -45,7 +54,7 @@ import type { AvatarConfig, Equipped, Slot } from "@/types/avatar";
 import { RARITY_COLORS, SLOT_LABELS, type CatalogItem } from "@/types/catalog";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
-type CatId = "body" | "face" | "hair" | Slot;
+type CatId = "body" | "face" | "hair" | Slot | "moves" | "scenes";
 
 const CATS: Array<{ id: CatId; label: string; icon: IconName; focus: Focus }> = [
   { id: "body", label: "Body", icon: "human", focus: "full" },
@@ -58,8 +67,12 @@ const CATS: Array<{ id: CatId; label: string; icon: IconName; focus: Focus }> = 
   { id: "bottom", label: "Bottoms", icon: "human-male", focus: "legs" },
   { id: "shoes", label: "Shoes", icon: "shoe-sneaker", focus: "feet" },
   { id: "accessory", label: "Extras", icon: "watch-variant", focus: "torso" },
+  { id: "moves", label: "Moves", icon: "human-handsup", focus: "full" },
+  { id: "scenes", label: "Scenes", icon: "image-filter-hdr", focus: "full" },
 ];
-const isSlot = (c: CatId): c is Slot => !["body", "face", "hair"].includes(c);
+const isSlot = (c: CatId): c is Slot => !["body", "face", "hair", "moves", "scenes"].includes(c);
+/** Old /shop?tab= values map onto these. */
+const TAB_CAT: Record<string, CatId> = { moves: "moves", backgrounds: "scenes" };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const canon = (e: Equipped): Equipped => Object.fromEntries(Object.entries(e).filter(([, v]) => !!v).sort(([a], [b]) => a.localeCompare(b)));
 
@@ -72,9 +85,27 @@ export default function CustomizeScreen() {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const { height: winH, width: winW } = useWindowDimensions();
-  const params = useLocalSearchParams<{ category?: string }>();
+  const params = useLocalSearchParams<{ category?: string; tab?: string }>();
   const navigation = useNavigation();
-  const { profile, inventory, balance, saveLook, error, clearError } = useApp();
+  const {
+    profile,
+    inventory,
+    balance,
+    saveLook,
+    error,
+    clearError,
+    ownedMoves,
+    loadout,
+    purchaseMove,
+    setLoadout,
+    progress,
+    ownedBackgrounds,
+    background,
+    purchaseBackground,
+    setBackground,
+  } = useApp();
+  const { moves } = useMoves();
+  const { backgrounds } = useBackgrounds();
   const { items, byId } = useCatalog();
   const cart = useCart();
 
@@ -88,11 +119,15 @@ export default function CustomizeScreen() {
     if (!d) return null;
     const own = new Set(inventory);
     const equipped = Object.fromEntries(Object.entries(d.equipped).filter(([, id]) => !!id && (own.has(id) || cart.has(id)))) as Equipped;
-    return { avatar: d.avatar, equipped };
+    const fresh = !!d.from && same(d.from, saved.avatar);
+    return { avatar: fresh ? d.avatar : saved.avatar, equipped };
   });
   const [avatar, setAvatar] = useState<AvatarConfig>(resume?.avatar ?? saved.avatar);
   const [equipped, setEquipped] = useState<Equipped>(resume?.equipped ?? saved.equipped);
-  const [cat, setCat] = useState<CatId>(() => (CATS.some((x) => x.id === params.category) ? (params.category as CatId) : "body"));
+  const [cat, setCat] = useState<CatId>(() => {
+    const want = params.category ?? (params.tab ? TAB_CAT[params.tab] : undefined);
+    return CATS.some((x) => x.id === want) ? (want as CatId) : "hat";
+  });
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [cheer, setCheer] = useState(0);
@@ -140,7 +175,7 @@ export default function CustomizeScreen() {
   // Checkout gets the whole draft look, to save it once everything in it is bought.
   useEffect(() => {
     if (!touched.current) return;
-    cart.setDraft(unowned.length ? { avatar, equipped: canon(equipped) } : null);
+    cart.setDraft(unowned.length ? { avatar, equipped: canon(equipped), from: saved.avatar } : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [avatar, equipped, unownedKey]);
   // Removed (or cleared) at checkout → take it off here too (back to what's saved for that slot, if owned).
@@ -223,7 +258,7 @@ export default function CustomizeScreen() {
   const buyAndSave = () => {
     setSaveAsk(false);
     // Checkout saves this whole look (character changes included) once the items are bought.
-    cart.setDraft({ avatar, equipped: canon(equipped) });
+    cart.setDraft({ avatar, equipped: canon(equipped), from: saved.avatar });
     checkout();
   };
   const saveCharacterOnly = () => {
@@ -242,6 +277,7 @@ export default function CustomizeScreen() {
     const ok = await saveLook(avatar, look ?? canon(equipped));
     setSaving(false);
     if (!ok) return;
+    api.reportChallengeAction("avatarSaved");
     buzz.success();
     touched.current = false;
     setLeaving(true);
@@ -281,6 +317,28 @@ export default function CustomizeScreen() {
     if (pendingNav.current) navigation.dispatch(pendingNav.current as never);
     else close();
   };
+  /**
+   * Leaving with character changes: save them first (the character and the
+   * pieces already owned; anything unbought stays in the cart), then leave.
+   * A failed save keeps the player here with the error showing.
+   */
+  const saveAndLeave = async () => {
+    setConfirm(false);
+    setSaving(true);
+    const ok = await saveLook(avatar, ownedOnly());
+    setSaving(false);
+    if (!ok) {
+      pendingNav.current = null;
+      return;
+    }
+    api.reportChallengeAction("avatarSaved");
+    buzz.success();
+    touched.current = false;
+    setLeaving(true);
+    allowLeave();
+    if (pendingNav.current) navigation.dispatch(pendingNav.current as never);
+    else close();
+  };
   const discard = () => {
     setConfirm(false);
     cart.setDraft(null);
@@ -288,6 +346,64 @@ export default function CustomizeScreen() {
     allowLeave();
     if (pendingNav.current) navigation.dispatch(pendingNav.current as never);
     else close();
+  };
+
+  // ── moves & scenes ───────────────────────────────────────────────────────
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [play, setPlay] = useState<{ id: string; n: number } | null>(null);
+  const [moveNote, setMoveNote] = useState<string | null>(null);
+  const moveList = useMemo(
+    () => moves.filter((m) => m.forSale || ownedMoves.has(m.id)).sort((a, b) => a.price - b.price),
+    [moves, ownedMoves]
+  );
+  const backgroundList = useMemo(
+    () => backgrounds.filter((b) => b.forSale || b.levelReward || ownedBackgrounds.has(b.id)).sort((a, b) => a.price - b.price),
+    [backgrounds, ownedBackgrounds]
+  );
+  const previewMove = (m: StoreMove) => setPlay((p) => ({ id: m.id, n: (p?.n ?? 0) + 1 }));
+  const buyMove = async (m: StoreMove) => {
+    setBusyId(m.id);
+    const ok = await purchaseMove(m.id);
+    setBusyId(null);
+    if (ok) buzz.success();
+  };
+  const toggleMove = async (m: StoreMove) => {
+    buzz.tick();
+    if (loadout.includes(m.id)) {
+      if (loadout.length === 1) return setMoveNote("Keep at least one move on your dance button.");
+      setMoveNote(null);
+      setBusyId(m.id);
+      await setLoadout(loadout.filter((x) => x !== m.id));
+    } else {
+      if (loadout.length >= MAX_LOADOUT) return setMoveNote(`Your dance button holds ${MAX_LOADOUT} moves — remove one first.`);
+      setMoveNote(null);
+      setBusyId(m.id);
+      await setLoadout([...loadout, m.id]);
+    }
+    setBusyId(null);
+  };
+  const buyBackground = async (b: StoreBackground) => {
+    setBusyId(b.id);
+    const ok = await purchaseBackground(b.id);
+    setBusyId(null);
+    if (ok) buzz.success();
+  };
+  const applyBackground = async (b: StoreBackground) => {
+    buzz.light();
+    setBusyId(b.id);
+    await setBackground(b.id);
+    setBusyId(null);
+  };
+
+  // Free starter kit: wearing it puts it in the cart (see the cart effect above).
+  const starterMissing = useMemo(
+    () => STARTER_ITEMS.filter((id) => !owned.has(id)).map((id) => byId.get(id)).filter((i): i is NonNullable<typeof i> => !!i),
+    [owned, byId]
+  );
+  const addStarterKit = () => {
+    buzz.medium();
+    touched.current = true;
+    setEquipped((e) => ({ ...e, ...Object.fromEntries(starterMissing.map((i) => [i.slot, i.id])) }));
   };
 
   const focus = CATS.find((x) => x.id === cat)!.focus;
@@ -316,7 +432,7 @@ export default function CustomizeScreen() {
           <MaterialCommunityIcons name="close" size={18} color={c.foreground} />
         </Pressable>
         <Text accessibilityRole="header" style={[styles.title, { color: c.foreground }]}>
-          Customize
+          Drip Shop
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -336,13 +452,13 @@ export default function CustomizeScreen() {
           disabled={!dirty || saving}
           accessibilityHint={unowned.length ? "Asks whether to buy the new items or save just your character" : undefined}
         />
-        <CartButton from="customize" />
+        <TourTarget id="shop.cart"><CartButton from="customize" /></TourTarget>
       </View>
 
       {/* stage */}
       <View style={[styles.stage, { height: stageH, backgroundColor: c.card, borderBottomColor: c.border }]}>
         <View style={[styles.floor, { backgroundColor: c.secondary }]} />
-        <AvatarDisplay avatar={avatar} equipped={equipped} catalog={byId} size="lg" focus={focus} cheerSignal={cheer} />
+        <AvatarDisplay avatar={avatar} equipped={equipped} catalog={byId} size="lg" focus={focus} cheerSignal={cheer} move={play} loadingSpinner />
         {toast ? (
           <Animated.View
             pointerEvents="none"
@@ -358,6 +474,7 @@ export default function CustomizeScreen() {
       </View>
 
       {/* categories */}
+      <TourTarget id="shop.filters">
       <ScrollView
         ref={catScroll}
         horizontal
@@ -394,10 +511,12 @@ export default function CustomizeScreen() {
           );
         })}
       </ScrollView>
+      </TourTarget>
 
       <ErrorBanner message={error} onDismiss={clearError} />
 
       {/* panel */}
+      <TourTarget id="shop.list" style={styles.fill}>
       <ScrollView style={styles.fill} contentContainerStyle={[styles.panel, { paddingBottom: insets.bottom + (unowned.length ? 96 : 28) }]} showsVerticalScrollIndicator={false}>
         {cat === "body" && (
           <>
@@ -429,6 +548,58 @@ export default function CustomizeScreen() {
           </>
         )}
 
+        {isSlot(cat) && starterMissing.length ? (
+          <TourTarget id="shop.starterKit">
+            <StarterKitCard items={starterMissing} inCart={starterMissing.every((i) => cart.has(i.id))} onAdd={addStarterKit} />
+          </TourTarget>
+        ) : null}
+
+        {cat === "moves" && (
+          <>
+            <Text style={[styles.note, { color: moveNote ? c.warning : c.mutedForeground }]}>
+              {moveNote ?? `${ownedMoves.size} moves owned · ${loadout.length} of ${MAX_LOADOUT} on your dance button`}
+            </Text>
+            {moveList.map((m) => (
+              <MoveCard
+                key={m.id}
+                move={m}
+                owned={ownedMoves.has(m.id)}
+                equipped={loadout.includes(m.id)}
+                canAfford={balance >= m.price}
+                busy={busyId === m.id}
+                onBuy={() => void buyMove(m)}
+                onToggleEquip={() => void toggleMove(m)}
+                onPreview={() => previewMove(m)}
+              />
+            ))}
+          </>
+        )}
+
+        {cat === "scenes" && (
+          <>
+            <Text style={[styles.note, { color: c.mutedForeground }]}>
+              {ownedBackgrounds.size} scenes owned · Level {progress.level}
+            </Text>
+            <View style={styles.sceneGrid}>
+              {backgroundList.map((b) => (
+                <View key={b.id} style={styles.sceneCell}>
+                  <BackgroundCard
+                    bg={b}
+                    owned={ownedBackgrounds.has(b.id)}
+                    inUse={background === b.id}
+                    level={progress.level}
+                    canAfford={balance >= b.price}
+                    busy={busyId === b.id}
+                    onBuy={() => void buyBackground(b)}
+                    onUse={() => void applyBackground(b)}
+                    onPreview={() => (ownedBackgrounds.has(b.id) ? void applyBackground(b) : undefined)}
+                  />
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
         {isSlot(cat) && (
           <SlotGrid
             slot={cat}
@@ -442,6 +613,7 @@ export default function CustomizeScreen() {
         )}
 
       </ScrollView>
+      </TourTarget>
 
       {cartView.count > 0 ? (
         <View style={[styles.cartBar, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.5), bottom: insets.bottom + 12 }]}>
@@ -461,7 +633,9 @@ export default function CustomizeScreen() {
       <CartExitDialog
         visible={confirm && cartView.count > 0}
         onCheckout={checkout}
-        onLeave={leaveForNow}
+        onLeave={dirty ? () => void saveAndLeave() : leaveForNow}
+        leaveLabel={dirty ? "Save Character and Leave" : "Leave for Now"}
+        leaveIcon={dirty ? "content-save-outline" : undefined}
         onCancel={() => {
           pendingNav.current = null;
           setConfirm(false);
@@ -479,13 +653,15 @@ export default function CustomizeScreen() {
         onCancel={() => setSaveAsk(false)}
       />
 
-      <ConfirmDialog
+      <ChoiceDialog
         visible={confirm && cartView.count === 0}
-        title="Discard changes?"
-        body="Your character goes back to how it was last saved."
-        confirmLabel="Discard"
-        destructive
-        onConfirm={discard}
+        title="You've changed your character"
+        body="Save the changes and leave, or discard them and your character goes back to how it was last saved."
+        actions={[
+          { label: "Save Character and Leave", icon: "content-save-outline", onPress: () => void saveAndLeave() },
+          { label: "Discard Changes", icon: "undo-variant", variant: "secondary", onPress: discard },
+        ]}
+        cancelLabel="Keep Editing"
         onCancel={() => {
           pendingNav.current = null;
           setConfirm(false);
@@ -598,6 +774,8 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   centre: { alignItems: "center", justifyContent: "center" },
   header: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  sceneGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  sceneCell: { width: "48%" },
   title: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold" },
   round: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   stage: { borderBottomWidth: StyleSheet.hairlineWidth, overflow: "hidden" },

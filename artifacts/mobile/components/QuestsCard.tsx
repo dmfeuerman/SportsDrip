@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { trackEvent } from "@/lib/analytics";
 import { router, useIsFocused } from "expo-router";
 import { Pressable } from "@/components/fx/Tap";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { ActionChip, Card } from "@/components/ui";
 import { recordXpReason } from "@/components/XpGainPopup";
@@ -26,8 +26,12 @@ export default function QuestsCard() {
     if (DEMO) return;
     api.getWeeklyQuests({}).then((r) => setQuests(r.quests)).catch(() => {});
   }, []);
+  // Progress is re-counted from the player's bets: once a minute is plenty for a tab refocus.
+  const loadedAt = useRef(0);
   useEffect(() => {
-    if (focused) load();
+    if (!focused || Date.now() - loadedAt.current < 60_000) return;
+    loadedAt.current = Date.now();
+    load();
   }, [focused, load]);
 
   const seasonPass = useExperiment(EXPERIMENTS.seasonPass, getFirebaseAuth()?.currentUser?.uid) !== CONTROL;
@@ -67,14 +71,18 @@ export default function QuestsCard() {
                 chevron={false}
                 disabled={busy === q.id}
                 onPress={async () => {
+                  // Instant: marked claimed now; the server grants the XP behind it (un-marked if it refuses).
+                  const mark = (claimed: boolean) => setQuests((list) => list?.map((x) => (x.id === q.id ? { ...x, claimed } : x)) ?? list);
                   setBusy(q.id);
+                  mark(true);
+                  haptic.success();
                   try {
                     recordXpReason(`Quest: ${q.title}`, "flag-checkered");
                     await api.claimQuest({ questId: q.id });
                     trackEvent("quest_claimed", { quest_id: q.id });
-                    haptic.success();
                     load();
                   } catch {
+                    mark(false);
                     haptic.error();
                   } finally {
                     setBusy(null);

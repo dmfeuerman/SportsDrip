@@ -1,4 +1,3 @@
-import { useExitBreakpoint } from "@/context/AdsContext";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
@@ -24,11 +23,10 @@ const CARD_META: Record<
 };
 
 export default function LeagueRecapScreen() {
-  useExitBreakpoint("recap_exit");
   const c = useColors();
   const bottom = useBottomPad(false);
   const params = useLocalSearchParams<{ id: string; week?: string }>();
-  const { getLeague } = useLeague();
+  const { getLeague, ready } = useLeague();
   const league = getLeague(params.id);
   const detail = useLeagueDetail(league);
   const [selectedWeek, setSelectedWeek] = useState<string | null>(params.week ?? null);
@@ -40,8 +38,8 @@ export default function LeagueRecapScreen() {
         <View style={{ padding: 16 }}>
           <EmptyState
             icon="newspaper-variant-outline"
-            title="League Not Found"
-            body="You may have left this league or it's still loading."
+            title={ready ? "League Not Found" : "Loading League"}
+            body={ready ? "You may have left this league." : "Getting this week's report…"}
             action="Back to Leagues"
             onAction={() => router.navigate("/(tabs)/leagues")}
           />
@@ -92,7 +90,7 @@ export default function LeagueRecapScreen() {
           <EmptyState
             icon="newspaper-variant-outline"
             title="No Weekly Report Yet"
-            body="Every Tuesday morning, SportDrip compiles the biggest hits, worst bad beats, climbers, fallers, and streaks from your league."
+            body="Every Tuesday morning, On The House compiles the biggest hits, worst bad beats, climbers, fallers, and streaks from your league."
           />
         ) : (
           <>
@@ -175,7 +173,7 @@ function StoryCard({
               viewRef: cardRef,
               kind: "league_report",
               id: `${week}_${card.kind}`,
-              message: `${meta.badge}: ${card.headline || card.title} (${statLabel}) — ${card.detail} in ${leagueName} on SportDrip`,
+              message: `${meta.badge}: ${card.headline || card.title} (${statLabel}) — ${card.detail} in ${leagueName} on On The House`,
             });
           }}
         />

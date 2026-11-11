@@ -23,7 +23,7 @@ export default function StreakMilestoneCard({ days, name, onClose }: { days: num
         <View ref={ref} collapsable={false} accessibilityViewIsModal style={[styles.card, { backgroundColor: c.elevated, borderColor: c.alpha(c.warning, 0.6) }]}>
           <MaterialCommunityIcons name="fire" size={56} color={c.warning} />
           <Text style={[styles.big, { color: c.foreground }]}>{days}-day streak</Text>
-          <Text style={[styles.sub, { color: c.mutedForeground }]}>{name ? `${name} on SportDrip` : "SportDrip Daily Pick"}</Text>
+          <Text style={[styles.sub, { color: c.mutedForeground }]}>{name ? `${name} on On The House` : "On The House Daily Pick"}</Text>
         </View>
         <View style={styles.actions}>
           {fx.shareCard ? (
@@ -31,7 +31,7 @@ export default function StreakMilestoneCard({ days, name, onClose }: { days: num
               label="Share"
               icon="share-variant"
               onPress={() =>
-                void shareViewOrText({ viewRef: ref, kind: "streak", id: String(days), message: `🔥 ${days}-day Daily Pick streak on SportDrip` })
+                void shareViewOrText({ viewRef: ref, kind: "streak", id: String(days), message: `🔥 ${days}-day Daily Pick streak on On The House` })
               }
             />
           ) : null}

@@ -60,4 +60,4 @@ export function useAgeGateLocked(): boolean {
   );
 }
 
-export const AGE_LOCKED_MESSAGE = "Sorry, you're not eligible to create a SportDrip account.";
+export const AGE_LOCKED_MESSAGE = "Sorry, you're not eligible to create an On The House account.";

@@ -64,7 +64,7 @@ export default function SeasonScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: c.background }}>
         <ScreenHeader title="Season Pass" back />
-        <EmptyState icon="flag-outline" title="No Season Running" body="Keep doing quests and Daily Picks — the next season starts soon." />
+        <EmptyState icon="flag-outline" title="No Season Running" body="Keep doing quests and Daily Free Bets. The next season starts soon." />
       </View>
     );
   }
@@ -96,12 +96,14 @@ export default function SeasonScreen() {
                   chevron={false}
                   disabled={busy === i}
                   onPress={async () => {
+                    // Instant: shown as claimed now; un-marked if the server refuses.
                     setBusy(i);
+                    setClaimed((m) => ({ ...m, [i]: true }));
+                    haptic.success();
                     try {
                       await api.claimSeasonTier({ seasonId: season.id, tier: i });
-                      haptic.success();
-                      setClaimed((m) => ({ ...m, [i]: true }));
                     } catch {
+                      setClaimed((m) => ({ ...m, [i]: false }));
                       haptic.error();
                     } finally {
                       setBusy(null);

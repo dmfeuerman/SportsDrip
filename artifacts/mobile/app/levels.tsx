@@ -15,6 +15,7 @@ import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { useLevelRewards, type LevelUnlock } from "@/hooks/useLevelRewards";
 import { haptic } from "@/lib/motion";
+import * as api from "@/lib/api";
 
 type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
@@ -23,10 +24,11 @@ const EARN: Array<{ icon: Icon; label: string; xp: (level: number) => string; to
   { icon: "sword-cross", label: "Win a Friend Challenge", xp: (l) => `${scaledXp(XP.challengeWin, l)} XP`, to: "/challenges" },
   { icon: "shield-star-outline", label: "Win a League Bet", xp: (l) => `${scaledXp(XP.leagueBetWin, l)} XP`, to: "/(tabs)/leagues" },
   { icon: "podium-gold", label: "Finish in the Money in a League", xp: (l) => `${scaledXp(XP.leaguePayout, l)} XP` },
-  { icon: "shopping-outline", label: "Buy From the Drip Shop", xp: () => `1 XP / ${XP.purchasePer} credits`, to: "/shop" },
+  { icon: "shopping-outline", label: "Buy From the Drip Shop", xp: () => `1 XP / ${XP.purchasePer} credits`, to: "/customize" },
   { icon: "gift-outline", label: "Open a Prize Box", xp: (l) => `${scaledXp(XP.prizeBox, l)} XP`, to: "/(tabs)" },
   { icon: "account-plus-outline", label: "Add a Friend", xp: (l) => `${scaledXp(XP.newFriend, l)} XP`, to: "/(tabs)/leagues?seg=friends" },
   { icon: "account-heart-outline", label: "Invite a Friend With Your Code", xp: (l) => `${scaledXp(XP.referrer, l)} XP`, to: "/(tabs)/leagues?seg=friends" },
+  { icon: "palette-outline", label: "Change the App Color in Settings", xp: (l) => `${scaledXp(XP.themeChange, l)} XP once`, to: "/settings" },
 ];
 
 /**
@@ -34,6 +36,7 @@ const EARN: Array<{ icon: Icon; label: string; xp: (level: number) => string; to
  * level pays and unlocks. Tap your medallion to replay the level-up.
  */
 export default function LevelsScreen() {
+  React.useEffect(() => api.reportChallengeAction("levelsViewed"), []);
   useExitBreakpoint("levels_exit");
   const c = useColors();
   const bottom = useBottomPad(false);

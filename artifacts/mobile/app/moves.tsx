@@ -59,7 +59,7 @@ export default function MovesScreen() {
     [moves, ownedMoves]
   );
   const sel = byId.get(selected);
-  const shop = () => router.push({ pathname: "/shop", params: { tab: "moves" } });
+  const shop = () => router.push({ pathname: "/customize", params: { category: "moves" } });
   const top = Platform.OS === "web" ? 24 : insets.top;
   const bottom = Platform.OS === "web" ? 32 : insets.bottom + 24;
 
@@ -120,10 +120,16 @@ export default function MovesScreen() {
             const m = id ? byId.get(id) : undefined;
             if (!id || !m) {
               return (
-                <View key={`empty-${i}`} style={[styles.slot, styles.slotEmpty, { borderColor: c.border }]}>
-                  <MaterialCommunityIcons name="plus" size={18} color={c.subtleForeground} />
-                  <Text style={[styles.slotText, { color: c.subtleForeground }]}>Empty</Text>
-                </View>
+                <Pressable
+                  key={`empty-${i}`}
+                  accessibilityRole="button"
+                  accessibilityLabel="Get more moves in the Drip Shop"
+                  onPress={shop}
+                  style={({ pressed }) => [styles.slot, styles.slotEmpty, { borderColor: c.border, opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <MaterialCommunityIcons name="plus" size={18} color={c.primary} />
+                  <Text style={[styles.slotText, { color: c.subtleForeground }]}>Get Moves</Text>
+                </Pressable>
               );
             }
             const color = c.rarity(m.rarity);

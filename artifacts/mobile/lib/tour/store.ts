@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { Keyboard } from "react-native";
 import { useSyncExternalStore } from "react";
+import { reportChallengeAction } from "@/lib/api";
 
 /**
  * Interactive tutorials: a spotlight on one thing at a time, with a popup
@@ -115,6 +116,7 @@ export function endTour(finished = false) {
   const origin = state.origin;
   set({ tour: null, step: 0, origin: null, pending: false, ended: id ? { id, finished, n: (state.ended?.n ?? 0) + 1 } : state.ended });
   if (id) void markTourDone(id);
+  if (id && finished) reportChallengeAction("tutorial");
   // Back to where the ? was pressed, at the top.
   if (origin) {
     try {

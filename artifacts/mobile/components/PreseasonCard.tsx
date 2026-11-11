@@ -95,7 +95,7 @@ export default function PreseasonCard({ league, uid, onInvite }: { league: Leagu
         {waiting
           ? "A league needs at least 2 players. Invite a friend — it kicks off the moment they join."
           : members < MIN_LEAGUE_PLAYERS
-            ? `Kicks off ${new Date(start).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} if at least 2 players have joined. Get everyone in now.`
+            ? `Kicks off ${new Date(start).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} if at least 2 players have joined${league.scheduledStart ? " — if nobody joins by then, it's cancelled and buy-ins are refunded" : ""}. Get everyone in now.`
             : `Kicks off ${new Date(start).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. The roster locks then — get everyone in now.`}
       </Text>
 

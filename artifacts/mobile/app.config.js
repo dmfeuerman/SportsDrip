@@ -5,7 +5,7 @@
  * ever serve test ads.
  */
 const ATT_COPY =
-  "SportDrip uses this to show you more relevant sponsored content and keep the app free.";
+  "On The House uses this to show you more relevant sponsored content and keep the app free.";
 
 /**
  * Universal links. The app is iOS-only and has no web domain yet, so invites

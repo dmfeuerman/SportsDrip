@@ -16,6 +16,7 @@ import { setOddsFormat, setThemeId, useOddsFormat } from "@/lib/settings";
 import { SCHEMES, THEME_IDS, themeUnlockLevel } from "@/constants/colors";
 import { openTourMenu } from "@/lib/tour/store";
 import * as api from "@/lib/api";
+import { recordXpReason } from "@/components/XpGainPopup";
 import { unblockPlayer, useBlockedUids } from "@/lib/blocks";
 import { getDb } from "@/lib/firebase";
 import { NO_CASH_VALUE, SUPPORT_EMAIL } from "@/constants/legal";
@@ -70,7 +71,10 @@ export default function SettingsScreen() {
           <Text style={[styles.rowTitle, { color: c.foreground }]}>Odds Format</Text>
           <SegmentedControl
             value={oddsFormat}
-            onChange={(v) => void setOddsFormat(v)}
+            onChange={(v) => {
+              void setOddsFormat(v);
+              api.reportChallengeAction("oddsFormat");
+            }}
             options={[
               { value: "decimal", label: "Decimal (2.31x)" },
               { value: "american", label: "American (+131)" },
@@ -90,7 +94,14 @@ export default function SettingsScreen() {
                   accessibilityState={{ selected: on, disabled: locked }}
                   accessibilityLabel={locked ? `${SCHEMES[id].label} theme, unlocks at level ${needs}` : `${SCHEMES[id].label} theme`}
                   disabled={locked}
-                  onPress={() => setThemeId(id)}
+                  onPress={() => {
+                    if (id !== c.themeId) {
+                      // First change pays XP (the server ignores repeats); the popup says why.
+                      recordXpReason("Changed the App Color", "palette-outline");
+                      api.reportChallengeAction("theme");
+                    }
+                    setThemeId(id);
+                  }}
                   style={[styles.theme, { backgroundColor: p.background, borderColor: on ? c.primary : c.border, borderWidth: on ? 2 : 1, opacity: locked ? 0.55 : 1 }]}
                 >
                   <View style={styles.themeDots}>
@@ -140,7 +151,7 @@ export default function SettingsScreen() {
 
         <Button label="Sign Out" icon="logout" variant="destructive" onPress={() => setConfirmOut(true)} style={{ marginTop: 8 }} />
         <Button label="Delete Account" icon="account-remove-outline" variant="ghost" onPress={() => setConfirmDelete(true)} />
-        {version ? <Text style={[styles.version, { color: c.subtleForeground }]}>SportDrip v{version}</Text> : null}
+        {version ? <Text style={[styles.version, { color: c.subtleForeground }]}>On The House v{version}</Text> : null}
       </ScrollView>
 
       <FavoriteTeamsSheet

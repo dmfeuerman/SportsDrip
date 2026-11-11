@@ -24,7 +24,7 @@ export function referralLink(code: string): string {
 
 export function referralMessage(code: string, name?: string | null): string {
   return (
-    `${name ? `${name} invited you to` : "Join me on"} SportDrip — friendly sports picks with friends, no real money.\n\n` +
+    `${name ? `${name} invited you to` : "Join me on"} On The House — friendly sports picks with friends, no real money.\n\n` +
     `Sign up with my invite code ${code} and you start with ${REFERRAL.newUserCredits.toLocaleString()} bonus credits.\n\n${referralLink(code)}`
   );
 }

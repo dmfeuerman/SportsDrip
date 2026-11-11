@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { useAdRewardsToday } from "@/hooks/useAdRewardsToday";
 import { haptic as buzz } from "@/lib/motion";
 import sdk from "@/lib/ads/sdk";
+import { useAdFreeHere } from "@/lib/ads/zones";
 import { showCreditsEarned } from "@/components/ads/CreditsEarnedPopup";
 
 const CONFIRM_TIMEOUT_MS = 20_000;
@@ -22,7 +23,9 @@ export function useBonusVideo() {
   const { profile } = useApp();
   const used = useAdRewardsToday(profile?.uid);
   const left = Math.max(0, AD_REWARD_DISPLAY.dailyLimit - (used ?? 0));
-  const available = !!sdk && enabled;
+  // No "watch a video" offer inside a chat or a league either.
+  const adFree = useAdFreeHere();
+  const available = !!sdk && enabled && !adFree;
 
   const [crediting, setCrediting] = useState<number | null>(null); // count before the view
   const [note, setNote] = useState<{ text: string; tone: "ok" | "info" } | null>(null);
@@ -53,8 +56,22 @@ export function useBonusVideo() {
   const watch = useCallback(async () => {
     setNote(null);
     const before = used ?? 0;
-    const outcome = await showRewarded();
-    if (outcome === "earned") setCrediting(before);
+    const { outcome, claim } = await showRewarded();
+    if (outcome === "earned") {
+      setCrediting(before);
+      // The server's answer to the claim, so a refusal says why instead of spinning until the timeout.
+      void claim?.then((r) => {
+        if (r === "granted" || r === "duplicate" || r === "pending") return; // the counter moving confirms it
+        setCrediting(null);
+        setNote(
+          r === "capped"
+            ? { text: `That's today's ${AD_REWARD_DISPLAY.dailyLimit} bonus videos. Back tomorrow.`, tone: "info" }
+            : r === "too_soon"
+              ? { text: "That one was too quick to count. Try another in a few seconds.", tone: "info" }
+              : { text: "Couldn't add the credits. Check your connection and try another video.", tone: "info" }
+        );
+      });
+    }
     else if (outcome === "dismissed") setNote({ text: "Watch to the end to earn the bonus.", tone: "info" });
     else setNote({ text: "No video available right now. Try again in a bit.", tone: "info" });
   }, [used, showRewarded]);

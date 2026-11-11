@@ -158,6 +158,8 @@ export const NOTIFICATION_POLL_MS = 2 * 60_000;
 
 interface NotificationContextType {
   notifications: AppNotification[];
+  /** False until the list has been read once (from the phone's cache or the server). */
+  loaded: boolean;
   unreadCount: number;
   /** The popup on screen right now, if any. */
   popup: AppNotification | null;
@@ -197,6 +199,7 @@ export function NotificationProvider({
   children: React.ReactNode;
 }) {
   const [notifications, setNotifications] = useState<AppNotification[]>(DEMO ? demoNotifications : NONE);
+  const [loaded, setLoaded] = useState(DEMO);
   const [boot] = useState(() => (DEMO ? coldStart(EMPTY_QUEUE, demoNotifications.filter((n) => !isSocial(n)), Date.now()) : null));
   const [queue, setQueue] = useState<QueueState>(boot?.state ?? EMPTY_QUEUE);
   const [recapIds, setRecapIds] = useState<string[]>(boot?.recap ?? []);
@@ -213,6 +216,7 @@ export function NotificationProvider({
   const enabled = firebaseConfigured && !!uid && !DEMO;
 
   const apply = useCallback((list: AppNotification[]) => {
+    setLoaded(true);
     // Polls return the same data most of the time; don't re-render for nothing.
     const sig = list.map((n) => `${n.id}:${n.read ? 1 : 0}:${n.createdAtMs}`).join("|");
     if (sig === signature.current) return;
@@ -240,10 +244,29 @@ export function NotificationProvider({
    * set by this phone and patched into the cache as they're written.
    */
   const cache = useRef<CachedHandle<AppNotification> | null>(null);
+  // Another account (or signed out): the last account's notifications, popups and badge must not carry over.
+  const lastUid = useRef(uid);
   useEffect(() => {
-    if (!enabled || !uid) return;
+    if (lastUid.current === uid) return;
+    lastUid.current = uid;
+    signature.current = "";
+    opened.current = false;
+    setNotifications(NONE);
+    setQueue(EMPTY_QUEUE);
+    setToastQueue(EMPTY_QUEUE);
+    setRecapIds([]);
+    setLoaded(false);
+  }, [uid]);
+  useEffect(() => {
+    if (!enabled || !uid) {
+      if (!DEMO) setLoaded(true);
+      return;
+    }
     const db = getDb();
-    if (!db) return;
+    if (!db) {
+      setLoaded(true);
+      return;
+    }
     const col = collection(db, "users", uid, "notifications");
     let retry: ReturnType<typeof setTimeout> | null = null;
     const handle = subscribeCached<AppNotification>(
@@ -261,6 +284,8 @@ export function NotificationProvider({
       (err) => {
         const e = err as Error & { code?: string };
         if (__DEV__) console.warn(`[notifications] listener: ${e.code} — ${e.message}`);
+        // Nothing to wait for any more: screens stop showing "loading".
+        setLoaded(true);
         // Rules/auth denials are permanent for this session; retrying just
         // hammers the backend. Anything else (network, stalled channel) retries.
         if (isPermanent(e)) return;
@@ -426,6 +451,7 @@ export function NotificationProvider({
   const value = useMemo<NotificationContextType>(
     () => ({
       notifications,
+      loaded,
       unreadCount,
       popup,
       waiting: Math.max(0, queue.queue.length - 1),
@@ -441,7 +467,7 @@ export function NotificationProvider({
       pushStatus,
       enablePush,
     }),
-    [notifications, unreadCount, popup, queue.queue.length, recap, dismissRecap, dismissPopup, dismissAllPopups, toast, dismissToast, refresh, markRead, markAllRead, pushStatus, enablePush]
+    [notifications, loaded, unreadCount, popup, queue.queue.length, recap, dismissRecap, dismissPopup, dismissAllPopups, toast, dismissToast, refresh, markRead, markAllRead, pushStatus, enablePush]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

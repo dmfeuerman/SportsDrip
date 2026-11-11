@@ -113,7 +113,7 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen 
       viewRef: cardRef,
       kind: "bet_ticket",
       id: bet.id,
-      message: `${pickLabel} (${formatOdds(bet.odds, fmt)}) · ${bet.stake.toLocaleString()} → ${bet.potentialPayout.toLocaleString()} on SportDrip`,
+      message: `${pickLabel} (${formatOdds(bet.odds, fmt)}) · ${bet.stake.toLocaleString()} → ${bet.potentialPayout.toLocaleString()} on On The House`,
     });
   };
 

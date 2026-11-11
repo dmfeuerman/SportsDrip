@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/constants/brand";
 import type { Tour, TourCtx } from "./store";
 
 /** The free basics every player buys first. Mirrors functions/src/lib/economy.ts STARTER_ITEMS. */
@@ -18,23 +19,23 @@ export const STARTER_TOUR: Tour = {
       target: "tab:avatar",
       press: true,
       title: "Open your Locker",
-      body: "Your Locker is home base for your character.",
-      doneWhen: at("/avatar", "/shop", "/checkout"),
+      body: "The Locker tab is home base for your character: outfit, moves and the Drip Shop.",
+      doneWhen: at("/avatar", "/customize", "/checkout"),
       skipWhen: ownsKit,
     },
     {
       target: "locker.shop",
       press: true,
       title: "Head to the Drip Shop",
-      body: "Every piece of clothing, every dance move and every scene comes from the Drip Shop.",
-      doneWhen: at("/shop", "/checkout"),
+      body: "Clothes, dance moves and scenes all come from the Drip Shop. Press the Drip Shop button.",
+      doneWhen: at("/customize", "/checkout"),
       skipWhen: ownsKit,
     },
     {
       target: "shop.starterKit",
       press: true,
       title: "Grab the starter kit",
-      body: "It's FREE. Press the button to put all three pieces in your cart.",
+      body: "A tee, shorts and trainers, all FREE. Press the button to put all three in your cart.",
       doneWhen: (c) => STARTER_ITEMS.every((id) => c.cart.has(id) || c.owned.has(id)),
       skipWhen: (c) => ownsKit(c) || c.path === "/checkout",
     },
@@ -50,7 +51,7 @@ export const STARTER_TOUR: Tour = {
       target: "checkout.pay",
       press: true,
       title: "Check out",
-      body: "Press Checkout to get it. It's free, and your character puts it on straight away.",
+      body: "Press Checkout. The total is 0 credits, and your character puts the kit on straight away.",
       doneWhen: ownsKit,
     },
     {
@@ -81,7 +82,7 @@ export const FIRST_BET_TOUR: Tour = {
       pressLabel: "Tap a team",
       glow: ["game.first.odds.away"],
       title: "Pick a side",
-      body: "Each team shows its odds. 2.00x means 10 credits returns 20. Tap the team you think wins.",
+      body: "Each team shows its record, its current streak and its odds. 2.00x means 10 credits returns 20. Tap the odds of the team you think wins.",
       advanceOn: "pick:selected",
     },
     {
@@ -111,10 +112,10 @@ export const FIRST_BET_TOUR: Tour = {
       press: true,
       pressLabel: "Place your free bet",
       title: "Your free daily bet",
-      body: "Every day you open SportDrip you get a free 100-credit bet. Pick a side and press Lock it in — win and you keep the winnings, lose and it costs nothing.",
+      body: `Every day you open ${APP_NAME} you get a free 100-credit bet. Pick a side and press Lock In Bet. Win and you keep the winnings; lose and it costs nothing.`,
       doneWhen: (c) => c.freeBetToday,
     },
-    { route: "/", title: "All set!", body: "Come back tomorrow for another free bet. Press ? anytime for more tutorials." },
+    { route: "/", title: "All set!", body: "Come back tomorrow for another free bet. Press ? on Home or in the Locker anytime for more tutorials." },
   ],
 };
 
@@ -127,15 +128,15 @@ export const HOME_TOUR: Tour = {
     { route: "/", title: "This is Home", body: "Everything about where you stand lives here. Let's take a quick lap." },
     { route: "/", target: "home.hero", title: "Your character", body: "That's you, live. Tap your character to bust a move from your dance button, or drag to spin it around." },
     { route: "/", target: "home.level", title: "Your level", body: "Winning, buying and inviting friends earns XP. Every level pays credits and unlocks gear. Tap the bar to see what's next." },
-    { route: "/", target: "home.help", title: "Tutorials", body: "Press ? anytime to replay any of these walkthroughs." },
+    { route: "/", target: "home.help", title: "Tutorials", body: "Press ? anytime to replay any of these walkthroughs, or open How it all works for the quick guide." },
     { route: "/", target: "home.chat", title: "Chat", body: "Your league chats and DMs. A red badge means something new." },
     { route: "/", target: "home.next", title: "Next up", body: "The single most useful thing to do right now — a game about to start, a free pick, a box to open." },
     { route: "/", target: "home.wallet", title: "Your wallet", body: "Credits are your bankroll for picks and drip. In Play is what's riding; Could Return is what you win if they all hit." },
-    { route: "/", target: "home.bets", title: "My Bets", body: "Your open picks. Results pop up the moment a game goes final." },
-    { route: "/", target: "home.prizes", title: "Prize boxes", body: "Start a box, come back when the timer's done and open it for free credits." },
-    { route: "/", target: "home.daily", title: "Free daily bet", body: "Every day you open the app you get a free 100-credit bet. Keep the winnings, risk nothing." },
+    { route: "/", target: "home.bets", title: "My Bets", body: "Your open picks. Tap one for the full ticket, or to cancel it before kickoff. Results pop up the moment a game goes final." },
+    { route: "/", target: "home.daily", title: "Daily Free Bet", body: "Every day you open the app you get a free 100-credit bet. Pick a side and press Lock In Bet. Keep the winnings, risk nothing." },
+    { route: "/", target: "home.prizes", title: "Prize boxes", body: "Press Start timer on a Bronze, Silver or Gold box, come back when it's done and open it for free credits. A daily streak adds a bonus." },
     { route: "/", target: "home.leagues", title: "Your leagues", body: "Leagues you're in, with your rank. Start one or join with a code." },
-    { route: "/", title: "That's Home", body: "Try the Games tutorial next to make your first pick." },
+    { route: "/", title: "That's Home", body: "Try Betting & parlays next for a practice bet." },
   ],
 };
 
@@ -151,7 +152,7 @@ export const GAMES_TOUR: Tour = {
     { target: "tab:games", press: true, title: "Open Games", body: "The board: every game you can bet on.", doneWhen: at("/games") },
     { route: "/games", target: "games.filters", title: "Pick a sport", body: "Filter by league — NFL, NBA, MLB, NHL, college and soccer." },
     { route: "/games", target: "games.balance", title: "Your credits", body: "Your bankroll. Bets only ever use credits or league tokens — never real money." },
-    { route: "/games", target: "games.featured", title: "Featured game", body: "The biggest game on the board. Tap the card itself for the full matchup: form, injuries and who your friends are backing." },
+    { route: "/games", target: "games.featured", title: "Game of the Night", body: "The biggest game on the board, with each team's record, streak and last five. Tap the card for the full matchup: tale of the tape, injuries and who your league-mates are backing." },
     {
       route: "/games",
       target: "game.first.odds",
@@ -159,7 +160,7 @@ export const GAMES_TOUR: Tour = {
       pressLabel: "Tap a team",
       glow: ["game.first.odds.away"],
       title: "1 · Make a pick",
-      body: "Moneyline = who wins. Each team shows its odds: 2.00x means 100 credits returns 200. Spreads (win or lose by) and totals (over/under points) sit below. Tap a team.",
+      body: "Moneyline = who wins. Under each name: HOME or AWAY, the record, and a flame (winning run) or snowflake (losing run). The button is the odds: 2.00x means 100 credits returns 200. Spreads and totals sit below. Tap a team's odds.",
       advanceOn: "pick:selected",
     },
     {
@@ -173,18 +174,18 @@ export const GAMES_TOUR: Tour = {
     { title: "Your bet slip", body: "This is the whole bet slip: your pick and its odds, how much to stake, what you could win and the Place bet button. Press Next and we'll go through it.", noDim: true },
     { target: "slip.team", title: "Your pick", body: "The team, its odds and the chance the market gives it." },
     { target: "slip.mode", title: "Bet the book or a friend", body: "Bet the book here, or switch to Challenge a Friend to put a pot against a friend on the same game." },
-    { target: "slip.edge", title: "Matchup edge", body: "Quick form and head-to-head notes for the side you picked." },
+    { target: "slip.edge", title: "Matchup edge", body: "Record, last five and scoring for the side you picked. Tap it to compare with the opponent." },
     { target: "slip.wallets", optional: true, title: "Pay with", body: "In a league? Pick its wallet to bet league tokens instead of credits." },
     { target: "slip.stake", press: true, pressLabel: "Enter a stake", title: "Choose a stake", body: "Type an amount or tap a quick chip. MAX bets everything in the wallet.", advanceOn: "slip:stake" },
     { target: "slip.summary", title: "What you could win", body: "Returns if it lands, profit, what you lose if it doesn't, and your balance after." },
-    { target: "slip.place", press: true, pressLabel: "Place test bet", title: "Place it", body: "Press Place test bet. Nothing is sent — for real, this locks it in until kickoff.", advanceOn: "bet:placed" },
+    { target: "slip.place", press: true, pressLabel: "Place test bet", title: "Place it", body: "Press Place test bet. Nothing is sent. In a real bet this button reads Place bet and locks your stake in.", advanceOn: "bet:placed" },
     { route: "/games", title: "Changed your mind?", body: "Until kickoff you can cancel any bet: open it under My Bets on Home and press Cancel — the stake comes straight back. Once the game starts the bet is locked." },
 
 
     {
       route: "/games",
       title: "Now: a parlay",
-      body: "A parlay joins picks from different games into one ticket. Their odds multiply, so the payout jumps — but every leg has to win. Sportsbooks like DraftKings and FanDuel build them the same way: tap picks, they stack on a bet slip, you set one stake.",
+      body: "A parlay joins picks from different games into one ticket. Their odds multiply, so the payout jumps — but every leg has to win. You tap picks, they stack on one slip, and you set one stake for the lot.",
     },
     { route: "/games", target: "game.first.odds", glow: ["game.first.odds.away"], press: true, pressLabel: "Tap a team", title: "Leg 1 · Pick a side", body: "Tap a team (or a spread or total) on this game.", advanceOn: "pick:selected" },
     { target: "game.first.parlay", press: true, pressLabel: "Tap + Parlay", title: "Add it to the parlay", body: "Press + Parlay. The pick goes on your parlay slip instead of being bet on its own.", advanceOn: "parlay:add" },
@@ -197,7 +198,7 @@ export const GAMES_TOUR: Tour = {
     { route: "/parlay", target: "parlay.math", title: "The math", body: "Each leg's odds multiplied together. That's the price your whole ticket pays at." },
     { route: "/parlay", target: "parlay.stake", press: true, pressLabel: "Enter a stake", title: "One stake for the ticket", body: "Type an amount or tap a chip.", advanceOn: "parlay:stake" },
     { route: "/parlay", target: "parlay.summary", title: "Your receipt", body: "What it pays if every leg hits, your profit, and what you lose if any leg misses." },
-    { route: "/parlay", target: "parlay.place", press: true, pressLabel: "Place test parlay", title: "Place it", body: "Press Place. In practice nothing is sent.", advanceOn: "parlay:placed" },
+    { route: "/parlay", target: "parlay.place", press: true, pressLabel: "Place test parlay", title: "Place it", body: "Press Place test parlay. In practice nothing is sent.", advanceOn: "parlay:placed" },
     { route: "/", title: "You know betting", body: "Singles and parlays both show on Home under My Bets, and settle automatically when the games end." },
   ],
 };
@@ -216,13 +217,13 @@ export const LEAGUES_TOUR: Tour = {
     { route: "/leagues", target: "leagues.new", press: true, pressLabel: "Tap New", title: "Start a league", body: "Press New to open the league builder.", advanceOn: "league:create:open" },
     { target: "league.templates", title: "Quick-start templates", body: "One tap sets everything up for a popular format. You can still change anything below." },
     { target: "league.name", title: "Name it", body: "We filled in “Practice League”. Friends see this name everywhere." },
-    { target: "league.mode", title: "League mode", body: "Bankroll: best net worth wins. Head-to-head matchups, Pick'em and Survivor change how you score." },
+    { target: "league.mode", title: "League mode", body: "Bankroll: best net worth wins. H2H League, Weekly Pick'em, Survivor Pool and Bracket each score differently; the line under each one explains how." },
     { target: "league.tokens", title: "Starting tokens", body: "Everyone starts with the same stack of league tokens. They only exist inside this league." },
     { target: "league.buyin", title: "Buy-in", body: "Optional: each player puts credits in the prize pot to join." },
     { target: "league.prizes", title: "Prize split", body: "How the pot is paid out at the end — winner takes all, or top three." },
-    { target: "league.sports", title: "Sports", body: "Which sports count. A Full Season league covers just one." },
+    { target: "league.sports", title: "Sports", body: "Which sports count toward this league. A Full Season league covers just one." },
     { target: "league.start", title: "Start date", body: "Leagues start at least a day out so friends can join — or start now. Nobody can join once it's started." },
-    { target: "league.duration", title: "Length", body: "From one month to three." },
+    { target: "league.duration", title: "Length", body: "1 Month, 6 Weeks, 2 Months or 3 Months, or a Full Season that follows one sport to its final game." },
     { target: "league.bank", title: "The House", body: "Players can borrow tokens from The House at a flat rate: borrow 100 at 10%, pay back 110 — never more." },
     { target: "league.create", press: true, pressLabel: "Create (practice)", title: "Create it", body: "Press Create League. It's practice, so nothing is actually created.", advanceOn: "league:created" },
     { route: "/tutorial-league", target: "practice.header", title: "Your league", body: "This is what a league looks like. (A pretend one — it isn't saved.)" },
@@ -243,9 +244,9 @@ export const FRIENDS_TOUR: Tour = {
   steps: [
     { target: "tab:leagues", press: true, title: "Open Leagues", body: "Friends live next to your leagues.", doneWhen: at("/leagues") },
     { route: "/leagues", target: "leagues.seg", press: true, pressLabel: "Tap Friends", title: "Friends", body: "Switch to Friends. It's better with your crew.", advanceOn: "leagues:friends" },
-    { route: "/leagues", target: "friends.search", title: "Find people", body: "Search by username to add a friend." },
-    { route: "/leagues", target: "friends.chat", title: "Chat", body: "Message friends directly — trash talk encouraged." },
+    { route: "/leagues", target: "friends.chat", title: "Chat", body: "Message friends directly. Trash talk encouraged." },
     { route: "/leagues", target: "friends.challenges", title: "Challenges", body: "Bet a friend head to head on a game. The winner takes the pot." },
+    { route: "/leagues", target: "friends.search", title: "Find people", body: "Search by username to add a friend. A flame next to a friend is your shared streak: pick on the same day to grow it." },
     { route: "/leagues", target: "friends.invite", title: "Invite friends", body: "Share your code. You both get bonus credits when they join." },
   ],
 };
@@ -258,14 +259,14 @@ export const LOCKER_TOUR: Tour = {
   steps: [
     { target: "tab:avatar", press: true, title: "Open your Locker", body: "Everything about your character.", doneWhen: at("/avatar") },
     { route: "/avatar", target: "locker.stage", title: "Your stage", body: "Tap your character to dance. Pinch to zoom, drag to spin." },
-    { route: "/avatar", target: "locker.shop", title: "Drip Shop", body: "Buy clothes, moves and scenes with the credits you win." },
-    { route: "/avatar", target: "locker.scene", title: "Scenes", body: "Change what's behind your character on Home." },
     { route: "/avatar", target: "locker.cart", title: "Your cart", body: "Items you've picked but not bought yet." },
-    { route: "/avatar", target: "locker.quick", title: "Bets & trophies", body: "Your record and your trophy shelf." },
-    { route: "/avatar", target: "locker.moves", title: "Moves", body: "Up to four dances on your dance button. Get more in the shop." },
+    { route: "/avatar", target: "locker.settings", title: "Settings", body: "Odds format, notifications, play limits, tutorials and your account." },
+    { route: "/avatar", target: "locker.scene", title: "Scene", body: "Change what's behind your character on Home. Opens the Scenes tab of the Drip Shop." },
+    { route: "/avatar", target: "locker.shop", title: "Drip Shop", body: "Buy clothes, moves and scenes with the credits you win." },
+    { route: "/avatar", target: "locker.quick", title: "My Bets & Trophy Shelf", body: "Your betting record and every trophy you've earned." },
+    { route: "/avatar", target: "locker.moves", title: "Moves", body: "Up to four dances on your dance button. Buy more on the Moves tab of the Drip Shop." },
     { route: "/avatar", target: "locker.wearing", title: "What you're wearing", body: "Tap a slot to change it in the customizer." },
     { route: "/avatar", target: "locker.wardrobe", title: "Wardrobe", body: "Everything you own. Tap to wear, hold to customize." },
-    { route: "/avatar", target: "locker.settings", title: "Settings", body: "Odds format, notifications and your account." },
   ],
 };
 
@@ -275,11 +276,9 @@ export const SHOP_TOUR: Tour = {
   description: "Browse, try on and buy.",
   icon: "shopping-outline",
   steps: [
-    { route: "/shop", target: "shop.filters", title: "Browse", body: "Filter by slot — hats, tops, shoes — or switch to Moves and Scenes." },
-    { route: "/shop", target: "shop.balance", title: "Your credits", body: "Prices are in credits. Win picks to afford the rare stuff." },
-    { route: "/shop", target: "shop.list", title: "Try it on", body: "Tap any item to preview it on your character. Tap the cart button to add it." },
-    { route: "/shop", target: "shop.cart", title: "Check out", body: "Buy everything in your cart at once. You wear it straight away." },
-    { route: "/shop", target: "shop.customize", title: "Customize", body: "Change your look — hair, face, body — and mix your outfit." },
+    { route: "/customize", target: "shop.filters", title: "Browse", body: "Pick a tab: hats, tops, shoes, plus Moves and Scenes." },
+    { route: "/customize", target: "shop.list", title: "Try it on", body: "Tap any item to try it on your character. Anything you don't own goes in your cart." },
+    { route: "/customize", target: "shop.cart", title: "Check out", body: "Open your cart and press Checkout to buy everything at once. You wear it straight away." },
   ],
 };
 

@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { canPrompt, markPromptResult, markPromptShown, promptGateReady } from "@/lib/promptGate";
 import { AppState } from "react-native";
+import { usePathname } from "expo-router";
+import { isAdFreePath } from "@/lib/ads/zones";
 import { AD_POLICY, AD_REWARD_DISPLAY } from "@/constants/ads";
 import sdk, { requestTrackingIfNeeded } from "@/lib/ads/sdk";
 import { setAdsLive } from "@/lib/ads/adsLive";
@@ -16,9 +18,11 @@ type AppOpen = import("react-native-google-mobile-ads").AppOpenAd;
 
 export type RewardedStatus = "idle" | "loading" | "ready" | "showing" | "unavailable";
 export type RewardOutcome = "earned" | "dismissed" | "unavailable";
+/** What the server said about the app's own claim for a finished video (null: no answer, e.g. offline). */
+export type ClaimResult = "granted" | "duplicate" | "capped" | "too_soon" | "no_user" | "pending" | "failed";
 
 interface AdsContextValue {
-  /** SDK linked, consent resolved, SDK initialised. Placements render only when true. */
+  /** SDK linked, consent resolved, SDK initialised. Placements render only when true (and never in an ad-free zone: lib/ads/zones.ts). */
   enabled: boolean;
   /** UMP says the user must be able to revisit their choices (EEA/UK). */
   privacyOptionsRequired: boolean;
@@ -26,7 +30,7 @@ interface AdsContextValue {
   rewardedStatus: RewardedStatus;
   loadRewarded: () => void;
   /** Resolves when the video closes. "earned" is display-only; the server credits via SSV. */
-  showRewarded: () => Promise<RewardOutcome>;
+  showRewarded: () => Promise<{ outcome: RewardOutcome; claim: Promise<ClaimResult> | null }>;
   /** A natural pause (a result dismissed, a box claimed). Shows an interstitial only if pacing allows. */
   breakpoint: (reason: string) => void;
 }
@@ -38,7 +42,7 @@ const AdsContext = createContext<AdsContextValue>({
   openPrivacyOptions: async () => {},
   rewardedStatus: "unavailable",
   loadRewarded: noop,
-  showRewarded: async () => "unavailable",
+  showRewarded: async () => ({ outcome: "unavailable", claim: null }),
   breakpoint: noop,
 });
 
@@ -73,11 +77,17 @@ async function initialise(): Promise<boolean> {
 }
 
 export function AdsProvider({ uid, active, children }: { uid: string | null; active: boolean; children: React.ReactNode }) {
-  const [enabled, setEnabled] = useState(false);
+  const [sdkReady, setEnabled] = useState(false);
   useEffect(() => {
-    setAdsLive(enabled);
+    setAdsLive(sdkReady);
     return () => setAdsLive(false);
-  }, [enabled]);
+  }, [sdkReady]);
+  // Chat and league screens never show an ad of any kind: no fullscreen ad may open while one is on screen.
+  // (Cards, banners and video offers check the zone themselves when they mount.)
+  const adFree = isAdFreePath(usePathname());
+  const adFreeRef = useRef(adFree);
+  adFreeRef.current = adFree;
+  const enabled = sdkReady;
   const [privacyOptionsRequired, setPrivacyOptionsRequired] = useState(false);
   const [rewardedStatus, setRewardedStatus] = useState<RewardedStatus>(sdk ? "idle" : "unavailable");
 
@@ -159,8 +169,9 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
-    loadInterstitial();
+    if (!sdkReady) return;
+    // Only keep an interstitial warm if one can ever be shown: requests that never become impressions hurt fill.
+    if (AD_POLICY.interstitials) loadInterstitial();
     return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current);
       interstitial.current?.removeAllListeners();
@@ -170,13 +181,13 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
       appOpen.current?.removeAllListeners();
       appOpen.current = null;
     };
-  }, [enabled, loadInterstitial]);
+  }, [sdkReady, loadInterstitial]);
 
   const breakpoint = useCallback(
     (reason: string) => {
       const ad = interstitial.current;
-      if (!AD_POLICY.autoFullscreen) return;
-      if (!enabled || !ad || !interstitialReady.current || fullscreenOpen.current || isBooting() || isOverlayBusy()) return;
+      if (!AD_POLICY.interstitials || adFreeRef.current) return;
+      if (!sdkReady || !ad || !interstitialReady.current || fullscreenOpen.current || isBooting() || isOverlayBusy()) return;
       const now = Date.now();
       if (now - sessionStart.current < AD_POLICY.interstitialGraceMs) return;
       if (now - lastFullscreen.current < AD_POLICY.interstitialMinGapMs) return;
@@ -184,7 +195,7 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
       if (AppState.currentState !== "active") return;
       // Let the sheet or popup that triggered this finish animating out; if a queued modal (e.g. XpGainPopup) is waiting, skip the ad.
       setTimeout(() => {
-        if (fullscreenOpen.current || isOverlayBusy() || AppState.currentState !== "active") return;
+        if (fullscreenOpen.current || isOverlayBusy() || adFreeRef.current || AppState.currentState !== "active") return;
         shown.current += 1;
         interstitialReady.current = false;
         lastFullscreen.current = Date.now();
@@ -192,7 +203,7 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
         ad.show().catch(() => loadInterstitial());
       }, 600);
     },
-    [enabled, loadInterstitial]
+    [sdkReady, loadInterstitial]
   );
 
   // ── App open: over the launch loading screen, and on return after a long break ──
@@ -238,17 +249,17 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
 
   // Launch: request as soon as ads are ready; show only while the loading screen is still up.
   useEffect(() => {
-    if (!AD_POLICY.autoFullscreen || !enabled || bootAdTried.current) return;
+    if ((!AD_POLICY.launchAd && !AD_POLICY.resumeAd) || !sdkReady || bootAdTried.current) return;
     bootAdTried.current = true;
-    if (!isBooting()) return loadAppOpen();
+    if (!AD_POLICY.launchAd || !isBooting()) return loadAppOpen();
     loadAppOpen(() => {
       if (bootAdWindowOpen() && AppState.currentState === "active") showAppOpen("launch");
     });
-  }, [enabled, loadAppOpen, showAppOpen]);
+  }, [sdkReady, loadAppOpen, showAppOpen]);
 
   // Resume: an app-open ad when coming back after a long break, never on top of another ad.
   useEffect(() => {
-    if (!AD_POLICY.autoFullscreen || !enabled) return;
+    if (!AD_POLICY.resumeAd || !sdkReady) return;
     const sub = AppState.addEventListener("change", (next) => {
       if (next === "background") {
         // An ad's click-through backgrounds the app; that's not the player leaving.
@@ -264,7 +275,9 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
         away >= AD_POLICY.appOpenResumeAfterMs &&
         appOpenResumes.current < AD_POLICY.appOpenMaxResumesPerSession &&
         fresh &&
-        !isBooting()
+        !isBooting() &&
+        // Coming back straight into a chat or a league: no ad.
+        !adFreeRef.current
       ) {
         appOpenResumes.current += 1;
         showAppOpen("resume");
@@ -272,12 +285,12 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
       if (!appOpen.current || !fresh) loadAppOpen();
     });
     return () => sub.remove();
-  }, [enabled, loadAppOpen, showAppOpen]);
+  }, [sdkReady, loadAppOpen, showAppOpen]);
 
   // ── Rewarded: loaded on demand by the surface that offers it ─────────────
   const loadRewarded = useCallback(() => {
     const unit = adUnit("rewarded");
-    if (!sdk || !enabled || !uid) return;
+    if (!sdk || !sdkReady || !uid) return;
     if (!unit) {
       setRewardedStatus("unavailable");
       return;
@@ -301,13 +314,15 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
     rewarded.current = ad;
     setRewardedStatus("loading");
     ad.load();
-  }, [enabled, uid]);
+  }, [sdkReady, uid]);
 
   const showRewarded = useCallback(
     () =>
-      new Promise<RewardOutcome>((resolve) => {
+      new Promise<{ outcome: RewardOutcome; claim: Promise<ClaimResult> | null }>((done) => {
+        let claim: Promise<ClaimResult> | null = null;
+        const resolve = (outcome: RewardOutcome) => done({ outcome, claim });
         const ad = rewarded.current;
-        if (!sdk || !ad || rewardedStatus !== "ready") return resolve("unavailable");
+        if (!sdk || !ad || rewardedStatus !== "ready" || adFreeRef.current) return resolve("unavailable");
         let earned = false;
         const nonce = rewardNonce.current;
         const offEarned = ad.addAdEventListener(sdk.RewardedAdEventType.EARNED_REWARD, () => {
@@ -316,9 +331,15 @@ export function AdsProvider({ uid, active, children }: { uid: string | null; act
           // SSV never fires for test units or units without a callback URL;
           // the claim covers those, and is a no-op if SSV already paid.
           if (nonce) {
-            claimAdReward({ nonce })
-              .then((r) => trace("ads", `reward claim: ${r.result}`))
-              .catch((err) => trace("ads", `reward claim failed: ${(err as Error)?.message}`));
+            claim = claimAdReward({ nonce })
+              .then((r) => {
+                trace("ads", `reward claim: ${r.result}`);
+                return r.result as ClaimResult;
+              })
+              .catch((err) => {
+                trace("ads", `reward claim failed: ${(err as Error)?.message}`);
+                return "failed" as const;
+              });
           }
         });
         const offClosed = ad.addAdEventListener(sdk.AdEventType.CLOSED, () => {

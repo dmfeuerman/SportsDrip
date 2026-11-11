@@ -141,7 +141,11 @@ export function subscribeCached<T extends CachedItem>(
           if (ch.type === "removed") continue; // leaving a delta query isn't a deletion
           const d = { ...(ch.doc.data() as DocumentData), id: ch.doc.id } as T;
           const had = map.get(d.id);
-          map.set(d.id, had && o.pick ? o.pick(had, d) : d);
+          const merged = had && o.pick ? o.pick(had, d) : d;
+          map.set(d.id, merged);
+          // Move the cursor on, so the next launch asks only for what's newer than this (it used to
+          // stay at the last full read and re-read every document since, on every launch).
+          advance([merged]);
           changed = true;
         }
         if (!changed) return;

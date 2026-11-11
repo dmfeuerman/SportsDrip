@@ -72,7 +72,7 @@ export function describeXpReasonCode(code: string | undefined | null, note?: str
     case "new_friend":
       return { label: "Added a New Friend", icon: "account-plus-outline" };
     case "daily_pick":
-      return { label: "Locked in Today's Daily Pick", icon: "calendar-check-outline" };
+      return { label: "Locked in Today's Daily Free Bet", icon: "calendar-check-outline" };
     case "quest":
       return { label: "Completed a Weekly Quest", icon: "flag-checkered" };
     case "referral":

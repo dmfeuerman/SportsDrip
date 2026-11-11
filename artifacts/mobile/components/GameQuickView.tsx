@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { setWatchingGame } from "@/lib/presence";
 import { haptic as buzz } from "@/lib/motion";
 import { router } from "expo-router";
+import { isLeagueStarted } from "@/constants/leagueTypes";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import BetModal, { type BetWallet, type SlipExtras } from "@/components/BetModal";
@@ -131,6 +132,8 @@ export default function GameQuickView({
     for (const lg of activeLeagues) {
       if (!lg.allowedSports.includes(pending.game.sport)) continue;
       if (pending.game.startsAt >= lg.endsAt) continue;
+      // No league bets until the league has started: the slip stays on credits.
+      if (!isLeagueStarted(lg)) continue;
       const me = lg.members[uid];
       if (!me) continue;
       out.push({ id: lg.id, label: lg.name, balance: me.leagueTokens, kind: "league" });
@@ -218,7 +221,24 @@ export default function GameQuickView({
       } else {
         const key = pending.key;
         const f = pending.follow && pending.follow.leagueId === walletId ? pending.follow : null;
+        const lt = (quote.side ?? pending.side) === "home" ? pending.game.homeTeam : pending.game.awayTeam;
+        const lo = (quote.side ?? pending.side) === "home" ? pending.game.awayTeam : pending.game.homeTeam;
         placeLeagueBet({
+          // Shown in the league's bets and My Bets straight away, until the server's copy arrives.
+          preview: {
+            sport: pending.game.sport,
+            side: quote.side ?? pending.side,
+            market: Q.market,
+            selection: Q.selection,
+            line: Q.line ?? null,
+            label: quote.label,
+            startsAt: pending.game.startsAt,
+            teamName: Q.teamName || lt.name,
+            teamAbbr: Q.teamAbbr || lt.abbreviation,
+            teamColor: Q.teamColor || lt.color,
+            opponentAbbr: Q.opponentAbbr || lo.abbreviation,
+            odds: Q.odds!,
+          },
           leagueId: walletId,
           gameId: pending.game.id,
           side: quote.side ?? pending.side,
@@ -301,6 +321,8 @@ export default function GameQuickView({
           teamAbbr={quote.teamAbbr}
           teamColor={quote.teamColor}
           pickTitle={quote.pickTitle}
+          market={pending.market}
+          selection={pending.selection}
           lockUsed={lockUsed}
           odds={quote.odds}
           game={pending.game}

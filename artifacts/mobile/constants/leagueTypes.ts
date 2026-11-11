@@ -116,8 +116,14 @@ export interface LeagueResult {
 }
 
 export interface League {
+  /** App-only: built on this phone while createLeague runs; not on the server yet, so nothing may listen to it. */
+  optimistic?: boolean;
   /** When play opens; before it friends can join, after it the roster is locked. Older leagues: createdAt. */
   startsAt?: number;
+  /** A picked start date (not "start now"): nobody joined by then = cancelled. */
+  scheduledStart?: boolean;
+  /** Closed at its start date because nobody joined; buy-ins refunded. */
+  cancelled?: boolean;
   /** Bracket mode: bracketTemplates/{id}. */
   bracketTemplateId?: string | null;
   id: string;
@@ -175,6 +181,8 @@ export interface LeagueLoan extends LoanTerms {
   createdAt: number;
   fundedAt?: number;
   repaidAt?: number | null;
+  reactions?: Record<string, number>;
+  reactors?: Record<string, string>;
 }
 
 export interface LeagueBet {
@@ -235,9 +243,13 @@ export interface LeagueMessage {
   id: string;
   uid: string;
   name: string;
-  kind: "text" | "bet" | "system" | "taunt";
+  kind: "text" | "bet" | "system" | "taunt" | "loan";
   text: string;
   at: number;
+  /** Loan card metadata when kind === "loan". */
+  loanId?: string;
+  amount?: number;
+  rate?: number;
   /** Taunts: the move to play, sender avatar snapshot. */
   moveId?: string;
   matchupId?: string;

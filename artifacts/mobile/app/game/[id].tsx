@@ -30,11 +30,15 @@ import { useChallenges, viewOf, type ChallengeView } from "@/context/ChallengeCo
 import { useGameLeagueSweat, useLeague } from "@/context/LeagueContext";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { useGame } from "@/hooks/useGame";
+import { hintProviderPath } from "@/lib/insights/onDevice";
 import { useGameInsights } from "@/hooks/useGameInsights";
 import { useNow } from "@/hooks/useNow";
 import { formatOdds, formatPercent, impliedProbability, kickoffLabel, livePosition, NO_LINE, untilKickoff, type OddsFormat } from "@/lib/odds";
 import { useOddsFormat } from "@/lib/settings";
 import type { Game, TeamSide } from "@/types/game";
+import TeamCrest from "@/components/TeamCrest";
+import { FormChips, StreakBadge, VenueTag } from "@/components/TeamMeta";
+import { nickname } from "@/lib/teamIdentity";
 
 type Tab = "live" | "matchup";
 type Position = { key: string; bet: TicketBet; wallet: string | null };
@@ -48,6 +52,7 @@ export default function GameCenterScreen() {
   const gameId = typeof params.id === "string" && params.id ? params.id : null;
 
   const { game, loading, missing } = useGame(gameId);
+  if (game) hintProviderPath(game.id, game.providerPath);
   const insights = useGameInsights(gameId, game?.status);
   const { bets } = useApp();
   const { leagues, myLeagueBets, uid } = useLeague();
@@ -218,7 +223,7 @@ function Scoreboard({ game, now, c, fmt }: { game: Game; now: number; c: Colors;
 
   return (
     <View style={[styles.hero, { backgroundColor: c.card, borderColor: live ? c.alpha(c.live, 0.45) : c.border }]}>
-      <HeroTeam team={game.awayTeam} score={game.awayScore} dim={final && leader === "home"} c={c} fmt={fmt} />
+      <HeroTeam side="away" neutral={game.neutralSite} sport={game.sport} team={game.awayTeam} score={game.awayScore} dim={final && leader === "home"} c={c} fmt={fmt} />
       <View style={styles.heroMid}>
         {live ? (
           <View style={[styles.livePill, { backgroundColor: c.alpha(c.live, 0.14) }]}>
@@ -231,21 +236,24 @@ function Scoreboard({ game, now, c, fmt }: { game: Game; now: number; c: Colors;
         </Text>
         {game.status === "upcoming" ? <Text style={[styles.heroSub, { color: c.subtleForeground }]}>{untilKickoff(game.startsAt, now)}</Text> : null}
       </View>
-      <HeroTeam team={game.homeTeam} score={game.homeScore} dim={final && leader === "away"} c={c} fmt={fmt} />
+      <HeroTeam side="home" neutral={game.neutralSite} sport={game.sport} team={game.homeTeam} score={game.homeScore} dim={final && leader === "away"} c={c} fmt={fmt} />
     </View>
   );
 }
 
-function HeroTeam({ team, score, dim, c, fmt }: { team: TeamSide; score: number | null; dim: boolean; c: Colors; fmt: OddsFormat }) {
+function HeroTeam({ side, neutral, sport, team, score, dim, c, fmt }: { side: "home" | "away"; neutral?: boolean | null; sport: string; team: TeamSide; score: number | null; dim: boolean; c: Colors; fmt: OddsFormat }) {
   return (
     <View style={styles.heroTeam}>
-      <View style={[styles.heroLogo, styles.heroFallback, { backgroundColor: c.alpha(team.color, 0.2), borderColor: team.color }]}>
-        <Text style={[styles.heroAbbr, { color: c.foreground }]}>{team.abbreviation}</Text>
-      </View>
+      <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={56} sport={sport} />
       <Text style={[styles.heroName, { color: c.foreground }]} numberOfLines={1}>
-        {team.location && team.name.startsWith(team.location) ? team.name.slice(team.location.length).trim() || team.name : team.name}
+        {nickname(team.name, team.location)}
       </Text>
-      {team.record ? <Text style={[styles.heroSub, { color: c.subtleForeground }]}>{team.record}</Text> : null}
+      <View style={styles.heroMeta}>
+        <VenueTag side={side} neutral={neutral} />
+        {team.record ? <Text style={[styles.heroSub, { color: c.mutedForeground }]}>{team.record}</Text> : null}
+        <StreakBadge form={team.form} />
+      </View>
+      <FormChips form={team.form} size={14} />
       {score !== null ? (
         <Animated.Text key={score} entering={ZoomIn.duration(260)} style={[styles.heroScore, { color: dim ? c.mutedForeground : c.foreground }]}>
           {score}
@@ -482,6 +490,7 @@ const styles = StyleSheet.create({
 
   hero: { flexDirection: "row", alignItems: "flex-start", borderWidth: 1, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 10 },
   heroTeam: { flex: 1, alignItems: "center", gap: 4 },
+  heroMeta: { flexDirection: "row", alignItems: "center", gap: 5, flexWrap: "wrap", justifyContent: "center" },
   heroLogo: { width: 56, height: 56, borderRadius: 14 },
   heroFallback: { alignItems: "center", justifyContent: "center", borderWidth: 1 },
   heroAbbr: { fontSize: 14, fontFamily: "Inter_800ExtraBold" },

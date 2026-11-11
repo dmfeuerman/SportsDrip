@@ -12,20 +12,20 @@ import {
   TextInput,
   View,
 } from "react-native";
-import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
+import Animated, { ZoomIn } from "react-native-reanimated";
 import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ReplyComposerBar, type ReplyQuote } from "@/components/chat/ReplyThread";
 import BetChatCard from "@/components/chat/BetChatCard";
 import TauntCard from "@/components/chat/TauntCard";
-import FriendMoneyCard from "@/components/chat/FriendMoneyCard";
+import FriendMoneyCard, { LeagueLoanChatCard, LoanNegotiateModal } from "@/components/chat/FriendMoneyCard";
 import FriendSendSheet from "@/components/chat/FriendSendSheet";
 import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
 import MemberAvatar from "@/components/MemberAvatar";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
 import ReportDialog, { type ReportTarget } from "@/components/ReportDialog";
-import { EmptyState, TabStrip } from "@/components/ui";
-import { REACTION_EMOJIS, type LeagueMessage } from "@/constants/leagueTypes";
+import { EmptyState, LoadingState, TabStrip } from "@/components/ui";
+import { PEER_LOAN_MAX_PCT, REACTION_EMOJIS, type LeagueLoan, type LeagueMessage } from "@/constants/leagueTypes";
 import { useApp } from "@/context/AppContext";
 import { useChat, type DirectMessage } from "@/context/ChatContext";
 import { useLeague, useLeagueDetail } from "@/context/LeagueContext";
@@ -38,6 +38,8 @@ import { DEMO, demoFriends } from "@/lib/demo";
 import { markChatSeen, useAllChatSeen } from "@/lib/settings";
 import { deleteField, doc, updateDoc } from "firebase/firestore";
 import { getDb } from "@/lib/firebase";
+import * as api from "@/lib/api";
+import { useToast } from "@/context/ToastContext";
 import ReactionRow from "@/components/chat/ReactionRow";
 
 /** Sets, switches or clears my one reaction on a DM (rules allow only my own key). */
@@ -244,15 +246,32 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ uid?: string; name?: string; leagueId?: string }>();
   const { profile } = useApp();
+  const { show: showToast } = useToast();
+  const [tauntBusy, setTauntBusy] = useState(false);
+  /** Taunt a friend in DMs: plays your first loadout move in the chat. One per friend per day. */
+  const sendFriendTaunt = async (friendUid: string, friendName: string) => {
+    if (tauntBusy) return;
+    setTauntBusy(true);
+    buzz.medium();
+    try {
+      await api.sendTaunt({ scope: "dm", receiverUid: friendUid, matchupId: "friend", moveId: profile?.moves?.[0] ?? "cheer" });
+      buzz.success();
+    } catch (e) {
+      buzz.error();
+      showToast({ kind: "warning", title: `Couldn't taunt ${friendName}`, body: api.friendlyError(e) });
+    } finally {
+      setTauntBusy(false);
+    }
+  };
   const { byId } = useCatalog();
   const myUid = profile?.uid ?? "me";
-  const { friends: liveFriends } = useFriends(profile?.uid ?? null);
+  const { friends: liveFriends, loading: friendsLoading } = useFriends(profile?.uid ?? null);
   const friends = useMemo(
     () => (liveFriends.length > 0 ? liveFriends : DEMO ? demoFriends : []),
     [liveFriends]
   );
 
-  const { leagues, sendMessage: sendLeagueMessage, reactToItem } = useLeague();
+  const { leagues, ready: leaguesReady, sendMessage: sendLeagueMessage, reactToItem, requestLoan } = useLeague();
   const {
     threadIdFor,
     dmMessagesByThread,
@@ -277,6 +296,7 @@ export default function MessagesScreen() {
   const [replyQuote, setReplyQuote] = useState<ReplyQuote | null>(null);
   const [activeMenuMsgId, setActiveMenuMsgId] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
+  const [leagueLoanModalOpen, setLeagueLoanModalOpen] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [profileUid, setProfileUid] = useState<string | null>(null);
@@ -347,10 +367,38 @@ export default function MessagesScreen() {
     return (dmMessagesByThread[tId] ?? []).slice().sort((a, b) => a.at - b.at);
   }, [selectedFriendUid, threadIdFor, dmMessagesByThread]);
 
+  const leagueLoanById = useMemo(() => {
+    const map = new Map<string, LeagueLoan>();
+    for (const l of leagueDetail.loans) {
+      map.set(l.id, l);
+    }
+    return map;
+  }, [leagueDetail.loans]);
+
   const leagueMessages: LeagueMessage[] = useMemo(() => {
     if (mode !== "league") return [];
-    return leagueDetail.messages.slice().sort((a, b) => a.at - b.at);
-  }, [mode, leagueDetail.messages]);
+    const base = leagueDetail.messages.slice();
+    const existingLoanIds = new Set(base.map((m) => m.loanId).filter(Boolean));
+    for (const l of leagueDetail.loans) {
+      if (l.kind === "peer" && !existingLoanIds.has(l.id)) {
+        const rate = l.counterRate ?? l.proposedRate ?? l.ratePct;
+        base.push({
+          id: `loan_${l.id}`,
+          uid: l.borrowerId,
+          name: l.borrowerName,
+          kind: "loan",
+          loanId: l.id,
+          amount: l.principal,
+          rate,
+          text: `${l.borrowerName} requested ${l.principal.toLocaleString()} tokens at ${rate}% flat${l.message ? ` — "${l.message}"` : ""}`,
+          at: l.createdAt,
+          reactions: l.reactions,
+          reactors: l.reactors,
+        });
+      }
+    }
+    return base.sort((a, b) => a.at - b.at);
+  }, [mode, leagueDetail.messages, leagueDetail.loans]);
 
   const handleSend = async () => {
     const body = text.trim();
@@ -443,7 +491,20 @@ export default function MessagesScreen() {
                 </Text>
               </View>
             </Pressable>
-          ) : mode === "league" && activeLeague ? (
+          ) : null}
+          {mode === "dm" && activeFriend ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Taunt ${activeFriend.displayName} with a dance`}
+              disabled={tauntBusy}
+              onPress={() => void sendFriendTaunt(activeFriend.uid, activeFriend.displayName)}
+              hitSlop={8}
+              style={({ pressed }) => [styles.tauntBtn, { backgroundColor: c.primary, opacity: tauntBusy ? 0.5 : pressed ? 0.8 : 1 }]}
+            >
+              <MaterialCommunityIcons name="human-handsup" size={16} color={c.primaryForeground} />
+              <Text style={[styles.tauntText, { color: c.primaryForeground }]}>Taunt</Text>
+            </Pressable>
+          ) : mode === "dm" && activeFriend ? null : mode === "league" && activeLeague ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Open ${activeLeague.name}`}
@@ -487,11 +548,14 @@ export default function MessagesScreen() {
           ) : mode === "league" && activeLeague ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Open ${activeLeague.name}`}
-              onPress={() => router.push({ pathname: "/league/[id]", params: { id: activeLeague.id } })}
+              accessibilityLabel={`Request a peer loan in ${activeLeague.name}`}
+              onPress={() => {
+                buzz.tick();
+                setLeagueLoanModalOpen(true);
+              }}
               style={[styles.headerActionBtn, { backgroundColor: c.leagueSoft }]}
             >
-              <MaterialCommunityIcons name="podium" size={18} color={c.league} />
+              <MaterialCommunityIcons name="hand-coin-outline" size={18} color={c.league} />
             </Pressable>
           ) : null}
         </View>
@@ -593,7 +657,11 @@ export default function MessagesScreen() {
 
       {/* Message List (Newest at the Bottom, iOS/WhatsApp grouping) */}
       {mode === "dm" ? (
-        !activeFriend ? (
+        !activeFriend && friendsLoading ? (
+          <View style={styles.emptyContainer}>
+            <LoadingState label="Loading your chats…" />
+          </View>
+        ) : !activeFriend ? (
           <View style={styles.emptyContainer}>
             <EmptyState
               icon="message-text-outline"
@@ -708,7 +776,11 @@ export default function MessagesScreen() {
 
                           {m.kind === "taunt" ? <TauntCard taunt={m} /> : null}
                           {m.kind === "gift" || m.kind === "money" || m.kind === "loan" ? (
-                            <FriendMoneyCard m={m} myUid={myUid} />
+                            <FriendMoneyCard
+                              m={m}
+                              myUid={myUid}
+                              onReplyLoan={(q) => setReplyQuote(q)}
+                            />
                           ) : null}
 
                           <View style={styles.bubbleContentWrap}>
@@ -791,6 +863,10 @@ export default function MessagesScreen() {
             }
           />
         )
+      ) : !activeLeague && !leaguesReady ? (
+        <View style={styles.emptyContainer}>
+          <LoadingState label="Loading your leagues…" />
+        </View>
       ) : !activeLeague ? (
         <View style={styles.emptyContainer}>
           <EmptyState
@@ -861,6 +937,7 @@ export default function MessagesScreen() {
             const menuOpen = activeMenuMsgId === m.id;
             const myReaction = m.reactors?.[myUid] ?? null;
             const nameTint = senderColorFor(m.uid);
+            const attachedLoan = m.loanId ? leagueLoanById.get(m.loanId) : undefined;
 
             return (
               <View style={{ marginTop: sameAsPrev ? 2 : 10 }}>
@@ -937,6 +1014,15 @@ export default function MessagesScreen() {
                             }}
                           />
                         ) : null}
+                        {m.kind === "loan" && activeLeague && attachedLoan ? (
+                          <LeagueLoanChatCard
+                            league={activeLeague}
+                            loan={attachedLoan}
+                            myUid={myUid}
+                            now={now}
+                            onReply={(q) => setReplyQuote(q)}
+                          />
+                        ) : null}
 
                         <View style={styles.bubbleContentWrap}>
                           <Text style={[styles.bubbleText, { color: mine ? "#FFFFFF" : c.foreground }]}>
@@ -963,7 +1049,7 @@ export default function MessagesScreen() {
                         </View>
                       </Pressable>
 
-                      {activeLeague ? (
+                      {activeLeague && m.kind !== "loan" ? (
                         <ReactionRow
                           reactors={m.reactors}
                           reactions={m.reactions}
@@ -980,7 +1066,14 @@ export default function MessagesScreen() {
                     <MessageActionTray
                       mine={mine}
                       myReaction={myReaction}
-                      onReact={(emoji) => void reactToItem(activeLeague.id, "message", m.id, emoji as never)}
+                      onReact={(emoji) =>
+                        void reactToItem(
+                          activeLeague.id,
+                          m.kind === "loan" && m.loanId ? "loan" : "message",
+                          m.kind === "loan" && m.loanId ? m.loanId : m.id,
+                          emoji as never
+                        )
+                      }
                       onReply={() =>
                         setReplyQuote({
                           id: m.id,
@@ -1056,6 +1149,21 @@ export default function MessagesScreen() {
             >
               <MaterialCommunityIcons name="plus" size={22} color="#007AFF" />
             </Pressable>
+          ) : mode === "league" && activeLeague ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Request a loan in ${activeLeague.name}`}
+              onPress={() => {
+                buzz.tick();
+                setLeagueLoanModalOpen(true);
+              }}
+              style={({ pressed }) => [
+                styles.plusBtn,
+                { backgroundColor: c.leagueSoft, opacity: pressed ? 0.75 : 1 },
+              ]}
+            >
+              <MaterialCommunityIcons name="hand-coin-outline" size={20} color={c.league} />
+            </Pressable>
           ) : null}
 
           <View
@@ -1113,6 +1221,23 @@ export default function MessagesScreen() {
         onClose={() => setSendOpen(false)}
       />
 
+      {activeLeague ? (
+        <LoanNegotiateModal
+          visible={leagueLoanModalOpen}
+          onClose={() => setLeagueLoanModalOpen(false)}
+          title="Request League Loan in Chat"
+          subtitle={`Post an interactive loan card in ${activeLeague.name} so members can fund, counter, or react.`}
+          currencyLabel="league tokens"
+          initialAmount={Math.min(1000, Math.floor(activeLeague.startingLeagueTokens * 0.2))}
+          initialRate={activeLeague.bankInterestRate || 10}
+          maxAmount={Math.floor(activeLeague.startingLeagueTokens * PEER_LOAN_MAX_PCT)}
+          mode="create"
+          onSubmit={async ({ amount, rate, note }) => {
+            return await requestLoan(activeLeague.id, amount, rate, note);
+          }}
+        />
+      ) : null}
+
       <ReportDialog target={reportTarget} onClose={() => setReportTarget(null)} />
 
       {/* Friend Profile Sheet with Challenge & Invite to League actions */}
@@ -1150,6 +1275,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: -4,
   },
+  tauntBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  tauntText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   contactCenter: {
     flex: 1,
     flexDirection: "row",

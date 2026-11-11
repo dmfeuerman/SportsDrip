@@ -1,4 +1,3 @@
-import { useExitBreakpoint } from "@/context/AdsContext";
 import { router, useLocalSearchParams } from "expo-router";
 import { doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
@@ -51,7 +50,6 @@ function storiesFor(w: Wrapped): Story[] {
 
 /** Drip Wrapped in stories format: tap right to advance, left to go back. */
 export default function WrappedScreen() {
-  useExitBreakpoint("wrapped_exit");
   const c = useColors();
   const top = useTopPad();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -121,7 +119,7 @@ export default function WrappedScreen() {
           <Button
             label="Share"
             icon="share-variant"
-            onPress={() => void shareViewOrText({ viewRef: ref, kind: "wrapped", id: `${w.periodId}_${s.key}`, message: `${s.kicker}: ${s.big} — SportDrip Wrapped` })}
+            onPress={() => void shareViewOrText({ viewRef: ref, kind: "wrapped", id: `${w.periodId}_${s.key}`, message: `${s.kicker}: ${s.big} — On The House Wrapped` })}
           />
         ) : null}
       </View>

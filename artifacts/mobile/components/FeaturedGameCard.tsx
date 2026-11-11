@@ -5,6 +5,8 @@ import { StyleSheet, Text, View } from "react-native";
 import PressableScale from "@/components/fx/PressableScale";
 import Shimmer from "@/components/fx/Shimmer";
 import TeamCrest from "@/components/TeamCrest";
+import { FormChips, StreakBadge } from "@/components/TeamMeta";
+import type { TeamSide } from "@/types/game";
 import type { BoardLeagueSide } from "@/context/LeagueContext";
 import { useColors } from "@/hooks/useColors";
 import { haptic } from "@/lib/motion";
@@ -76,9 +78,9 @@ export default function FeaturedGameCard({
         <Text style={[styles.when, { color: c.mutedForeground }]}>{game.sport} · {untilKickoff(game.startsAt)}</Text>
       </View>
       <View style={styles.row}>
-        <Side sport={game.sport} abbr={game.awayTeam.abbreviation} name={game.awayTeam.name} color={game.awayTeam.color} alt={game.awayTeam.altColor} odds={priced ? formatOdds(game.awayTeam.odds, fmt) : null} pct={p ? formatPercent(p.away) : null} />
+        <Side team={game.awayTeam} sport={game.sport} abbr={game.awayTeam.abbreviation} name={game.awayTeam.name} color={game.awayTeam.color} alt={game.awayTeam.altColor} odds={priced ? formatOdds(game.awayTeam.odds, fmt) : null} pct={p ? formatPercent(p.away) : null} />
         <Text style={[styles.at, { color: c.mutedForeground }]}>@</Text>
-        <Side sport={game.sport} abbr={game.homeTeam.abbreviation} name={game.homeTeam.name} color={game.homeTeam.color} alt={game.homeTeam.altColor} odds={priced ? formatOdds(game.homeTeam.odds, fmt) : null} pct={p ? formatPercent(p.home) : null} />
+        <Side team={game.homeTeam} sport={game.sport} abbr={game.homeTeam.abbreviation} name={game.homeTeam.name} color={game.homeTeam.color} alt={game.homeTeam.altColor} odds={priced ? formatOdds(game.homeTeam.odds, fmt) : null} pct={p ? formatPercent(p.home) : null} />
       </View>
       {crowd ? (
         <View style={[styles.crowd, { backgroundColor: c.alpha(c.league, 0.16) }]}>
@@ -97,11 +99,11 @@ export default function FeaturedGameCard({
   );
 }
 
-function Side({ sport, abbr, name, color, alt, odds, pct }: { sport: string; abbr: string; name: string; color: string; alt?: string | null; odds: string | null; pct: string | null }) {
+function Side({ team, sport, abbr, name, color, alt, odds, pct }: { team: TeamSide; sport: string; abbr: string; name: string; color: string; alt?: string | null; odds: string | null; pct: string | null }) {
   const c = useColors();
   return (
     <View style={styles.side}>
-      <TeamCrest abbr={abbr} color={color} altColor={alt} size={44} sport={sport} />
+      <TeamCrest abbr={abbr} color={color} altColor={alt} size={52} sport={sport} />
       <Text style={[styles.name, { color: c.foreground }]} numberOfLines={1}>
         {name}
       </Text>
@@ -110,6 +112,13 @@ function Side({ sport, abbr, name, color, alt, odds, pct }: { sport: string; abb
           {odds} · {pct}
         </Text>
       ) : null}
+      {team.record ? (
+        <View style={styles.meta}>
+          <Text style={[styles.record, { color: c.foreground }]}>{team.record}</Text>
+          <StreakBadge form={team.form} />
+        </View>
+      ) : null}
+      <FormChips form={team.form} size={14} />
     </View>
   );
 }
@@ -123,6 +132,8 @@ const styles = StyleSheet.create({
   side: { flex: 1, alignItems: "center", gap: 4 },
   name: { fontSize: 14, fontFamily: "Inter_800ExtraBold", textAlign: "center" },
   odds: { fontSize: 12, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
+  meta: { flexDirection: "row", alignItems: "center", gap: 5 },
+  record: { fontSize: 12, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   at: { fontSize: 16, fontFamily: "Inter_700Bold", paddingHorizontal: 6 },
   crowd: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
   crowdText: { flex: 1, fontSize: 12, fontFamily: "Inter_600SemiBold" },

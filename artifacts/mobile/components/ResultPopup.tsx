@@ -296,7 +296,7 @@ function ResultPopup({
                     viewRef: cardRef,
                     kind: "result_popup",
                     id: n.id,
-                    message: `${n.title} — ${n.body} on SportDrip`,
+                    message: `${n.title} — ${n.body} on On The House`,
                   });
                 }}
               />
@@ -318,7 +318,7 @@ function ResultPopup({
           {bet && (won || lost) ? <SocialFollowUp n={n} won={won} friend={friend} onDismiss={onDismiss} /> : null}
           {won && widgetPromo ? (
             <Text style={[styles.widgetPromo, { color: c.mutedForeground }]}>
-              Tip: add the SportDrip widget to your Home Screen to see your week at a glance.
+              Tip: add the On The House widget to your Home Screen to see your week at a glance.
             </Text>
           ) : null}
           {waiting > 0 && (

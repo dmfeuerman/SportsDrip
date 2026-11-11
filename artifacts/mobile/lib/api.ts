@@ -3,7 +3,7 @@ import { callable } from "@/lib/firebase";
 
 import type { AvatarConfig, Slot } from "@/types/avatar";
 import type { GameInsights } from "@/types/insights";
-import type { LeagueDuration, LeagueMode, MatchupCadence, ReactionEmoji, TrophyItem } from "@/constants/leagueTypes";
+import type { League, LeagueDuration, LeagueMode, MatchupCadence, ReactionEmoji, TrophyItem } from "@/constants/leagueTypes";
 import type { Market, Selection } from "@/lib/markets";
 export type { AvatarConfig, Slot } from "@/types/avatar";
 
@@ -88,10 +88,13 @@ export const reportContent = callable<
 >("reportContent");
 export const acceptTerms = callable<{ version: number }, { ok: true; version: number }>("acceptTerms");
 
-export const checkUsername = callable<
+const checkUsernameRemote = callable<
   { username: string },
   { available: boolean; reason: "invalid" | "taken" | null }
 >("checkUsername");
+/** Read on the device (usernames/{name} is readable); the callable is only the fallback. */
+export const checkUsername = (args: { username: string }) =>
+  import("@/lib/onDevice").then((m) => m.checkUsername(args.username)).catch(() => checkUsernameRemote(args));
 
 export const updateAvatar = callable<{ avatar: AvatarConfig }, { ok: true }>("updateAvatar");
 
@@ -108,9 +111,38 @@ export interface WeeklyQuest {
   progress: number;
   claimed: boolean;
 }
-export const getWeeklyQuests = callable<Record<string, never>, { week: string; quests: WeeklyQuest[] }>("getWeeklyQuests");
+const getWeeklyQuestsRemote = callable<Record<string, never>, { week: string; quests: WeeklyQuest[] }>("getWeeklyQuests");
+/**
+ * Progress is counted on the device from the player's own bets. The callable
+ * runs once a week (to draw the week's quests) and as the fallback.
+ */
+export const getWeeklyQuests = (args: Record<string, never>) =>
+  import("@/lib/onDevice")
+    .then((m) => m.weeklyQuests())
+    .catch(() => null)
+    .then((local) => local ?? getWeeklyQuestsRemote(args));
 export const claimSeasonTier = callable<{ seasonId: string; tier: number }, { ok: true; duplicate?: boolean }>("claimSeasonTier");
 export const claimQuest = callable<{ questId: string }, { ok: true; xp: number; level: number }>("claimQuest");
+
+/** XP challenges that scale with level; unfinished ones stay until claimed. */
+export interface LevelChallenge {
+  id: string;
+  title: string;
+  target: number;
+  xp: number;
+  to: string | null;
+  minLevel: number;
+  explore: boolean;
+  progress: number;
+}
+export const getLevelChallenges = callable<Record<string, never>, { level: number; challenges: LevelChallenge[] }>("getLevelChallenges");
+export const claimLevelChallenge = callable<{ id: string }, { ok: true; xp: number; level: number }>("claimLevelChallenge");
+export type ChallengeAction = "theme" | "oddsFormat" | "levelsViewed" | "avatarSaved" | "danced" | "tutorial";
+const recordChallengeActionRemote = callable<{ action: ChallengeAction }, { ok: true; xp?: number }>("recordChallengeAction");
+/** Fire-and-forget: things only the app sees that count toward a challenge. */
+export function reportChallengeAction(action: ChallengeAction) {
+  recordChallengeActionRemote({ action }).catch(() => {});
+}
 
 export const setAlertPrefs = callable<{ sweat?: boolean; quietHours?: boolean; tz?: string }, { ok: true }>("setAlertPrefs");
 
@@ -228,9 +260,12 @@ export const respondFriendRequest = callable<
 
 export const removeFriend = callable<{ otherUid: string }, { ok: true }>("removeFriend");
 
-export const listFriends = callable<Record<string, never>, { friends: PublicUser[] }>(
+const listFriendsRemote = callable<Record<string, never>, { friends: PublicUser[] }>(
   "listFriends"
 );
+/** Built on the device from friendships + public profiles; the callable is only the fallback. */
+export const listFriends = (args: Record<string, never>) =>
+  import("@/lib/onDevice").then((m) => m.listFriends()).catch(() => listFriendsRemote(args));
 
 // ── betting ────────────────────────────────────────────────────────────────
 export interface PlaceBetArgs {
@@ -372,8 +407,10 @@ export interface FriendLoan {
   owed: number;
   repaid: number;
   note: string | null;
-  status: "requested" | "offered" | "active" | "repaid" | "declined" | "cancelled";
+  status: "requested" | "offered" | "countered" | "active" | "repaid" | "declined" | "cancelled";
   createdBy: string;
+  lastTurnBy?: string;
+  lastTurnName?: string;
   createdAt: number;
 }
 
@@ -383,7 +420,17 @@ export const sendCredits = callable<
 >("sendCredits");
 export const requestFriendLoan = callable<{ toUid: string; amount: number; interestPct: number; note?: string }, { ok: true; loanId: string }>("requestFriendLoan");
 export const offerFriendLoan = callable<{ toUid: string; amount: number; interestPct: number; note?: string }, { ok: true; loanId: string }>("offerFriendLoan");
-export const respondFriendLoan = callable<{ loanId: string; accept: boolean }, { ok: true; status: string }>("respondFriendLoan");
+export const respondFriendLoan = callable<
+  {
+    loanId: string;
+    accept?: boolean;
+    action?: "accept" | "decline" | "cancel" | "counter" | "edit";
+    amount?: number;
+    interestPct?: number;
+    note?: string;
+  },
+  { ok: true; status: string }
+>("respondFriendLoan");
 export const repayFriendLoan = callable<
   { loanId: string; amount: number; idempotencyKey: string },
   { ok: true; duplicate: boolean; balance: number | null; status?: string }
@@ -445,7 +492,7 @@ export const getReferralCode = callable<Record<string, never>, ReferralSummary>(
 
 export const checkReferralCode = callable<
   { code: string },
-  { valid: false } | { valid: true; code: string; displayName: string; username: string | null; newUserCredits: number }
+  { valid: false } | { valid: true; code: string; uid?: string; displayName: string; username: string | null; newUserCredits: number }
 >("checkReferralCode");
 
 export const syncProgression = callable<
@@ -506,7 +553,8 @@ export const createLeague = callable<
 >("createLeague");
 export const submitBracket = callable<{ leagueId: string; picks: Record<string, string> }, { ok: true; picks: number }>("submitBracket");
 
-export const joinLeague = callable<{ code: string }, { ok: true; leagueId: string; duplicate: boolean }>(
+/** `league` is the league as it stands after the join (absent from servers deployed before it was added). */
+export const joinLeague = callable<{ code: string }, { ok: true; leagueId: string; duplicate: boolean; league?: League }>(
   "joinLeague"
 );
 
@@ -562,7 +610,7 @@ export const voidLeagueBet = callable<
 export const reactToItem = callable<
   {
     leagueId: string;
-    targetType: "message" | "messages" | "activity" | "bet" | "leagueBets";
+    targetType: "message" | "messages" | "activity" | "bet" | "leagueBets" | "loan" | "loans";
     targetId: string;
     emoji: ReactionEmoji;
   },
@@ -688,10 +736,10 @@ export const requestPeerLoan = callable<
   { ok: true; loanId: string; duplicate: boolean }
 >("requestPeerLoan");
 
-export type PeerLoanActionName = "fund" | "counter" | "decline" | "cancel" | "accept_counter" | "reject_counter";
+export type PeerLoanActionName = "fund" | "counter" | "edit" | "decline" | "cancel" | "accept_counter" | "reject_counter";
 
 export const peerLoanAction = callable<
-  { leagueId: string; loanId: string; action: PeerLoanActionName; rate?: number },
+  { leagueId: string; loanId: string; action: PeerLoanActionName; rate?: number; amount?: number; message?: string },
   { ok: true }
 >("peerLoanAction");
 

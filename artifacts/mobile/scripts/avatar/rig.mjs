@@ -1,5 +1,5 @@
 /**
- * SportDrip avatar rig — `sd_rig_v3`.
+ * On the House avatar rig — `sd_rig_v3`.
  *
  * The single contract every avatar asset is authored against. The base
  * character and every garment carry this exact skeleton (same bone names, same

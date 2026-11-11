@@ -61,7 +61,7 @@ export async function appleCredential(): Promise<AuthCredential> {
 export async function googleCredential(): Promise<AuthCredential> {
   if (isExpoGo) {
     throw new SignInUnavailable(
-      "Google sign-in needs the SportDrip dev build — Expo Go can't host Google's native sign-in. Run `npx expo run:ios`, or use Apple / email here."
+      "Google sign-in needs the On The House dev build — Expo Go can't host Google's native sign-in. Run `npx expo run:ios`, or use Apple / email here."
     );
   }
   if (!GOOGLE_IOS_CLIENT_ID || !GOOGLE_WEB_CLIENT_ID) {

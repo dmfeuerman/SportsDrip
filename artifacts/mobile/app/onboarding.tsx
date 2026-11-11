@@ -441,7 +441,7 @@ export default function OnboardingScreen() {
         <ScrollView contentContainerStyle={s.body}>
           <Text style={[s.title, { color: colors.foreground }]}>Bring Your Crew</Text>
           <Text style={[s.sub, { color: colors.mutedForeground }]}>
-            SportDrip is better with friends: leagues, head-to-heads and trash talk.
+            On The House is better with friends: leagues, head-to-heads and trash talk.
           </Text>
           {invite ? (
             <Hint colors={colors} tone={invite.state === "failed" ? "error" : "muted"}>

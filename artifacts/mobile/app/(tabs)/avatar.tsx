@@ -194,10 +194,10 @@ export default function LockerScreen() {
               icon="image-filter-hdr"
               size="sm"
               variant="secondary"
-              onPress={() => router.push({ pathname: "/shop", params: { tab: "backgrounds" } })}
+              onPress={() => router.push({ pathname: "/customize", params: { category: "scenes" } })}
             />
             </TourTarget>
-            <TourTarget id="locker.shop"><Button label="Drip Shop" icon="shopping-outline" size="sm" onPress={() => router.push("/shop")} /></TourTarget>
+            <TourTarget id="locker.shop"><Button label="Drip Shop" icon="shopping-outline" size="sm" onPress={() => router.push({ pathname: "/customize", params: { category: "hat" } })} /></TourTarget>
           </View>
         </View>
 
@@ -258,7 +258,7 @@ export default function LockerScreen() {
           </Pressable>
           <View style={styles.teamsHead}>
             <Text style={[styles.quickSub, { color: c.mutedForeground, flex: 1 }]}>Tap the dance button on your character to pick one.</Text>
-            <Button label="Get More" size="sm" variant="ghost" icon="cart-outline" onPress={() => router.push({ pathname: "/shop", params: { tab: "moves" } })} />
+            <Button label="Get More" size="sm" variant="ghost" icon="cart-outline" onPress={() => router.push({ pathname: "/customize", params: { category: "moves" } })} />
           </View>
         </Card>
 

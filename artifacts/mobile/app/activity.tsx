@@ -3,7 +3,7 @@ import { adAfterRow } from "@/constants/ads";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import GameQuickView from "@/components/GameQuickView";
@@ -66,7 +66,7 @@ export default function ActivityScreen() {
   const c = useColors();
   const bottom = useBottomPad(false);
   const now = useNow(60_000);
-  const { notifications, unreadCount, markAllRead, markRead, refresh } = useNotifications();
+  const { notifications, loaded, unreadCount, markAllRead, markRead, refresh } = useNotifications();
   const [refreshing, setRefreshing] = useState(false);
   const [breakdown, setBreakdown] = useState<BetBreakdownItem | null>(null);
   const [quickGame, setQuickGame] = useState<string | null>(null);
@@ -172,7 +172,16 @@ export default function ActivityScreen() {
             </>
           );
         }}
-        ListEmptyComponent={<EmptyState icon="bell-sleep-outline" title="All Quiet" body="Bet results, league payouts, loan updates and invites will show up here." />}
+        ListEmptyComponent={
+          // "All Quiet" only once the list has actually been read; before that it's still loading.
+          loaded ? (
+            <EmptyState icon="bell-sleep-outline" title="All Quiet" body="Bet results, league payouts, loan updates and invites will show up here." />
+          ) : (
+            <View style={{ paddingVertical: 48, alignItems: "center" }} accessibilityLabel="Loading activity">
+              <ActivityIndicator color={c.mutedForeground} />
+            </View>
+          )
+        }
       />
       <BetBreakdownModal
         item={breakdown}

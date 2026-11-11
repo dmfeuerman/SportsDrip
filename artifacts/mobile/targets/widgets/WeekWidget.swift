@@ -43,7 +43,7 @@ private struct WeekView: View {
       }
       .containerBackground(.fill.tertiary, for: .widget)
     } else {
-      Text("Open SportDrip to set up").font(.caption).containerBackground(.fill.tertiary, for: .widget)
+      Text("Open On The House to set up").font(.caption).containerBackground(.fill.tertiary, for: .widget)
     }
   }
 }

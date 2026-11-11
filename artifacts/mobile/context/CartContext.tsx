@@ -15,6 +15,8 @@ import type { AvatarConfig, Equipped } from "@/types/avatar";
 export interface CartDraft {
   avatar: AvatarConfig;
   equipped: Equipped;
+  /** The saved character this draft was built on; if it's since changed, the draft's features are stale. */
+  from?: AvatarConfig;
 }
 
 /** Where checkout was opened from — decides where "Continue shopping" goes. */

@@ -133,6 +133,8 @@ interface AppContextType {
   needsOnboarding: boolean;
   balance: number;
   bets: Bet[];
+  /** False until the bets have been read once this session (cache or server): don't say "no bets" before then. */
+  betsLoaded: boolean;
   inventory: string[];
   /** False until the inventory has been read at least once this session (cache or server). */
   inventoryLoaded: boolean;
@@ -243,6 +245,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
   const [serverBets, setBets] = useState<Bet[]>(DEMO ? demoBets : []);
   const [serverInventory, setInventory] = useState<string[]>(DEMO ? demoInventory : []);
   const [inventoryLoaded, setInventoryLoaded] = useState(DEMO);
+  const [betsLoaded, setBetsLoaded] = useState(DEMO);
   const [trophies, setTrophies] = useState<TrophyItem[]>([]);
   const [serverMoves, setBoughtMoves] = useState<string[]>([]);
   const [serverBackgrounds, setBoughtBackgrounds] = useState<string[]>(DEMO ? ["night_stadium"] : []);
@@ -425,6 +428,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           .sort((a, b) => (toMillis(b.placedAt) ?? 0) - (toMillis(a.placedAt) ?? 0))
           .slice(0, 200)
       );
+      setBetsLoaded(true);
     };
     unsubs.push(
       onSnapshot(
@@ -434,7 +438,10 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           pendingLoaded = true;
           publishBets();
         },
-        (err) => setError(api.friendlyError(err))
+        (err) => {
+          setError(api.friendlyError(err));
+          setBetsLoaded(true);
+        }
       )
     );
     unsubs.push(
@@ -927,8 +934,10 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           const drop = overlay({ avatar, equipped });
           enqueue(() => api.saveAppearance({ avatar, equipped: full })).then(
             (res) => {
-              setProfile((p) => (p ? { ...p, avatar: res.avatar, equipped: res.equipped } : p));
-              settle(drop);
+              // Keep showing the saved look until a Firestore snapshot agrees; writing the callable's
+              // result into serverProfile let an older in-flight snapshot overwrite it with the previous look.
+              drop();
+              settle(overlay({ avatar: res.avatar, equipped: res.equipped }));
             },
             (err) => {
               drop();
@@ -971,6 +980,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       needsOnboarding: signedIn && profileLoaded && profile === null,
       balance: profile?.balance ?? 0,
       bets,
+      betsLoaded: betsLoaded || !signedIn,
       inventory,
       inventoryLoaded,
       trophies,
@@ -1008,6 +1018,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       profile,
       signedIn,
       bets,
+      betsLoaded,
       inventory,
       inventoryLoaded,
       trophies,
