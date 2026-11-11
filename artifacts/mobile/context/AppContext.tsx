@@ -178,7 +178,8 @@ interface AppContextType {
   /** Moves today's free bet to a new pick (cancels the old one before kickoff, places the new). */
   switchFreeBet: (oldBetId: string, args: FreeBetArgs) => Promise<boolean>;
   /** Instant: owned and charged in the app now, confirmed by the server after (rolled back if it refuses). */
-  purchaseItem: (itemId: string, price: number) => Promise<boolean>;
+  /** `confirmed`: wait for the server, false (and rolled back) if the purchase didn't go through. */
+  purchaseItem: (itemId: string, price: number, confirmed?: boolean) => Promise<boolean>;
   equip: (slot: Slot, itemId: string | null) => Promise<boolean>;
   purchaseMove: (moveId: string) => Promise<boolean>;
   setLoadout: (moves: string[]) => Promise<boolean>;
@@ -658,7 +659,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
   cancelBetRef.current = cancelBet;
 
   const purchaseItem = useCallback(
-    (itemId: string, price: number) =>
+    (itemId: string, price: number, confirmed = false) =>
       guard(
         `buy:${itemId}`,
         async () => {
@@ -677,15 +678,19 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
           recordXpReason("Bought from the Drip Shop", "shopping-outline");
           patchOpt((o) => ({ ...o, items: { ...o.items, [itemId]: price } }));
           const key = api.newIdempotencyKey();
-          enqueue(() => api.purchaseItem({ itemId, idempotencyKey: key })).catch((err) => {
-            patchOpt((o) => {
-              const next = { ...o.items };
-              delete next[itemId];
-              return { ...o, items: next };
-            });
-            failed(err);
-          });
-          return true;
+          const sent = enqueue(() => api.purchaseItem({ itemId, idempotencyKey: key })).then(
+            () => true,
+            (err) => {
+              patchOpt((o) => {
+                const next = { ...o.items };
+                delete next[itemId];
+                return { ...o, items: next };
+              });
+              failed(err);
+              return false;
+            }
+          );
+          return confirmed ? await sent : true;
         },
         false
       ),

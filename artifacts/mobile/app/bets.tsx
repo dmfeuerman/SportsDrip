@@ -4,6 +4,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useUnseenCount } from "@/lib/settings";
 import React, { useMemo, useState } from "react";
 import ParlayTicket from "@/components/ParlayTicket";
+import ChallengeCard from "@/components/ChallengeCard";
+import { useNow } from "@/hooks/useNow";
 import { useMyParlays } from "@/hooks/useMyParlays";
 import { useToast } from "@/context/ToastContext";
 import * as api from "@/lib/api";
@@ -13,7 +15,7 @@ import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import GameQuickView from "@/components/GameQuickView";
 import { ActionChip, Amount, EmptyState, FilterPills, LoadingState, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
-import { useChallenges } from "@/context/ChallengeContext";
+import { useChallenges, viewOf } from "@/context/ChallengeContext";
 import { useLeague } from "@/context/LeagueContext";
 import { useColors } from "@/hooks/useColors";
 import { useGames } from "@/hooks/useGames";
@@ -42,7 +44,14 @@ export default function MyBetsScreen() {
   const [cancelledParlays, setCancelledParlays] = useState<Record<string, boolean>>({});
   const [quickGame, setQuickGame] = useState<string | null>(null);
   const [breakdown, setBreakdown] = useState<BetBreakdownItem | null>(null);
-  const { incoming: chIn, outgoing: chOut, live: chLive, escrowed } = useChallenges();
+  const { uid: chUid, incoming: chIn, outgoing: chOut, live: chLive, history: chHistory, escrowed, respond: respondChallenge, cancel: cancelChallenge } = useChallenges();
+  const now = useNow(30_000);
+  // Friend challenges are credit bets too: open ones (waiting on you, waiting on them, locked in) under Open, the rest under Settled.
+  const challengeViews = useMemo(() => {
+    if (!chUid || (wallet !== "all" && wallet !== "credits")) return [];
+    const list = tab === "open" ? [...chIn, ...chOut, ...chLive] : chHistory.slice(0, 30);
+    return list.map((ch) => viewOf(ch, chUid));
+  }, [chUid, wallet, tab, chIn, chOut, chLive, chHistory]);
   const openChallenges = chIn.length + chOut.length + chLive.length;
 
   const rows: Row[] = useMemo(() => {
@@ -177,6 +186,19 @@ export default function MyBetsScreen() {
         ListHeaderComponent={
           wallet === "all" || wallet === "credits" ? (
             <View style={{ gap: 10, marginBottom: 10 }}>
+              {challengeViews.map((v) => (
+                <ChallengeCard
+                  key={`ch_${v.ch.id}`}
+                  view={v}
+                  game={gameById.get(v.ch.gameId) ?? null}
+                  now={now}
+                  onOpen={() => setQuickGame(v.ch.gameId)}
+                  // Accepting locks credits in a pot: confirm it on the Challenges screen.
+                  onAccept={() => router.push({ pathname: "/challenges", params: { tab: "inbox" } })}
+                  onDecline={() => void respondChallenge(v.ch.id, false)}
+                  onCancel={() => void cancelChallenge(v.ch.id)}
+                />
+              ))}
               {parlays
                 .filter((p) => (tab === "open" ? p.status === "pending" && !cancelledParlays[p.id] : p.status !== "pending"))
                 .map((p) => (
@@ -200,7 +222,7 @@ export default function MyBetsScreen() {
           ) : undefined
         }
         ListEmptyComponent={
-          parlays.some((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending")) && (wallet === "all" || wallet === "credits") ? undefined : !betsLoaded ? (
+          (challengeViews.length > 0 || parlays.some((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending"))) && (wallet === "all" || wallet === "credits") ? undefined : !betsLoaded ? (
           <LoadingState label="Loading your bets…" />
           ) : (
           <EmptyState

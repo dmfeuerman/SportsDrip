@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.finalizeLeague = finalizeLeague;
 exports.payoutLeague = payoutLeague;
+exports.cancelUnstartedLeague = cancelUnstartedLeague;
 const https_1 = require("firebase-functions/v2/https");
 const wrapped_1 = require("./wrapped");
 const firebase_functions_1 = require("firebase-functions");
@@ -212,5 +213,70 @@ async function payoutLeague(leagueId) {
         }
     }
     return paid;
+}
+/**
+ * A league whose start time arrives with fewer than MIN_LEAGUE_PLAYERS (nobody
+ * accepted the invite) is cancelled: the remaining members get their buy-ins
+ * back and it closes. Leagues that ever had a bet placed are left alone.
+ * Returns true when it cancelled the league.
+ */
+async function cancelUnstartedLeague(leagueId, now, minPlayers) {
+    const ref = economy_1.db.collection("leagues").doc(leagueId);
+    const anyBet = await ref.collection("leagueBets").limit(1).get();
+    if (!anyBet.empty)
+        return false;
+    return economy_1.db.runTransaction(async (tx) => {
+        const league = await tx.get(ref);
+        if (!league.exists || league.get("status") !== "active" || league.get("scheduledStart") !== true)
+            return false;
+        const startsAt = (league.get("startsAt") ?? league.get("createdAt") ?? 0);
+        const memberIds = league.get("memberIds") ?? [];
+        if (startsAt > now || memberIds.length >= minPlayers)
+            return false;
+        const buyIn = league.get("buyIn") ?? 0;
+        const leagueName = league.get("name") ?? "Your league";
+        for (const uid of memberIds) {
+            if (buyIn > 0) {
+                await (0, economy_1.applyCredits)(tx, uid, {
+                    delta: buyIn,
+                    type: "league_refund",
+                    idempotencyKey: `league_cancel_refund_${leagueId}_${uid}`,
+                    ref: leagueId,
+                    note: `${leagueName} cancelled`,
+                });
+            }
+            (0, notify_1.writeNotification)(tx, uid, (0, notifyModel_1.simpleNotification)({
+                id: `cancelled_${leagueId}`,
+                type: "league_ended",
+                title: `${leagueName} was cancelled`,
+                body: `Nobody accepted the invite before it started${buyIn > 0 ? `, so your ${buyIn.toLocaleString("en-US")}-credit buy-in is back` : ""}.`,
+                leagueId,
+                leagueName,
+                now,
+                popup: true,
+            }));
+        }
+        tx.update(ref, {
+            status: "ended",
+            cancelled: true,
+            cancelReason: "no_players",
+            endedAt: now,
+            pot: 0,
+            payoutStatus: "none",
+            results: [],
+            lastActivityAt: now,
+        });
+        tx.set(ref.collection("activity").doc(`cancelled_${now}`), {
+            type: "cancelled",
+            uid: "",
+            name: "",
+            text: "Cancelled: nobody joined before the start date",
+            amount: 0,
+            reactions: {},
+            reactors: {},
+            at: now,
+        });
+        return true;
+    });
 }
 //# sourceMappingURL=leagueLifecycle.js.map

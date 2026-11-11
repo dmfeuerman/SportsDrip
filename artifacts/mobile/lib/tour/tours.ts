@@ -278,7 +278,27 @@ export const SHOP_TOUR: Tour = {
   steps: [
     { route: "/customize", target: "shop.filters", title: "Browse", body: "Pick a tab: hats, tops, shoes, plus Moves and Scenes." },
     { route: "/customize", target: "shop.list", title: "Try it on", body: "Tap any item to try it on your character. Anything you don't own goes in your cart." },
-    { route: "/customize", target: "shop.cart", title: "Check out", body: "Open your cart and press Checkout to buy everything at once. You wear it straight away." },
+    {
+      route: "/customize",
+      target: "shop.filters",
+      press: true,
+      pressLabel: "Swipe and tap Moves",
+      title: "Dances",
+      body: "Swipe the tabs over and tap Moves.",
+      advanceOn: "shop:moves",
+    },
+    { route: "/customize", target: "shop.list", title: "Watch it first", body: "Tap any dance and your character does it on the stage, before you buy. Owned moves go on your dance button with Equip." },
+    {
+      route: "/customize",
+      target: "shop.filters",
+      press: true,
+      pressLabel: "Tap Scenes",
+      title: "Scenes",
+      body: "Now tap Scenes, next to Moves.",
+      advanceOn: "shop:scenes",
+    },
+    { route: "/customize", target: "shop.list", title: "See it behind you", body: "Tap any scene to see it behind your character. Buy it, then press Use to put it behind you on Home." },
+    { route: "/customize", target: "shop.cart", title: "Check out", body: "Tap + to add what you're trying on to your cart, then tap the cart to buy everything at once. You wear it straight away." },
   ],
 };
 

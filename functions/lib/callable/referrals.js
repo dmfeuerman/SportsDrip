@@ -73,6 +73,7 @@ exports.checkReferralCode = (0, https_1.onCall)({ region: "us-central1" }, async
     return {
         valid: true,
         code,
+        uid: owner,
         displayName: user.get("displayName") ?? "A player",
         username: user.get("username") ?? null,
         newUserCredits: progression_1.REFERRAL.newUserCredits,

@@ -120,12 +120,12 @@ export function activeStreakCount(
 
 /**
  * Small streak bonus added to a prize box claim.
- * Capped at 7 days (+35 bronze, +70 silver, +105 gold) so store prices stay
+ * Capped at 7 days (+350 bronze, +700 silver, +1,050 gold) so store prices stay
  * out of reach of box openings.
  */
 export function streakBonusFor(tier: BoxTier, streakDays: number): number {
   if (streakDays < 1) return 0;
   const capped = Math.min(streakDays, 7);
-  const perDay = tier === "gold" ? 15 : tier === "silver" ? 10 : 5;
+  const perDay = tier === "gold" ? 150 : tier === "silver" ? 100 : 50;
   return capped * perDay;
 }

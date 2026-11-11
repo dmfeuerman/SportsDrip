@@ -16,13 +16,13 @@ import { accountAgeOk } from "./gifts";
  * FRIEND_DAILY_SEND_CAP a day across transfers and loan fundings.
  *
  *   friendLoans/{id}  lenderUid, borrowerUid, amount, interestPct (flat, one-time),
- *                     owed, repaid, status: requested | offered | active | repaid | declined | cancelled
+ *                     owed, repaid, status: requested | offered | countered | active | repaid | declined | cancelled
  *
  * Every action also drops a card into the pair's DM thread.
  */
 export const FRIEND_SEND_MIN = 10;
 export const FRIEND_SEND_MAX = 5_000;
-export const FRIEND_DAILY_SEND_CAP = 10_000;
+export const FRIEND_DAILY_SEND_CAP = 100_000;
 export const FRIEND_LOAN_RATES = [0, 5, 10, 20] as const;
 /** Sending credits (transfers, offering or funding a loan) unlocks at this level. */
 export const FRIEND_SEND_LEVEL = 5;
@@ -135,20 +135,20 @@ export const sendCredits = onCall({ region: "us-central1" }, async (req) => {
 
 /* ── loans ─────────────────────────────────────────────────────────────── */
 
-const Rate = z.number().int().refine((n) => (FRIEND_LOAN_RATES as readonly number[]).includes(n), "Pick a listed rate.");
+const Rate = z.number().min(0).max(50);
 
 /** Ask a friend to lend you credits (`toUid` is the lender). */
 export const requestFriendLoan = onCall({ region: "us-central1" }, async (req) => {
   const me = requireAuth(req.auth);
   const { toUid, amount, interestPct, note } = z.object({ toUid: z.string().min(1), amount: Amount, interestPct: Rate, note: Note }).parse(req.data);
-  return createLoan(me, toUid, { lender: toUid, borrower: me, amount, interestPct, note: note ?? null, status: "requested" });
+  return createLoan(me, toUid, { lender: toUid, borrower: me, amount, interestPct: Math.round(interestPct * 10) / 10, note: note ?? null, status: "requested" });
 });
 
 /** Offer to lend a friend credits (`toUid` is the borrower). Nothing moves until they accept. */
 export const offerFriendLoan = onCall({ region: "us-central1" }, async (req) => {
   const me = requireAuth(req.auth);
   const { toUid, amount, interestPct, note } = z.object({ toUid: z.string().min(1), amount: Amount, interestPct: Rate, note: Note }).parse(req.data);
-  return createLoan(me, toUid, { lender: me, borrower: toUid, amount, interestPct, note: note ?? null, status: "offered" });
+  return createLoan(me, toUid, { lender: me, borrower: toUid, amount, interestPct: Math.round(interestPct * 10) / 10, note: note ?? null, status: "offered" });
 });
 
 async function createLoan(me: string, other: string, l: { lender: string; borrower: string; amount: number; interestPct: number; note: string | null; status: "requested" | "offered" }) {
@@ -158,7 +158,7 @@ async function createLoan(me: string, other: string, l: { lender: string; borrow
     const { meSnap, otherSnap } = await friendPair(tx, me, other);
     if (l.lender === me) assertSenderLevel(meSnap);
     const open = await tx.get(
-      db.collection("friendLoans").where("pair", "==", pairId(me, other)).where("status", "in", ["requested", "offered", "active"]).limit(5)
+      db.collection("friendLoans").where("pair", "==", pairId(me, other)).where("status", "in", ["requested", "offered", "countered", "active"]).limit(5)
     );
     if (open.size >= 3) throw new HttpsError("failed-precondition", "You already have 3 open loans with this friend.");
     const owed = loanOwed(l.amount, l.interestPct);
@@ -178,6 +178,8 @@ async function createLoan(me: string, other: string, l: { lender: string; borrow
       note: l.note,
       status: l.status,
       createdBy: me,
+      lastTurnBy: me,
+      lastTurnName: myName,
       createdAt: now,
       updatedAt: now,
     });
@@ -200,12 +202,26 @@ async function createLoan(me: string, other: string, l: { lender: string; borrow
 }
 
 /**
- * Answer a loan. The other party accepts or declines; the creator can cancel
- * (accept: false) while it's still pending. Accepting funds it: lender → borrower.
+ * Answer, counter, or edit a friend loan inside chat:
+ *  - `accept: true` (or `action: "accept"`): the party who didn't propose the latest turn accepts & funds it.
+ *  - `accept: false` (or `action: "decline"` / `"cancel"`): declines or cancels the pending loan.
+ *  - `action: "counter"` / `"edit"`: updates the rate, amount, and/or note and hands the turn to the other party
+ *    (or edits your own pending proposal).
  */
 export const respondFriendLoan = onCall({ region: "us-central1" }, async (req) => {
   const me = requireAuth(req.auth);
-  const { loanId, accept } = z.object({ loanId: z.string().min(1), accept: z.boolean() }).parse(req.data);
+  const parsed = z
+    .object({
+      loanId: z.string().min(1),
+      accept: z.boolean().optional(),
+      action: z.enum(["accept", "decline", "cancel", "counter", "edit"]).optional(),
+      amount: Amount.optional(),
+      interestPct: Rate.optional(),
+      note: Note,
+    })
+    .parse(req.data);
+
+  const loanId = parsed.loanId;
   const ref = db.collection("friendLoans").doc(loanId);
   return db.runTransaction(async (tx) => {
     const now = Date.now();
@@ -215,24 +231,82 @@ export const respondFriendLoan = onCall({ region: "us-central1" }, async (req) =
     const lender = loan.get("lenderUid") as string;
     const borrower = loan.get("borrowerUid") as string;
     const creator = loan.get("createdBy") as string;
+    const lastTurnBy = (loan.get("lastTurnBy") as string | undefined) ?? creator;
     if (me !== lender && me !== borrower) throw new HttpsError("permission-denied", "Not your loan.");
-    if (status !== "requested" && status !== "offered") throw new HttpsError("failed-precondition", "This loan was already answered.");
+    if (status !== "requested" && status !== "offered" && status !== "countered") {
+      throw new HttpsError("failed-precondition", "This loan was already answered.");
+    }
     const other = me === lender ? borrower : lender;
     const { meSnap, otherSnap } = await friendPair(tx, me, other);
-    const amount = loan.get("amount") as number;
-    const owed = loan.get("owed") as number;
+    const curAmount = loan.get("amount") as number;
+    const curRate = loan.get("interestPct") as number;
     const myName = name(meSnap);
+    const otherName = name(otherSnap);
 
-    if (me === creator) {
-      if (accept) throw new HttpsError("failed-precondition", "Waiting on your friend to answer.");
+    const act = parsed.action ?? (parsed.accept === true ? "accept" : "decline");
+
+    if (act === "counter" || act === "edit") {
+      const nextAmount = parsed.amount ?? curAmount;
+      const nextRate = parsed.interestPct !== undefined ? Math.round(parsed.interestPct * 10) / 10 : curRate;
+      const nextOwed = loanOwed(nextAmount, nextRate);
+      const nextNote = parsed.note !== undefined ? parsed.note || null : (loan.get("note") as string | null) ?? null;
+      if (me === lender) assertSenderLevel(meSnap);
+      const isCounter = me !== lastTurnBy;
+      const nextStatus = isCounter ? "countered" : status;
+      tx.update(ref, {
+        amount: nextAmount,
+        interestPct: nextRate,
+        owed: nextOwed,
+        note: nextNote,
+        status: nextStatus,
+        lastTurnBy: me,
+        lastTurnName: myName,
+        updatedAt: now,
+      });
+      const verb = isCounter ? "Countered loan terms" : "Updated loan terms";
+      writeDm(tx, {
+        id: `loan_${loanId}_turn_${now.toString(36)}`,
+        from: me,
+        fromName: myName,
+        to: other,
+        toName: otherName,
+        kind: "loan",
+        text: `${verb}: ${fmt(nextAmount)} credits at ${nextRate}% flat (pay back ${fmt(nextOwed)})${nextNote ? ` — "${nextNote}"` : ""}`,
+        now,
+        extra: { loanId, amount: nextAmount },
+      });
+      writeNotification(
+        tx,
+        other,
+        simpleNotification({
+          id: `floan_${loanId}_turn_${now.toString(36)}`,
+          type: "loan_countered",
+          title: isCounter ? `${myName} countered your loan` : `${myName} updated the loan terms`,
+          body: `${fmt(nextAmount)} credits at ${nextRate}% flat (pay back ${fmt(nextOwed)}).`,
+          now,
+          data: { fromUid: me, fromName: myName, loanId },
+        })
+      );
+      return { ok: true, status: nextStatus };
+    }
+
+    if (act === "cancel" || (act === "decline" && me === lastTurnBy && me === creator && status !== "countered")) {
       tx.update(ref, { status: "cancelled", updatedAt: now });
       return { ok: true, status: "cancelled" };
     }
-    if (!accept) {
+    if (act === "decline") {
       tx.update(ref, { status: "declined", updatedAt: now });
-      writeDm(tx, { id: `loan_${loanId}_declined`, from: me, fromName: myName, to: other, toName: name(otherSnap), kind: "loan", text: `Declined the ${fmt(amount)} loan`, now, extra: { loanId, amount } });
+      writeDm(tx, { id: `loan_${loanId}_declined`, from: me, fromName: myName, to: other, toName: otherName, kind: "loan", text: `Declined the ${fmt(curAmount)} loan`, now, extra: { loanId, amount: curAmount } });
       return { ok: true, status: "declined" };
     }
+
+    // Accepting: must be the party responding to the latest turn
+    if (me === lastTurnBy) {
+      throw new HttpsError("failed-precondition", "Waiting on your friend to answer your latest offer.");
+    }
+
+    const amount = curAmount;
+    const owed = loan.get("owed") as number;
 
     // Funding is a send from the lender: same age gate and daily cap as transfers.
     const lenderSnap = me === lender ? meSnap : otherSnap;
@@ -245,7 +319,7 @@ export const respondFriendLoan = onCall({ region: "us-central1" }, async (req) =
     const borrowerBal = bal[borrower] ?? null;
     book();
     tx.update(ref, { status: "active", fundedAt: now, updatedAt: now });
-    writeDm(tx, { id: `loan_${loanId}_funded`, from: me, fromName: myName, to: other, toName: name(otherSnap), kind: "loan", text: `Loan accepted: ${fmt(amount)} sent, ${fmt(owed)} to pay back`, now, extra: { loanId, amount } });
+    writeDm(tx, { id: `loan_${loanId}_funded`, from: me, fromName: myName, to: other, toName: otherName, kind: "loan", text: `Loan accepted: ${fmt(amount)} sent, ${fmt(owed)} to pay back`, now, extra: { loanId, amount } });
     writeNotification(
       tx,
       other,

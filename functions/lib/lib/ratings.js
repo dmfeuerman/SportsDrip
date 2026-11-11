@@ -121,7 +121,7 @@ async function withModelPrices(games) {
             homeTeam: { ...g.homeTeam, odds: m.home },
             awayTeam: { ...g.awayTeam, odds: m.away },
             priced: true,
-            oddsProvider: "SportDrip Model",
+            oddsProvider: "On The House Model",
             oddsSource: "model",
             model: { pHome: m.pHome, confidence: m.confidence, version: oddsModel_1.MODEL_VERSION, pricedAt: Date.now() },
         };

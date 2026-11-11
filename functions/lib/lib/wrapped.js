@@ -121,7 +121,7 @@ async function generateYearWrapped(uid, year, now = Date.now()) {
     const w = buildWrapped({
         uid,
         periodId: `year-${year}`,
-        title: `${year} on SportDrip`,
+        title: `${year} on On The House`,
         bets: [...global.docs, ...league.docs].map(settled),
         rivalries: rivs,
         streakBest: user.get("streak.longest") ?? 0,

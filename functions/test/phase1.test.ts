@@ -24,7 +24,7 @@ async function league(owner: string, over: Record<string, unknown> = {}) {
   return call<{ leagueId: string; code: string }>(createLeague, owner, {
     idempotencyKey: key(),
     name: "Office",
-    startingLeagueTokens: 1000,
+    startingLeagueTokens: 10_000,
     duration: "1 Month",
     sports: ["NBA", "NFL"],
     buyIn: 0,

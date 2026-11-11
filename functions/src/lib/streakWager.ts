@@ -6,7 +6,7 @@ import { activeStreakCount, nyDay, type StreakState } from "./streak";
  * One at a time, small fixed stakes, so it can't become a way to print credits.
  */
 export const WAGER_DAYS = 7;
-export const WAGER_STAKES = [50, 100, 250] as const;
+export const WAGER_STAKES = [500, 1000, 2500] as const;
 export const WAGER_MULTIPLIER = 2;
 
 export interface StreakWager {

@@ -331,6 +331,9 @@ export const createLeague = onCall({ region: "us-central1" }, async (req) => {
       stimulus: null,
       createdAt: now,
       startsAt,
+      // A picked start date: if nobody has joined by then, the league is cancelled (leagueSweep).
+      // "Start now" leagues have no date to miss; they wait for the second player instead.
+      scheduledStart: !input.startNow && startsAt > now,
       endsAt,
       duration: input.duration,
       durationWeeks: weeksBetween(startsAt, endsAt),
@@ -388,10 +391,15 @@ export const joinLeague = onCall({ region: "us-central1" }, async (req) => {
     const league = await tx.get(leagueRef(leagueId));
     const now = Date.now();
 
-    if (member(league, uid)) return { ok: true, leagueId, duplicate: true };
+    // The reply carries the league as it stands after this join, so the app can
+    // show it at once instead of waiting for its listener to notice the membership.
+    if (member(league, uid)) return { ok: true, leagueId, duplicate: true, league: { ...league.data(), id: leagueId } };
     requireActiveLeague(league, now);
     if (leagueStarted(league, now)) {
       throw new HttpsError("failed-precondition", "This league has already started, so new players can't join.");
+    }
+    if (league.get("scheduledStart") === true && leagueStartsAt(league) <= now) {
+      throw new HttpsError("failed-precondition", "This league was cancelled: nobody joined before its start date.");
     }
 
     const former = (league.get("formerMemberIds") as string[] | undefined) ?? [];
@@ -419,36 +427,47 @@ export const joinLeague = onCall({ region: "us-central1" }, async (req) => {
     const color = MEMBER_COLORS.find((c) => !used.has(c)) ?? MEMBER_COLORS[memberIds.length % MEMBER_COLORS.length]!;
     const start = league.get("startingLeagueTokens") as number;
 
+    const me: MemberDoc = {
+      uid,
+      displayName: name,
+      avatarColor: color,
+      leagueTokens: start,
+      startingLeagueTokens: start,
+      joinedAt: now,
+      betsWon: 0,
+      betsLost: 0,
+      betsPush: 0,
+      locksWon: 0,
+      locksLost: 0,
+      locksPush: 0,
+      lastLockWeek: null,
+      pickPoints: 0,
+      eliminated: false,
+      eliminatedAt: null,
+      eliminatedWeek: null,
+      usedTeams: [],
+      h2h: { w: 0, l: 0, t: 0 },
+    };
+    // The second player into a league whose start time has passed starts it now, with its full season.
+    const restart = memberIds.length + 1 >= MIN_LEAGUE_PLAYERS && leagueStartsAt(league) <= now ? restartSeason(league, now) : {};
     tx.update(leagueRef(leagueId), {
-      [`members.${uid}`]: {
-        uid,
-        displayName: name,
-        avatarColor: color,
-        leagueTokens: start,
-        startingLeagueTokens: start,
-        joinedAt: now,
-        betsWon: 0,
-        betsLost: 0,
-        betsPush: 0,
-        locksWon: 0,
-        locksLost: 0,
-        locksPush: 0,
-        lastLockWeek: null,
-        pickPoints: 0,
-        eliminated: false,
-        eliminatedAt: null,
-        eliminatedWeek: null,
-        usedTeams: [],
-        h2h: { w: 0, l: 0, t: 0 },
-      } satisfies MemberDoc,
+      [`members.${uid}`]: me,
       memberIds: FieldValue.arrayUnion(uid),
       pot: FieldValue.increment(buyIn),
       lastActivityAt: now,
-      // The second player into a league whose start time has passed starts it now, with its full season.
-      ...(memberIds.length + 1 >= MIN_LEAGUE_PLAYERS && leagueStartsAt(league) <= now ? restartSeason(league, now) : {}),
+      ...restart,
     });
+    const joined = {
+      ...league.data(),
+      ...restart,
+      id: leagueId,
+      members: { ...((league.get("members") as Record<string, MemberDoc>) ?? {}), [uid]: me },
+      memberIds: [...memberIds, uid],
+      pot: ((league.get("pot") as number | undefined) ?? 0) + buyIn,
+      lastActivityAt: now,
+    };
     activity(tx, leagueId, `join_${uid}`, { type: "joined", uid, name, text: `${name} joined` });
-    return { ok: true, leagueId, duplicate: false };
+    return { ok: true, leagueId, duplicate: false, league: joined };
   });
 });
 
@@ -1020,7 +1039,7 @@ const LeagueBetInput = z
     side: z.enum(["home", "away"]).optional(),
     market: z.enum(["ml", "spread", "total"]).optional(),
     selection: z.enum(["home", "away", "over", "under"]).optional(),
-    stake: Money(MIN_LEAGUE_STAKE, 10_000_000),
+    stake: Money(MIN_LEAGUE_STAKE, 100_000_000),
     idempotencyKey: Key,
     expectedOdds: z.number().positive().max(100).optional(),
     expectedLine: z.number().finite().optional(),
@@ -1380,7 +1399,7 @@ function requireNoLossCooldown(league: FirebaseFirestore.DocumentSnapshot, uid: 
 export const takeBankLoan = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
   const input = z
-    .object({ leagueId: z.string().min(1), amount: Money(10, 10_000_000), idempotencyKey: Key })
+    .object({ leagueId: z.string().min(1), amount: Money(10, 100_000_000), idempotencyKey: Key })
     .parse(req.data);
   const ref = leagueRef(input.leagueId);
   const loanRef = ref.collection("loans").doc(`bank_${uid}_${input.idempotencyKey}`);
@@ -1446,7 +1465,7 @@ export const repayLoan = onCall({ region: "us-central1" }, async (req) => {
     .object({
       leagueId: z.string().min(1),
       loanId: z.string().min(1),
-      amount: Money(1, 100_000_000),
+      amount: Money(1, 1_000_000_000),
       idempotencyKey: Key,
     })
     .parse(req.data);
@@ -1544,7 +1563,7 @@ export const requestPeerLoan = onCall({ region: "us-central1" }, async (req) => 
   const input = z
     .object({
       leagueId: z.string().min(1),
-      amount: Money(10, 10_000_000),
+      amount: Money(10, 100_000_000),
       rate: z.number().gt(0).max(PEER_RATE_MAX),
       message: z.string().trim().max(80).optional(),
       idempotencyKey: Key,
@@ -1603,6 +1622,18 @@ export const requestPeerLoan = onCall({ region: "us-central1" }, async (req) => 
       amount: input.amount,
       text: `${me.displayName} asked to borrow ${input.amount.toLocaleString("en-US")} at ${rate}%`,
     });
+    tx.set(ref.collection("messages").doc(`loan_${loanRef.id}`), {
+      uid,
+      name: me.displayName,
+      kind: "loan",
+      loanId: loanRef.id,
+      amount: input.amount,
+      rate,
+      text: `${me.displayName} asked to borrow ${input.amount.toLocaleString("en-US")} at ${rate}% flat${input.message ? `: "${input.message}"` : ""}`,
+      at: now,
+      reactions: {},
+      reactors: {},
+    });
 
     const leagueName = league.get("name") as string;
     for (const memberId of (league.get("memberIds") as string[]) ?? []) {
@@ -1632,8 +1663,10 @@ export const peerLoanAction = onCall({ region: "us-central1" }, async (req) => {
     .object({
       leagueId: z.string().min(1),
       loanId: z.string().min(1),
-      action: z.enum(["fund", "counter", "decline", "cancel", "accept_counter", "reject_counter"]),
+      action: z.enum(["fund", "counter", "decline", "cancel", "accept_counter", "reject_counter", "edit"]),
       rate: z.number().gt(0).max(PEER_RATE_MAX).optional(),
+      amount: Money(10, 100_000_000).optional(),
+      message: z.string().trim().max(80).optional(),
     })
     .parse(req.data);
   const ref = leagueRef(input.leagueId);
@@ -1653,37 +1686,38 @@ export const peerLoanAction = onCall({ region: "us-central1" }, async (req) => {
     const amount = loan.get("principal") as number;
     const interval = (league.get("bankInterestIntervalHours") as number) ?? 24;
     const leagueName = league.get("name") as string;
+    const maxAllowed = Math.floor((league.get("startingLeagueTokens") as number) * PEER_LOAN_MAX_PCT);
 
-    const fund = (lenderId: string, rate: number) => {
+    const fund = (lenderId: string, rate: number, fundAmount = amount) => {
       const lender = member(league, lenderId);
       if (!lender) throw new HttpsError("failed-precondition", "The lender has left the league.");
       if (!borrower) throw new HttpsError("failed-precondition", "The borrower has left the league.");
-      if (lender.leagueTokens < amount) {
-        throw new HttpsError("failed-precondition", `${lenderId === uid ? "You don't" : `${lender.displayName} doesn't`} have ${amount.toLocaleString("en-US")} league tokens to lend.`);
+      if (lender.leagueTokens < fundAmount) {
+        throw new HttpsError("failed-precondition", `${lenderId === uid ? "You don't" : `${lender.displayName} doesn't`} have ${fundAmount.toLocaleString("en-US")} league tokens to lend.`);
       }
-      const isBailout = borrower.leagueTokens < 100;
+      const isBailout = borrower.leagueTokens < 1000;
       tx.update(loanRef, {
         status: "active",
         lenderId,
         lenderName: lender.displayName,
         bailout: isBailout,
-        ...newLoanTerms(amount, rate, interval, now),
+        ...newLoanTerms(fundAmount, rate, interval, now),
         fundedAt: now,
         updatedAt: now,
       });
       tx.update(ref, {
-        [`members.${lenderId}.leagueTokens`]: lender.leagueTokens - amount,
-        [`members.${borrowerId}.leagueTokens`]: borrower.leagueTokens + amount,
+        [`members.${lenderId}.leagueTokens`]: lender.leagueTokens - fundAmount,
+        [`members.${borrowerId}.leagueTokens`]: borrower.leagueTokens + fundAmount,
         lastActivityAt: now,
       });
       activity(tx, input.leagueId, `fund_${loanRef.id}`, {
         type: isBailout ? "bailout" : "loan_funded",
         uid: lenderId,
         name: lender.displayName,
-        amount,
+        amount: fundAmount,
         text: isBailout
-          ? `${lender.displayName} bailed out ${borrower.displayName} with ${amount.toLocaleString("en-US")} at ${rate}%`
-          : `${lender.displayName} lent ${borrower.displayName} ${amount.toLocaleString("en-US")} at ${rate}%`,
+          ? `${lender.displayName} bailed out ${borrower.displayName} with ${fundAmount.toLocaleString("en-US")} at ${rate}%`
+          : `${lender.displayName} lent ${borrower.displayName} ${fundAmount.toLocaleString("en-US")} at ${rate}%`,
       });
       const target = lenderId === uid ? borrowerId : lenderId;
       writeNotification(
@@ -1693,8 +1727,8 @@ export const peerLoanAction = onCall({ region: "us-central1" }, async (req) => {
           id: `funded_${loanRef.id}`,
           type: "loan_funded",
           title: lenderId === uid ? `${lender.displayName} funded your loan` : `${borrower.displayName} took your offer`,
-          body: `${amount.toLocaleString("en-US")} league tokens at ${rate}% flat. Repays ${totalRepayable(amount, rate).toLocaleString("en-US")} in total.`,
-          delta: lenderId === uid ? amount : -amount,
+          body: `${fundAmount.toLocaleString("en-US")} league tokens at ${rate}% flat. Repays ${totalRepayable(fundAmount, rate).toLocaleString("en-US")} in total.`,
+          delta: lenderId === uid ? fundAmount : -fundAmount,
           wallet: "league",
           leagueId: input.leagueId,
           leagueName,
@@ -1707,16 +1741,33 @@ export const peerLoanAction = onCall({ region: "us-central1" }, async (req) => {
     switch (input.action) {
       case "fund": {
         if (isBorrower) throw new HttpsError("invalid-argument", "You can't fund your own request.");
-        if (status !== "requested") throw new HttpsError("failed-precondition", "That request isn't open.");
-        fund(uid, loan.get("proposedRate") as number);
+        if (status !== "requested" && status !== "countered") throw new HttpsError("failed-precondition", "That request isn't open.");
+        const rateToFund = (status === "countered" && loan.get("counterRate") ? loan.get("counterRate") : loan.get("proposedRate")) as number;
+        fund(uid, rateToFund, amount);
         break;
       }
       case "counter": {
         if (isBorrower) throw new HttpsError("invalid-argument", "You can't counter your own request.");
-        if (status !== "requested") throw new HttpsError("failed-precondition", "That request isn't open.");
-        if (!input.rate) throw new HttpsError("invalid-argument", "Counter with a rate.");
-        const rate = Math.round(input.rate * 100) / 100;
-        tx.update(loanRef, { status: "countered", counterRate: rate, counterBy: uid, counterByName: me.displayName, updatedAt: now });
+        if (status !== "requested" && status !== "countered") throw new HttpsError("failed-precondition", "That request isn't open.");
+        const rate = Math.round((input.rate ?? (loan.get("proposedRate") as number)) * 100) / 100;
+        const nextAmount = input.amount ? Math.min(input.amount, maxAllowed) : amount;
+        const nextMsg = input.message !== undefined ? input.message || null : (loan.get("message") as string | null) ?? null;
+        tx.update(loanRef, {
+          status: "countered",
+          counterRate: rate,
+          counterBy: uid,
+          counterByName: me.displayName,
+          ...(nextAmount !== amount ? newLoanTerms(nextAmount, rate, interval, now) : {}),
+          ...(input.message !== undefined ? { message: nextMsg } : {}),
+          updatedAt: now,
+        });
+        activity(tx, input.leagueId, `counter_${loanRef.id}_${now}`, {
+          type: "loan_request",
+          uid,
+          name: me.displayName,
+          amount: nextAmount,
+          text: `${me.displayName} countered ${borrower?.displayName ?? "loan"}: ${nextAmount.toLocaleString("en-US")} at ${rate}% flat`,
+        });
         writeNotification(
           tx,
           borrowerId,
@@ -1724,7 +1775,7 @@ export const peerLoanAction = onCall({ region: "us-central1" }, async (req) => {
             id: `counter_${loanRef.id}_${uid}`,
             type: "loan_countered",
             title: `${me.displayName} countered at ${rate}%`,
-            body: `For your ${amount.toLocaleString("en-US")} request in ${leagueName}. Accept or reject it in the league.`,
+            body: `For ${nextAmount.toLocaleString("en-US")} tokens in ${leagueName}. Accept or counter in chat.`,
             wallet: "league",
             leagueId: input.leagueId,
             leagueName,
@@ -1733,15 +1784,40 @@ export const peerLoanAction = onCall({ region: "us-central1" }, async (req) => {
         );
         break;
       }
+      case "edit": {
+        if (!isBorrower) throw new HttpsError("permission-denied", "Only the borrower can edit their request.");
+        if (status !== "requested" && status !== "countered") throw new HttpsError("failed-precondition", "That request isn't open.");
+        const nextAmount = input.amount ? Math.min(input.amount, maxAllowed) : amount;
+        const nextRate = Math.round((input.rate ?? (loan.get("proposedRate") as number)) * 100) / 100;
+        const nextMsg = input.message !== undefined ? input.message || null : (loan.get("message") as string | null) ?? null;
+        tx.update(loanRef, {
+          status: "requested",
+          proposedRate: nextRate,
+          counterRate: null,
+          counterBy: null,
+          counterByName: null,
+          message: nextMsg,
+          ...newLoanTerms(nextAmount, nextRate, interval, now),
+          updatedAt: now,
+        });
+        activity(tx, input.leagueId, `edit_${loanRef.id}_${now}`, {
+          type: "loan_request",
+          uid,
+          name: me.displayName,
+          amount: nextAmount,
+          text: `${me.displayName} updated loan request: ${nextAmount.toLocaleString("en-US")} at ${nextRate}% flat${nextMsg ? ` ("${nextMsg}")` : ""}`,
+        });
+        break;
+      }
       case "decline": {
         if (isBorrower) throw new HttpsError("invalid-argument", "Cancel your own request instead.");
-        if (status !== "requested") throw new HttpsError("failed-precondition", "That request isn't open.");
+        if (status !== "requested" && status !== "countered") throw new HttpsError("failed-precondition", "That request isn't open.");
         const declined = new Set<string>([...((loan.get("declinedBy") as string[]) ?? []), uid]);
         const others = ((league.get("memberIds") as string[]) ?? []).filter((m) => m !== borrowerId);
         const everyone = others.every((m) => declined.has(m));
         tx.update(loanRef, {
           declinedBy: [...declined],
-          status: everyone ? "rejected" : "requested",
+          status: everyone ? "rejected" : status,
           updatedAt: now,
         });
         break;
@@ -1755,7 +1831,7 @@ export const peerLoanAction = onCall({ region: "us-central1" }, async (req) => {
       case "accept_counter": {
         if (!isBorrower) throw new HttpsError("permission-denied", "Only the borrower can accept.");
         if (status !== "countered") throw new HttpsError("failed-precondition", "There's no counter-offer to accept.");
-        fund(loan.get("counterBy") as string, loan.get("counterRate") as number);
+        fund(loan.get("counterBy") as string, loan.get("counterRate") as number, amount);
         break;
       }
       case "reject_counter": {

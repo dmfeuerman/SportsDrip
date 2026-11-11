@@ -150,10 +150,10 @@ async function makeLeague(owner: string, over: Record<string, unknown> = {}) {
   const res = await call<{ leagueId: string; code: string }>(createLeague, owner, {
     idempotencyKey: key(),
     name: "Office",
-    startingLeagueTokens: 1000,
+    startingLeagueTokens: 10_000,
     duration: "1 Month",
     sports: ["NBA", "NFL"],
-    buyIn: 100,
+    buyIn: 1_000,
     prizePreset: "top-2",
     bankLoanEnabled: true,
     bankInterestRate: 10,
@@ -213,6 +213,37 @@ test("scheduled start: at least a day out, joins only before it, betting only af
   assert.equal(started.startsAt, t0 + 3 * 86_400_000, "the season starts when the second player joins");
   assert.equal(started.endsAt, t0 + 3 * 86_400_000 + 28 * 86_400_000, "with its full length");
   await rejects(call(realJoin, "ben", { code: now.code }), /already started/);
+});
+
+test("a scheduled league nobody joins by its start date is cancelled and refunded", async () => {
+  seedUser("ann", 1000);
+  seedUser("ben", 1000);
+  const t0 = Date.now();
+  const { leagueId, code } = await makeLeague("ann", { startNow: false, startsAt: t0 + 2 * 86_400_000 });
+  assert.equal(await balance("ann"), 900);
+  await sweepLeagues(t0 + 86_400_000);
+  assert.equal(league(leagueId).status, "active", "not before the start date");
+
+  clock.set(t0 + 2 * 86_400_000 + 60_000);
+  await rejects(call(realJoin, "ben", { code }), /cancelled/);
+  await sweepLeagues(Date.now());
+  const l = league(leagueId);
+  assert.equal(l.status, "ended");
+  assert.equal(l.cancelled, true);
+  assert.equal(await balance("ann"), 1000, "buy-in refunded");
+  await sweepLeagues(Date.now() + 3_600_000);
+  assert.equal(await balance("ann"), 1000, "refunded once");
+});
+
+test("a scheduled league with a second player by its start date is not cancelled", async () => {
+  seedUser("ann", 1000);
+  seedUser("ben", 1000);
+  const t0 = Date.now();
+  const { leagueId, code } = await makeLeague("ann", { startNow: false, startsAt: t0 + 2 * 86_400_000 });
+  await call(realJoin, "ben", { code });
+  clock.set(t0 + 2 * 86_400_000 + 60_000);
+  await sweepLeagues(Date.now());
+  assert.equal(league(leagueId).status, "active");
 });
 
 test("league bets debit league tokens only, respect allowed sports, and settle exactly once", async () => {

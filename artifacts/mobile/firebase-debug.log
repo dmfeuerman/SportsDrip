@@ -1,0 +1,28 @@
+[debug] [2026-11-11T21:24:42.016Z] ----------------------------------------------------------------------
+[debug] [2026-11-11T21:24:42.018Z] Command:       /opt/homebrew/Cellar/node@24/24.20.0/bin/node /opt/homebrew/bin/firebase deploy --only functions,firestore:indexes
+[debug] [2026-11-11T21:24:42.018Z] CLI Version:   15.34.2
+[debug] [2026-11-11T21:24:42.018Z] Platform:      darwin
+[debug] [2026-11-11T21:24:42.018Z] Node Version:  v24.20.0
+[debug] [2026-11-11T21:24:42.019Z] Detected Agent: unknown
+[debug] [2026-11-11T21:24:42.019Z] Time:          Wed Nov 11 2026 16:24:42 GMT-0500 (Eastern Standard Time)
+[debug] [2026-11-11T21:24:42.019Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-11-11T21:24:42.801Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-11-11T21:24:42.801Z] > authorizing via signed-in user (dylan.m.feuerman@gmail.com)
+[debug] [2026-11-11T21:24:42.801Z] [iam] checking project housemoney-e9991 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]
+[debug] [2026-11-11T21:24:42.808Z] Checked if tokens are valid: false, expires at: 1794422897171
+[debug] [2026-11-11T21:24:42.808Z] Checked if tokens are valid: false, expires at: 1794422897171
+[debug] [2026-11-11T21:24:42.808Z] > refreshing access token with scopes: []
+[debug] [2026-11-11T21:24:42.809Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-11-11T21:24:42.809Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-11T21:24:42.991Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-11-11T21:24:42.991Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-11T21:24:43.004Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/housemoney-e9991:testIamPermissions [none]
+[debug] [2026-11-11T21:24:43.004Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/housemoney-e9991:testIamPermissions  x-goog-user-project=housemoney-e9991
+[debug] [2026-11-11T21:24:43.004Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/housemoney-e9991:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[debug] [2026-11-11T21:24:43.207Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/housemoney-e9991:testIamPermissions 200
+[debug] [2026-11-11T21:24:43.207Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/housemoney-e9991:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[debug] [2026-11-11T21:24:43.207Z] Checked if tokens are valid: true, expires at: 1794435881991
+[debug] [2026-11-11T21:24:43.207Z] Checked if tokens are valid: true, expires at: 1794435881991
+[debug] [2026-11-11T21:24:43.208Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/housemoney-e9991/serviceAccounts/housemoney-e9991@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2026-11-11T21:24:43.208Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/housemoney-e9991/serviceAccounts/housemoney-e9991@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}

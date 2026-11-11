@@ -16,10 +16,10 @@ async function makeLeague(owner: string) {
   return call<{ leagueId: string; code: string }>(createLeague, owner, {
     idempotencyKey: key(),
     name: "Econ",
-    startingLeagueTokens: 1000,
+    startingLeagueTokens: 10_000,
     duration: "1 Month",
     sports: ["NBA", "NFL", "MLB"],
-    buyIn: 100,
+    buyIn: 1_000,
     prizePreset: "top-2",
     bankLoanEnabled: true,
     bankInterestRate: 10,

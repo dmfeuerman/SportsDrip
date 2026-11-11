@@ -57,6 +57,7 @@ export { reactToItem } from "./callable/social";
 export { makePick } from "./callable/picks";
 export { makeDailyPick, placeFreeBet, scheduleDailyPick } from "./callable/dailyPick";
 export { getWeeklyQuests, claimQuest } from "./callable/quests";
+export { getLevelChallenges, claimLevelChallenge, recordChallengeAction } from "./callable/levelChallenges";
 export { createGroupParlay, addParlayLeg, lockParlay, rideParlay } from "./callable/parlays";
 export { placeParlay, cancelParlay } from "./callable/slipParlays";
 
@@ -64,7 +65,10 @@ export { placeParlay, cancelParlay } from "./callable/slipParlays";
 export { syncGames, pruneGames, syncLiveGames } from "./scheduled/syncGames";
 export { onGameFinal, settleBetsSweep, refundStaleBets } from "./scheduled/settleBets";
 export { leagueSweep } from "./scheduled/leagues";
-export { lockReminders, teamReminders } from "./scheduled/reminders";
+// teamReminders moved on-device (artifacts/mobile/lib/localReminders.ts schedules it locally),
+// which removes a job that ran every 5 minutes. Re-enable by restoring the export below.
+// export { lockReminders, teamReminders } from "./scheduled/reminders";
+export { lockReminders } from "./scheduled/reminders";
 export { winBack } from "./scheduled/winBack";
 export { birthdayGifts } from "./scheduled/birthdays";
 export { tuesdayLeagueReport, mondayLeagueJobs, leagueMatchupJobs } from "./scheduled/weekly";

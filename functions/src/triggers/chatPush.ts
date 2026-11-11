@@ -85,11 +85,12 @@ export const pushOnDirectMessage = onDocumentCreated(
     const snap = event.data;
     if (!snap) return;
     const m = snap.data() as { senderUid?: string; senderName?: string; recipientUid?: string; text?: string; kind?: string };
-    if (m.kind !== "text" || !m.senderUid || !m.recipientUid || m.senderUid === m.recipientUid) return;
+    // Friend taunts (server-written, see callable/taunts.ts) push too.
+    if ((m.kind !== "text" && m.kind !== "taunt") || !m.senderUid || !m.recipientUid || m.senderUid === m.recipientUid) return;
     // The thread id names both members; ignore anything that doesn't match.
     const parts = event.params.threadId.split("_");
     if (parts[0] !== "dm" || !parts.includes(m.senderUid) || !parts.includes(m.recipientUid)) return;
-    if (await moderate(snap.ref, m.text)) return;
+    if (m.kind === "text" && (await moderate(snap.ref, m.text))) return;
     if (!(await notBlocking([m.recipientUid], m.senderUid)).length) return;
     if (!(await claim(snap.ref))) return;
 

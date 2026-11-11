@@ -22,7 +22,7 @@ test("pick'em: live standings and season-end results rank on pick points", async
   const { leagueId, code } = await call<{ leagueId: string; code: string }>(createLeague, "ann", {
     idempotencyKey: key(),
     name: "Pickers",
-    startingLeagueTokens: 1000,
+    startingLeagueTokens: 10_000,
     duration: "1 Month",
     sports: ["NBA"],
     buyIn: 0,

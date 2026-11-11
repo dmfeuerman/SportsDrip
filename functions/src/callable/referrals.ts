@@ -68,6 +68,7 @@ export const checkReferralCode = onCall({ region: "us-central1" }, async (req) =
   return {
     valid: true as const,
     code,
+    uid: owner,
     displayName: (user.get("displayName") as string) ?? "A player",
     username: (user.get("username") as string) ?? null,
     newUserCredits: REFERRAL.newUserCredits,

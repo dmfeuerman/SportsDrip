@@ -65,7 +65,7 @@ exports.sendTaunt = (0, https_1.onCall)({ region: "us-central1" }, async (req) =
         ]);
         const [me, receiver, owned, existing, move, scopeDoc, matchup] = reads;
         if (existing.exists)
-            throw new https_1.HttpsError("resource-exhausted", "One taunt per matchup a day.");
+            throw new https_1.HttpsError("resource-exhausted", input.scope === "dm" ? "You already taunted them today." : "One taunt per matchup a day.");
         if (!me.exists || !receiver.exists)
             throw new https_1.HttpsError("not-found", "Player not found.");
         if (!(0, moves_1.isFreeMove)(input.moveId) && !owned.exists)

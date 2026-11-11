@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// SportDrip Firestore rules.
+// On the House Firestore rules.
 //
 // Principle: anything that affects the economy (balance, inventory, bets,
 // prize boxes, ledger) is written ONLY by Cloud Functions using the Admin SDK,

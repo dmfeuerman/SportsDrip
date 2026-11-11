@@ -3,7 +3,7 @@
  * every Monday 00:05 America/New_York. Changing content = edit + re-run
  * scripts/seed-liveops.mjs; no app release, no function deploy.
  *
- * Rules (SportDrip Rotating / Live-Ops plan, Nov 2026):
+ * Rules (On the House Rotating / Live-Ops plan, Nov 2026):
  *  - every pool item is priced above the Prize Box yield ceiling (enforced by planDrop)
  *  - retired items return every `returnEvery`th drop, after `returnCooldownWeeks`
  *  - set cadenceWeeks: 2 if weekly asset production can't be sustained

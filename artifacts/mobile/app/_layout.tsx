@@ -38,6 +38,7 @@ import { normalizeInviteCode, savePendingInvite, takePendingInvite } from "@/lib
 import { normalizeReferralCode, savePendingReferral } from "@/lib/referrals";
 import { startStallWatch, trace } from "@/lib/devtrace";
 import ResultPopupHost from "@/components/ResultPopup";
+
 import { PresenceBeat } from "@/lib/presence";
 import EngagementWatchers from "@/components/EngagementWatchers";
 import InviteToastHost from "@/components/InviteToastHost";

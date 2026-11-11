@@ -13,7 +13,7 @@ export type Tx = Transaction;
 // burns credits. Nothing here is readable or writable by the client.
 // ---------------------------------------------------------------------------
 
-export const STARTING_BALANCE = 1000;
+export const STARTING_BALANCE = 10_000;
 
 /** Items granted free at signup so a new user is never staring at a bare avatar. */
 export const STARTER_ITEMS = ["tee_basic_white", "shorts_basic_navy", "shoes_basic_white"];
@@ -31,33 +31,33 @@ export const PRIZE_BOXES: Record<BoxTier, PrizeBoxDef> = {
     tier: "bronze",
     waitHours: 1,
     segments: [
-      { credits: 50, weight: 9 },
-      { credits: 75, weight: 4 },
-      { credits: 100, weight: 2 },
-      { credits: 125, weight: 1 },
-      { credits: 200, weight: 1 },
+      { credits: 500, weight: 9 },
+      { credits: 750, weight: 4 },
+      { credits: 1000, weight: 2 },
+      { credits: 1250, weight: 1 },
+      { credits: 2000, weight: 1 },
     ],
   },
   silver: {
     tier: "silver",
     waitHours: 4,
     segments: [
-      { credits: 150, weight: 9 },
-      { credits: 200, weight: 4 },
-      { credits: 250, weight: 2 },
-      { credits: 350, weight: 1 },
-      { credits: 500, weight: 1 },
+      { credits: 1500, weight: 9 },
+      { credits: 2000, weight: 4 },
+      { credits: 2500, weight: 2 },
+      { credits: 3500, weight: 1 },
+      { credits: 5000, weight: 1 },
     ],
   },
   gold: {
     tier: "gold",
     waitHours: 12,
     segments: [
-      { credits: 400, weight: 9 },
-      { credits: 600, weight: 4 },
-      { credits: 800, weight: 2 },
-      { credits: 1200, weight: 1 },
-      { credits: 2000, weight: 1 },
+      { credits: 4000, weight: 9 },
+      { credits: 6000, weight: 4 },
+      { credits: 8000, weight: 2 },
+      { credits: 12000, weight: 1 },
+      { credits: 20000, weight: 1 },
     ],
   },
 };
@@ -101,6 +101,7 @@ export type LedgerType =
   | "prize_box"
   | "purchase"
   | "league_buy_in"
+  | "league_refund"
   | "league_payout"
   | "ad_reward"
   | "challenge_escrow"

@@ -141,19 +141,19 @@ export async function settleDailyPicksForGame(gameId: string): Promise<number> {
 }
 
 /* ── Daily free bet ──────────────────────────────────────────────────────────
- * Every America/New_York day each player gets one free 100-credit bet: a
+ * Every America/New_York day each player gets one free 1,000-credit bet: a
  * moneyline pick on any upcoming game (today's Daily Pick game is the
  * suggestion). Nothing is debited. A win pays the winnings (100 × odds − 100),
  * the free stake itself is never returned, like a sportsbook free bet.
  *
  * It's a normal bets/{id} document with stake 0, so settlement, voids,
  * notifications and stats need nothing special:
- *   stake 0, potentialPayout = winnings, freeBet true, freeStake 100, freeDay.
+ *   stake 0, potentialPayout = winnings, freeBet true, freeStake 1000, freeDay.
  *   users/{uid}/freeBets/{YYYY-MM-DD}   the day's token (exists = used)
  * Cancelling it before kickoff (cancelBet) deletes the token, so it can be
  * placed again.
  */
-export const FREE_BET_STAKE = 100;
+export const FREE_BET_STAKE = 1000;
 
 const FreeBetInput = z.object({
   gameId: z.string().min(1),

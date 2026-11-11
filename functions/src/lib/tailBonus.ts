@@ -4,7 +4,7 @@ import { writeNotification } from "./notify";
 import { simpleNotification } from "./notifyModel";
 
 /** Credits to the original picker each time a pick that tailed theirs wins. */
-export const TAIL_BONUS = 10;
+export const TAIL_BONUS = 100;
 /** At most this many bonuses per original pick, so a big league can't farm it. */
 export const TAIL_BONUS_CAP = 5;
 

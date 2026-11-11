@@ -5,7 +5,7 @@
  * betting is the feature most tied to harm in the gambling research, so this
  * stays free, small and rate-limited by design, and honours play limits.
  */
-export const FLASH_REWARD = 20;
+export const FLASH_REWARD = 200;
 export const FLASH_PER_GAME = 3;
 export const FLASH_PER_DAY = 12;
 

@@ -17,16 +17,17 @@ const ReactInput = z
     leagueId: z.string().min(1),
     targetId: z.string().min(1).nullish(),
     itemId: z.string().min(1).nullish(),
-    targetType: z.enum(["message", "messages", "activity", "bet", "leagueBets"]).nullish(),
-    kind: z.enum(["message", "messages", "activity", "bet", "leagueBets"]).nullish(),
-    collection: z.enum(["message", "messages", "activity", "bet", "leagueBets"]).nullish(),
+    targetType: z.enum(["message", "messages", "activity", "bet", "leagueBets", "loan", "loans"]).nullish(),
+    kind: z.enum(["message", "messages", "activity", "bet", "leagueBets", "loan", "loans"]).nullish(),
+    collection: z.enum(["message", "messages", "activity", "bet", "leagueBets", "loan", "loans"]).nullish(),
     emoji: z.enum(REACTION_EMOJIS),
   })
   .refine((v) => !!(v.targetId || v.itemId), { message: "Target item id required." });
 
-function resolveCollection(raw: string | null | undefined): "messages" | "activity" | "leagueBets" {
+function resolveCollection(raw: string | null | undefined): "messages" | "activity" | "leagueBets" | "loans" {
   if (raw === "activity") return "activity";
   if (raw === "bet" || raw === "leagueBets") return "leagueBets";
+  if (raw === "loan" || raw === "loans") return "loans";
   return "messages";
 }
 

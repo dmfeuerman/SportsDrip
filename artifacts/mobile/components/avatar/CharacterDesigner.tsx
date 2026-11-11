@@ -171,7 +171,10 @@ export default function CharacterDesigner({ avatar, onChange, catalog, displayNa
           cheerSignal={cheerSignal}
         />
         {phase.kind === "dance" ? (
-          <Pressable accessibilityRole="button" accessibilityLabel="Skip" style={StyleSheet.absoluteFill} onPress={() => finishDance(phase.next)}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Skip" style={StyleSheet.absoluteFill} onPress={() => {
+            setMove({ id: "", n: ++moveN.current });
+            finishDance(phase.next);
+          }}>
             <Animated.View entering={ZoomIn.springify().damping(12)} exiting={FadeOut.duration(150)} style={[s.badge, { backgroundColor: c.card, borderColor: c.primary }]}>
               <MaterialCommunityIcons name="check-circle" size={16} color={c.primary} />
               <Text style={[s.badgeText, { color: c.foreground }]}>{steps[phase.i]!.title} locked in</Text>

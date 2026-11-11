@@ -60,23 +60,25 @@ export function progressOf(xp: unknown): LevelProgress {
 
 /** Credits paid on reaching `level`. */
 export function levelUpCredits(level: number): number {
-  return level <= 1 ? 0 : 50 * level;
+  return level <= 1 ? 0 : 500 * level;
 }
 
 export const XP = {
-  /** Credit bet won: base, plus 1 XP per 100 credits of profit up to the cap. */
+  /** Credit bet won: base, plus 1 XP per 1,000 credits of profit up to the cap. */
   betWin: 40,
-  betWinProfitPer: 100,
+  betWinProfitPer: 1000,
   betWinBonusCap: 60,
   challengeWin: 50,
   leagueBetWin: 30,
   leaguePayout: 200,
-  /** Purchases: 1 XP per 50 credits spent, clamped. */
-  purchasePer: 50,
+  /** Purchases: 1 XP per 500 credits spent, clamped. */
+  purchasePer: 500,
   purchaseMin: 15,
   purchaseMax: 400,
   prizeBox: 10,
   adReward: 5,
+  /** First change of the app color in Settings (functions/src/lib/levelChallenges.ts x_theme). */
+  themeChange: 20,
   newFriend: 25,
   /** Someone joined with your invite code. */
   referrer: 300,
@@ -131,9 +133,9 @@ export function xpForLedger(type: unknown, delta: unknown, stake?: unknown): num
 /** Invite-a-friend bonus. */
 export const REFERRAL = {
   /** Credits to the player whose code was used. */
-  referrerCredits: 1000,
+  referrerCredits: 10_000,
   /** Extra credits for the new player on top of the starting balance. */
-  newUserCredits: 500,
+  newUserCredits: 5_000,
   /** Referrals that pay credits; later ones still make you friends and give XP. */
   maxRewarded: 25,
 } as const;

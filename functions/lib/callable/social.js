@@ -17,9 +17,9 @@ const ReactInput = zod_1.z
     leagueId: zod_1.z.string().min(1),
     targetId: zod_1.z.string().min(1).nullish(),
     itemId: zod_1.z.string().min(1).nullish(),
-    targetType: zod_1.z.enum(["message", "messages", "activity", "bet", "leagueBets"]).nullish(),
-    kind: zod_1.z.enum(["message", "messages", "activity", "bet", "leagueBets"]).nullish(),
-    collection: zod_1.z.enum(["message", "messages", "activity", "bet", "leagueBets"]).nullish(),
+    targetType: zod_1.z.enum(["message", "messages", "activity", "bet", "leagueBets", "loan", "loans"]).nullish(),
+    kind: zod_1.z.enum(["message", "messages", "activity", "bet", "leagueBets", "loan", "loans"]).nullish(),
+    collection: zod_1.z.enum(["message", "messages", "activity", "bet", "leagueBets", "loan", "loans"]).nullish(),
     emoji: zod_1.z.enum(exports.REACTION_EMOJIS),
 })
     .refine((v) => !!(v.targetId || v.itemId), { message: "Target item id required." });
@@ -28,6 +28,8 @@ function resolveCollection(raw) {
         return "activity";
     if (raw === "bet" || raw === "leagueBets")
         return "leagueBets";
+    if (raw === "loan" || raw === "loans")
+        return "loans";
     return "messages";
 }
 /**

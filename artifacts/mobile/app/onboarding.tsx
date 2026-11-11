@@ -25,10 +25,7 @@ import { Button } from "@/components/ui";
 import { useCatalog } from "@/hooks/useCatalog";
 import { DEMO } from "@/lib/demo";
 import { extractPhoneDigits, formatPhoneMask } from "@/app/login";
-import { markPushPrimerShown, markWalkthroughSeen, pushPrimerDue, setFirstPick, setPendingSignupMeta, usePendingSignupMeta } from "@/lib/settings";
-import { pickFeatured } from "@/components/FeaturedGameCard";
-import { useGames } from "@/hooks/useGames";
-import { formatOdds, kickoffLabel } from "@/lib/odds";
+import { markPushPrimerShown, markWalkthroughSeen, pushPrimerDue, setPendingSignupMeta, usePendingSignupMeta } from "@/lib/settings";
 
 import { SIGNUP_AVATAR } from "@/constants/avatarOptions";
 import { doc, getDoc } from "firebase/firestore";
@@ -47,8 +44,8 @@ import { useColors } from "@/hooks/useColors";
  * your crew → the push primer → done. The free bet comes later, in the first-bet tutorial on Home. Anything skipped
  * can be finished later (Locker, Friends tab).
  */
-type Step = "identity" | "pick" | "appearance" | "teams" | "crew" | "welcome";
-const STEP_ORDER: Step[] = ["identity", "pick", "appearance", "teams", "crew", "welcome"];
+type Step = "identity" | "appearance" | "teams" | "crew" | "welcome";
+const STEP_ORDER: Step[] = ["identity", "appearance", "teams", "crew", "welcome"];
 const NO_SIDES = new Map<string, never[]>();
 const NO_FAVS = new Set<string>();
 
@@ -389,13 +386,11 @@ export default function OnboardingScreen() {
           <PrimaryButton
             label="Continue"
             disabled={!canContinue}
-            onPress={() => setStep("pick")}
+            onPress={() => setStep("appearance")}
             colors={colors}
           />
         </ScrollView>
       )}
-
-      {step === "pick" && <FirstCall colors={colors} onDone={() => setStep("appearance")} onBack={() => setStep("identity")} />}
 
       {step === "appearance" && (
         <CharacterDesigner
@@ -403,7 +398,7 @@ export default function OnboardingScreen() {
           onChange={setAvatar}
           catalog={catalog}
           displayName={displayName.trim()}
-          onExit={() => setStep("pick")}
+          onExit={() => setStep("identity")}
           onDone={handleCreate}
           submitting={submitting}
           error={error}
@@ -551,76 +546,6 @@ export default function OnboardingScreen() {
 }
 
 /* ── small local building blocks ─────────────────────────────────────────── */
-
-/**
- * The first thing a new player does is the thing the app is for: call a game.
- * Nothing is staked here. The call is remembered and placed as their first
- * bet, paid for by the tutorial prize box, once the starter kit is done.
- */
-function FirstCall({ colors, onDone, onBack }: { colors: ReturnType<typeof useColors>; onDone: () => void; onBack: () => void }) {
-  const { upcoming } = useGames(["upcoming"]);
-  const game = React.useMemo(() => pickFeatured(upcoming.filter((g) => g.priced && !g.disrupted), NO_SIDES, NO_FAVS, Date.now()), [upcoming]);
-  const [side, setSide] = useState<"home" | "away" | null>(null);
-  const call = (sd: "home" | "away") => {
-    buzz.medium();
-    setSide(sd);
-  };
-  return (
-    <ScrollView contentContainerStyle={s.body}>
-      <Text style={[s.title, { color: colors.foreground }]}>Call Your First Game</Text>
-      <Text style={[s.sub, { color: colors.mutedForeground }]}>
-        {game ? "Who wins? Tap a side. It costs nothing now and becomes your first bet once you're set up." : "No games on the board right now. You'll make your first call from Games."}
-      </Text>
-      {game ? (
-        <View style={{ gap: 10 }}>
-          <Text style={{ fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 0.8, color: colors.subtleForeground }}>
-            {game.sport.toUpperCase()} · {kickoffLabel(game.startsAt).toUpperCase()}
-          </Text>
-          {(["away", "home"] as const).map((sd) => {
-            const t = sd === "home" ? game.homeTeam : game.awayTeam;
-            const on = side === sd;
-            return (
-              <Pressable
-                key={sd}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={`${t.name} to win`}
-                onPress={() => call(sd)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: 16,
-                  borderRadius: 14,
-                  borderWidth: on ? 2 : 1,
-                  borderColor: on ? colors.primary : colors.border,
-                  backgroundColor: on ? colors.primarySoft : colors.card,
-                }}
-              >
-                <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: t.color }} />
-                <Text style={{ flex: 1, fontSize: 17, fontFamily: "Inter_800ExtraBold", color: colors.foreground }} numberOfLines={1}>
-                  {t.name}
-                </Text>
-                <Text style={{ fontSize: 17, fontFamily: "Inter_900Black", color: colors.primary, fontVariant: ["tabular-nums"] }}>
-                  {t.odds ? formatOdds(t.odds, "decimal") : "—"}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
-      <Button
-        label={side ? "Lock In My Call" : "Skip for Now"}
-        variant={side ? "primary" : "secondary"}
-        onPress={() => {
-          setFirstPick(game && side ? { gameId: game.id, side } : null);
-          onDone();
-        }}
-      />
-      <Button label="Back" variant="ghost" size="sm" onPress={onBack} />
-    </ScrollView>
-  );
-}
 
 type Colors = ReturnType<typeof useColors>;
 

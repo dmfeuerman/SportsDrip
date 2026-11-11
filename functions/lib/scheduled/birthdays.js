@@ -51,7 +51,7 @@ async function sendBirthdayGifts(now = Date.now()) {
                     delta: exports.BIRTHDAY_GIFT,
                     type: "birthday_gift",
                     idempotencyKey: `birthday_${year}`,
-                    note: "Happy birthday from SportDrip",
+                    note: "Happy birthday from On The House",
                 });
                 tx.update(b.ref, { lastGiftYear: year });
                 if (balance === null)

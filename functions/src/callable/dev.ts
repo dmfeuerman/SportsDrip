@@ -78,7 +78,7 @@ async function ensureBot(me: string, kind: "f" | "r", i: number) {
       uid,
       username,
       displayName: name,
-      balance: 1000 + i * 1750,
+      balance: 10_000 + i * 17_500,
       avatar: {
         ...DEFAULT_AVATAR,
         skinTone: SKINS[i % SKINS.length],
@@ -88,7 +88,7 @@ async function ensureBot(me: string, kind: "f" | "r", i: number) {
         bodyType: 0.3 + ((i * 17) % 50) / 100,
       },
       equipped: OUTFITS[i % OUTFITS.length],
-      stats: { betsPlaced: won + lost, betsWon: won, betsLost: lost, betsPush: 0, creditsWon: won * 120, creditsStaked: (won + lost) * 150 },
+      stats: { betsPlaced: won + lost, betsWon: won, betsLost: lost, betsPush: 0, creditsWon: won * 1200, creditsStaked: (won + lost) * 1500 },
       onboarded: true,
       dev: true,
       createdAt: FieldValue.serverTimestamp(),
@@ -128,7 +128,7 @@ async function seedRequests(me: string, n: number) {
 async function seedLeagues(me: string, myName: string, n: number, bots: Array<{ uid: string; name: string }>) {
   const ids: string[] = [];
   const now = Date.now();
-  const tokens = 10_000;
+  const tokens = 100_000;
   for (let i = 0; i < n; i++) {
     const leagueId = `lg_dev_${me.slice(0, 8)}_${i}`;
     ids.push(leagueId);
@@ -144,7 +144,7 @@ async function seedLeagues(me: string, myName: string, n: number, bots: Array<{ 
         uid: p.uid,
         displayName: p.name,
         avatarColor: MEMBER_COLORS[j % MEMBER_COLORS.length]!,
-        leagueTokens: j === 0 ? tokens : tokens + (won - lost) * 400,
+        leagueTokens: j === 0 ? tokens : tokens + (won - lost) * 4000,
         startingLeagueTokens: tokens,
         joinedAt: now - (roster.length - j) * 3_600_000,
         betsWon: won,
@@ -244,7 +244,7 @@ async function readyChests(me: string) {
   await batch.commit();
 }
 
-/** Newest pending main-wallet bet, or a fresh 100-credit dev bet when there is none. */
+/** Newest pending main-wallet bet, or a fresh 1,000-credit dev bet when there is none. */
 async function betToSettle(me: string): Promise<FirebaseFirestore.DocumentReference> {
   const pending = await db.collection("bets").where("uid", "==", me).where("status", "==", "pending").get();
   const newest = pending.docs.sort((a, b) => (b.get("placedAt")?.toMillis?.() ?? 0) - (a.get("placedAt")?.toMillis?.() ?? 0))[0];
@@ -252,7 +252,7 @@ async function betToSettle(me: string): Promise<FirebaseFirestore.DocumentRefere
 
   const ref = db.collection("bets").doc(`${me}_dev_${Date.now()}`);
   await db.runTransaction(async (tx) => {
-    await applyCredits(tx, me, { delta: -100, type: "bet_stake", idempotencyKey: `bet_stake_dev_${ref.id}`, ref: ref.id, note: "Dev bet" });
+    await applyCredits(tx, me, { delta: -1000, type: "bet_stake", idempotencyKey: `bet_stake_dev_${ref.id}`, ref: ref.id, note: "Dev bet" });
     tx.set(ref, {
       id: ref.id,
       uid: me,
@@ -267,9 +267,9 @@ async function betToSettle(me: string): Promise<FirebaseFirestore.DocumentRefere
       teamAbbr: "BOS",
       teamColor: "#007A33",
       opponentAbbr: "NYK",
-      stake: 100,
+      stake: 1000,
       odds: 2.1,
-      potentialPayout: 210,
+      potentialPayout: 2100,
       status: "pending",
       startsAt: Date.now() - 3 * 3_600_000,
       opponentUid: null,
@@ -277,7 +277,7 @@ async function betToSettle(me: string): Promise<FirebaseFirestore.DocumentRefere
       settledAt: null,
       dev: true,
     });
-    tx.update(db.collection("users").doc(me), { "stats.betsPlaced": FieldValue.increment(1), "stats.creditsStaked": FieldValue.increment(100) });
+    tx.update(db.collection("users").doc(me), { "stats.betsPlaced": FieldValue.increment(1), "stats.creditsStaked": FieldValue.increment(1000) });
   });
   return ref;
 }

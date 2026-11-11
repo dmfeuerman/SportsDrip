@@ -6,7 +6,7 @@ import { writeNotification } from "../lib/notify";
 import { simpleNotification } from "../lib/notifyModel";
 
 /** Credits every player gets on the 1st of their birth month. */
-export const BIRTHDAY_GIFT = 500;
+export const BIRTHDAY_GIFT = 5000;
 const PAGE = 200;
 
 /**
@@ -47,7 +47,7 @@ export async function sendBirthdayGifts(now = Date.now()): Promise<number> {
           delta: BIRTHDAY_GIFT,
           type: "birthday_gift",
           idempotencyKey: `birthday_${year}`,
-          note: "Happy birthday from SportDrip",
+          note: "Happy birthday from On The House",
         });
         tx.update(b.ref, { lastGiftYear: year });
         if (balance === null) return 0;

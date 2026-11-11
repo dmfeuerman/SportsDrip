@@ -42,10 +42,10 @@ async function makeLeague(owner: string, over: Record<string, unknown> = {}) {
   return call<{ leagueId: string; code: string }>(createLeague, owner, {
     idempotencyKey: key(),
     name: "Audit League",
-    startingLeagueTokens: 1000,
+    startingLeagueTokens: 10_000,
     duration: "1 Month",
     sports: ["NBA", "NFL", "MLB"],
-    buyIn: 100,
+    buyIn: 1_000,
     prizePreset: "top-2",
     bankLoanEnabled: true,
     bankInterestRate: 10,
@@ -234,7 +234,7 @@ test("tied standings split the combined prize equally instead of favouring earli
   seedUser("ann", 1000, "Ann");
   seedUser("ben", 1000, "Ben");
   seedUser("cat", 1000, "Cat");
-  const { leagueId, code } = await makeLeague("ann", { prizePreset: "top-2", buyIn: 100 });
+  const { leagueId, code } = await makeLeague("ann", { prizePreset: "top-2", buyIn: 1_000 });
   await call(joinLeague, "ben", { code });
   await call(joinLeague, "cat", { code });
 

@@ -236,6 +236,10 @@ export class Query {
   orderBy(field: string, dir: "asc" | "desc" = "asc") {
     return new Query(this._db, { ...this.spec, order: [...(this.spec.order ?? []), [field, dir]] });
   }
+  /** Field mask: the fake returns whole documents, which is a superset. */
+  select(..._fields: string[]) {
+    return this;
+  }
   limit(n: number) {
     return new Query(this._db, { ...this.spec, max: n });
   }

@@ -7,7 +7,7 @@ import { advanceStreak, type StreakState } from "../lib/streak";
 import { recentEmptyDays } from "../lib/streakDays";
 
 const MIN_STAKE = 10;
-const MAX_STAKE = 100_000;
+const MAX_STAKE = 1_000_000;
 
 const PlaceBetInput = z
   .object({

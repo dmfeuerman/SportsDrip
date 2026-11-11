@@ -66,7 +66,7 @@ export async function recordCoopWins(wins: Array<{ leagueId: string; uid: string
           }
           tx.set(leagueRef.collection("messages").doc(`coop_${week}`), {
             uid: "system",
-            name: "SportDrip",
+            name: "On The House",
             kind: "system",
             text: `🤝 League goal hit: ${target} correct picks this week!${reward && item?.exists ? ` Everyone unlocked ${(item.get("name") as string) ?? "a new item"}.` : ""}`,
             at: now,

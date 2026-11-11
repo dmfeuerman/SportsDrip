@@ -75,7 +75,7 @@ export default function CheckoutScreen() {
     // One at a time: each purchase is its own atomic, idempotent server call,
     // and the balance check for the next one depends on the last.
     for (const item of items) {
-      if (await purchaseItem(item.id, item.price)) ok.push(item);
+      if (await purchaseItem(item.id, item.price, true)) ok.push(item);
       else bad.push(item.id);
     }
     setBought(ok);
@@ -89,7 +89,16 @@ export default function CheckoutScreen() {
     // The look the items were tried on for, minus anything removed from the cart since.
     const mine = new Set([...owned, ...ok.map((i) => i.id)]);
     const draft = cart.draft;
-    const equipped = draft ? Object.fromEntries(Object.entries(draft.equipped).filter(([, id]) => !!id && mine.has(id))) : null;
+    // Only what's owned or just paid for; a slot holding anything else keeps what's worn now (if owned).
+    let equipped: Record<string, string> | null = null;
+    if (draft) {
+      equipped = {};
+      const current = (profile?.equipped ?? {}) as Record<string, string | undefined>;
+      for (const [slot, id] of Object.entries(draft.equipped)) {
+        if (id && mine.has(id)) equipped[slot] = id;
+        else if (id && current[slot] && mine.has(current[slot]!)) equipped[slot] = current[slot]!;
+      }
+    }
     const saved = draft && equipped ? await saveLook(draft.avatar, equipped) : true;
     cart.checkedOut();
     buzz.success();

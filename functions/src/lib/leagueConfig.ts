@@ -120,8 +120,8 @@ export const STIMULUS_TTL_MS = 48 * 3_600_000;
 /** Minimum gap between two approved stimulus payments. */
 export const STIMULUS_COOLDOWN_MS = 7 * DAY;
 
-export const TOKEN_START_OPTIONS = [1_000, 5_000, 10_000, 25_000, 50_000] as const;
-export const BUY_IN_OPTIONS = [0, 100, 250, 500, 1_000] as const;
+export const TOKEN_START_OPTIONS = [10_000, 50_000, 100_000, 250_000, 500_000] as const;
+export const BUY_IN_OPTIONS = [0, 1_000, 2_500, 5_000, 10_000] as const;
 
 export const PRIZE_PRESETS = {
   "winner-all": { firstPct: 100, secondPct: 0, thirdPct: 0 },

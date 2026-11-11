@@ -19,6 +19,7 @@
     "../artifacts/mobile/lib/avatar3d/rigNames.ts",
     "../artifacts/mobile/constants/moves.ts",
     "../artifacts/mobile/constants/progression.ts",
-    "../artifacts/mobile/constants/backgrounds.ts"
+    "../artifacts/mobile/constants/backgrounds.ts",
+    "../artifacts/mobile/lib/teamIdentity.ts"
   ]
 }

@@ -65,7 +65,7 @@ export const sendTaunt = onCall({ region: "us-central1" }, async (req) => {
       input.scope === "league" ? tx.get(db.collection("leagues").doc(input.leagueId).collection("matchups").doc(input.matchupId)) : null,
     ]);
     const [me, receiver, owned, existing, move, scopeDoc, matchup] = reads;
-    if (existing.exists) throw new HttpsError("resource-exhausted", "One taunt per matchup a day.");
+    if (existing.exists) throw new HttpsError("resource-exhausted", input.scope === "dm" ? "You already taunted them today." : "One taunt per matchup a day.");
     if (!me.exists || !receiver.exists) throw new HttpsError("not-found", "Player not found.");
     if (!isFreeMove(input.moveId) && !owned.exists) throw new HttpsError("permission-denied", "You don't own that move.");
     if (receiver.get("muteTaunts") === true) throw new HttpsError("failed-precondition", "They've muted taunts.");

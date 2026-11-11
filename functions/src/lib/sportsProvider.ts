@@ -11,7 +11,7 @@
  * per sport per cycle for the whole user base — not one per device.
  *
  * Pricing: the feed's two-way moneyline when it has one (oddsSource "book").
- * When it doesn't, syncGames fills in the SportDrip model line
+ * When it doesn't, syncGames fills in the On The House model line
  * (lib/oddsModel.ts + lib/ratings.ts: shared per-team Elo ratings updated from
  * results, with a season-record prior), tagged oddsSource "model". A book line
  * always replaces a model one as soon as the feed carries it.
@@ -465,36 +465,66 @@ function seasonLabelFor(data: any, cfg: SportConfig): string | null {
 
 const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10).replace(/-/g, "");
 
+const DAY_MS = 86_400_000;
+/** Days of board fetched: yesterday (so a game is seen to finish) through a week out. */
+const BOARD_DAYS = { back: 1, ahead: 7 };
+/** Days two or more out change slowly (schedule, opening lines): re-read them this often, not every minute. */
+const FAR_DAY_TTL_MS = 15 * 60_000;
+
+type Board = { events?: unknown[]; week?: unknown; leagues?: unknown };
+const dayCache = new Map<string, { at: number; data: Board }>();
+
+async function fetchBoard(cfg: SportConfig, query: string): Promise<Board> {
+  const res = await fetch(`${BASE}/${cfg.path}/scoreboard${query}`, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`ESPN ${cfg.sport} ${res.status}`);
+  return (await res.json()) as Board;
+}
+
 /**
- * The scoreboard for yesterday through the next week. Without `dates`, ESPN
- * returns only its idea of "today" (or the current NFL week), so a game drops
- * out of the feed before it can be seen to finish, and the board has nothing
- * beyond tonight. Falls back to the default board if the range is refused.
+ * The scoreboard for yesterday through the next week, one request per day.
+ *
+ * Without `dates`, ESPN returns only its idea of "today" — and for the NFL
+ * that is the *current week*, which stays on last week's finished games until
+ * midweek, so no upcoming NFL game reached the board. A `dates=A-B` range is
+ * refused outright (HTTP 400), which is what silently dropped every sport back
+ * to that default board. Single days are accepted, so the window is read day
+ * by day; far-out days are cached between runs to keep the request count down.
+ * A day that fails is skipped (the rest still land); if every day fails, the
+ * default board is the last resort.
  */
-async function fetchScoreboard(cfg: SportConfig, now = Date.now()) {
-  const range = `${ymd(now - 86_400_000)}-${ymd(now + 7 * 86_400_000)}`;
-  for (const query of [`?dates=${range}&limit=300`, ""]) {
-    const res = await fetch(`${BASE}/${cfg.path}/scoreboard${query}`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      if (query) continue;
-      throw new Error(`ESPN ${cfg.sport} ${res.status}`);
-    }
-    const data = (await res.json()) as { events?: unknown[] };
-    if (query && !(data.events ?? []).length) continue;
-    return data;
-  }
-  return { events: [] };
+async function fetchScoreboard(cfg: SportConfig, now = Date.now()): Promise<Board[]> {
+  const offsets: number[] = [];
+  for (let d = -BOARD_DAYS.back; d <= BOARD_DAYS.ahead; d++) offsets.push(d);
+  const days = await Promise.allSettled(
+    offsets.map(async (d) => {
+      const day = ymd(now + d * DAY_MS);
+      const key = `${cfg.path}:${day}`;
+      const hit = dayCache.get(key);
+      if (hit && d >= 2 && now - hit.at < FAR_DAY_TTL_MS) return hit.data;
+      const data = await fetchBoard(cfg, `?dates=${day}&limit=300`);
+      dayCache.set(key, { at: now, data });
+      return data;
+    })
+  );
+  // Drop cached days that have left the window.
+  if (dayCache.size > 400) for (const [k, v] of dayCache) if (now - v.at > DAY_MS) dayCache.delete(k);
+  const ok = days.filter((r): r is PromiseFulfilledResult<Board> => r.status === "fulfilled").map((r) => r.value);
+  if (ok.length) return ok;
+  return [await fetchBoard(cfg, "")];
 }
 
 async function fetchSport(cfg: SportConfig): Promise<NormalizedGame[]> {
-  const data = await fetchScoreboard(cfg);
-  const label = seasonLabelFor(data, cfg);
-
-  return (data.events ?? [])
-    .map((e) => parseEvent(e, cfg.sport, cfg.sportIcon, label, cfg.path))
-    .filter((g): g is NormalizedGame => g !== null);
+  const boards = await fetchScoreboard(cfg);
+  const byId = new Map<string, NormalizedGame>();
+  for (const data of boards) {
+    // Each day carries its own week / matchday, so the label is right for next week's games too.
+    const label = seasonLabelFor(data, cfg);
+    for (const e of data.events ?? []) {
+      const g = parseEvent(e, cfg.sport, cfg.sportIcon, label, cfg.path);
+      if (g) byId.set(g.id, g);
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.startsAt - b.startsAt);
 }
 
 /* eslint-enable @typescript-eslint/no-explicit-any */

@@ -12,6 +12,19 @@ interface Props {
   earn?: boolean;
 }
 
+/** Compact balance for the top bar: 8,593 → 8.5K, 2,450,000 → 2.4M (always rounded down). */
+export function compactCredits(n: number): string {
+  const v = Math.floor(Math.abs(n));
+  const sign = n < 0 ? "-" : "";
+  const cut = (x: number, unit: number, suffix: string) => {
+    const t = Math.floor((x / unit) * 10) / 10;
+    return `${sign}${t % 1 === 0 ? t.toFixed(0) : t.toFixed(1)}${suffix}`;
+  };
+  if (v >= 1_000_000) return cut(v, 1_000_000, "M");
+  if (v >= 1_000) return cut(v, 1_000, "K");
+  return `${sign}${v}`;
+}
+
 export default function TokenBalance({ tokens, size = "md", earn }: Props) {
   const colors = useColors();
 
@@ -22,7 +35,7 @@ export default function TokenBalance({ tokens, size = "md", earn }: Props) {
     <View style={[styles.container, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
       <MaterialCommunityIcons name="lightning-bolt" size={iconSize} color={colors.primary} />
       {/* Rolls up (green) on a win, a prize or a refund; down (red) on a stake or a purchase. */}
-      <RollingNumber value={tokens} style={[styles.text, { color: colors.foreground, fontSize }]} upColor={colors.positive} downColor={colors.negative} accessibilityLabel={`${tokens.toLocaleString()} credits`} />
+      <RollingNumber value={tokens} format={compactCredits} style={[styles.text, { color: colors.foreground, fontSize }]} upColor={colors.positive} downColor={colors.negative} accessibilityLabel={`${tokens.toLocaleString()} credits`} />
     </View>
   );
   if (!earn) return balance;

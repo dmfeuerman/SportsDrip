@@ -16,7 +16,7 @@
 export type ChallengeMode = "pot" | "odds";
 
 export const CHALLENGE_MIN_STAKE = 10;
-export const CHALLENGE_MAX_STAKE = 100_000;
+export const CHALLENGE_MAX_STAKE = 1_000_000;
 export const CHALLENGE_MIN_ODDS = 1.1;
 export const CHALLENGE_MAX_ODDS = 10;
 export const CHALLENGE_MAX_MESSAGE = 80;

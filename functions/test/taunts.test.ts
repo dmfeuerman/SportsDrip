@@ -18,7 +18,7 @@ test("taunts: owned move, matchup opponent only, one per matchup per day, mute r
   const { leagueId, code } = await call<{ leagueId: string; code: string }>(createLeague, "ann", {
     idempotencyKey: key(),
     name: "Taunts",
-    startingLeagueTokens: 1000,
+    startingLeagueTokens: 10_000,
     duration: "1 Month",
     sports: ["NBA"],
     buyIn: 0,

@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
-import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { router, useIsFocused, useLocalSearchParams, useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -16,10 +16,12 @@ import {
 import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import AvatarBackdrop from "@/components/avatar/AvatarBackdrop";
 import MoveCard from "@/components/MoveCard";
 import BackgroundCard from "@/components/BackgroundCard";
 import StarterKitCard from "@/components/StarterKitCard";
 import { TourTarget } from "@/components/tour/TourTarget";
+import { tourEvent, useTourState } from "@/lib/tour/store";
 import { MAX_LOADOUT } from "@/constants/moves";
 import { useMoves, type StoreMove } from "@/hooks/useMoves";
 import { useBackgrounds, type StoreBackground } from "@/hooks/useBackgrounds";
@@ -87,6 +89,8 @@ export default function CustomizeScreen() {
   const { height: winH, width: winW } = useWindowDimensions();
   const params = useLocalSearchParams<{ category?: string; tab?: string }>();
   const navigation = useNavigation();
+  // The 3D stage stops drawing while checkout (or anything else) is on top of it.
+  const focused = useIsFocused();
   const {
     profile,
     inventory,
@@ -151,27 +155,43 @@ export default function CustomizeScreen() {
   const cartView = useCartItems();
 
   // ── cart ─────────────────────────────────────────────────────────────────
-  // Trying on a store item puts it in the cart. Swapping it for another in the
-  // same session swaps it in the cart too; everything else (shop picks, earlier
-  // sessions) stays until it's bought or cleared at checkout.
+  // Trying on a store item doesn't touch the cart: the player adds it with the + button.
   const wasInCart = useRef(new Set<string>(cart.ids));
   const triedOn = useRef(new Set<string>(resume ? Object.values(resume.equipped).filter((id): id is string => !!id && !owned.has(id)) : []));
-  useEffect(() => {
-    const now = new Set(unowned);
+  const notInCart = unowned.filter((id) => !cart.has(id));
+  const addTriedOn = () => {
+    buzz.tick();
+    for (const id of notInCart) cart.add(id);
+  };
+  // Leaving a category: anything tried on there but not added to the cart comes off
+  // (back to what's saved for that slot, if owned).
+  const dropUncarted = () => {
+    if (!notInCart.length) return;
+    const drop = new Set(notInCart);
+    setEquipped((e) => {
+      let next: Equipped = { ...e };
+      for (const slot of Object.keys(next) as Slot[]) {
+        if (next[slot] && drop.has(next[slot]!)) next[slot] = undefined;
+      }
+      // Put the saved look back in every slot that's now empty, including ones a dropped item
+      // knocked off, unless it would knock off something still worn.
+      for (const [slot, id] of Object.entries(saved.equipped) as [Slot, string | undefined][]) {
+        if (!id || next[slot] || !owned.has(id)) continue;
+        const r = applyEquip(next, slot, id, (x) => byId.get(x));
+        if (!r.removed.length) next = r.equipped;
+      }
+      return next;
+    });
+  };
+  // Takes the worn items out of the cart but keeps them on the character.
+  const removeTriedOn = () => {
+    buzz.tick();
     for (const id of unowned) {
-      if (!cart.has(id)) {
-        cart.add(id);
-        triedOn.current.add(id);
-      }
+      if (!cart.has(id)) continue;
+      wasInCart.current.delete(id);
+      cart.remove(id);
     }
-    for (const id of [...triedOn.current]) {
-      if (!now.has(id)) {
-        cart.remove(id);
-        triedOn.current.delete(id);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unownedKey]);
+  };
   // Checkout gets the whole draft look, to save it once everything in it is bought.
   useEffect(() => {
     if (!touched.current) return;
@@ -258,6 +278,7 @@ export default function CustomizeScreen() {
   const buyAndSave = () => {
     setSaveAsk(false);
     // Checkout saves this whole look (character changes included) once the items are bought.
+    for (const id of unowned) if (!cart.has(id)) cart.add(id);
     cart.setDraft({ avatar, equipped: canon(equipped), from: saved.avatar });
     checkout();
   };
@@ -287,7 +308,10 @@ export default function CustomizeScreen() {
   };
 
   // ── leaving with unsaved changes ─────────────────────────────────────────
-  const allowLeave = usePreventRemove((dirty || cartView.count > 0) && !leaving, ({ data }) => {
+  // A tutorial ending sends the player back where they started: don't stop it with the "leave the shop?" dialog
+  // (what they tried on stays in the cart).
+  const touring = !!useTourState().tour;
+  const allowLeave = usePreventRemove((dirty || cartView.count > 0) && !leaving && !touring, ({ data }) => {
     // Checkout just bought everything and is navigating away: don't stop it.
     if (cart.justCheckedOut()) {
       allowLeave();
@@ -351,6 +375,9 @@ export default function CustomizeScreen() {
   // ── moves & scenes ───────────────────────────────────────────────────────
   const [busyId, setBusyId] = useState<string | null>(null);
   const [play, setPlay] = useState<{ id: string; n: number } | null>(null);
+  // Try before you buy: a tapped scene shows behind the character, a tapped dance plays on it.
+  const [demoBg, setDemoBg] = useState<string | null>(null);
+  const [demoLabel, setDemoLabel] = useState<string | null>(null);
   const [moveNote, setMoveNote] = useState<string | null>(null);
   const moveList = useMemo(
     () => moves.filter((m) => m.forSale || ownedMoves.has(m.id)).sort((a, b) => a.price - b.price),
@@ -360,7 +387,16 @@ export default function CustomizeScreen() {
     () => backgrounds.filter((b) => b.forSale || b.levelReward || ownedBackgrounds.has(b.id)).sort((a, b) => a.price - b.price),
     [backgrounds, ownedBackgrounds]
   );
-  const previewMove = (m: StoreMove) => setPlay((p) => ({ id: m.id, n: (p?.n ?? 0) + 1 }));
+  const previewMove = (m: StoreMove) => {
+    buzz.light();
+    setDemoLabel(ownedMoves.has(m.id) ? m.name : `Preview · ${m.name}`);
+    setPlay((p) => ({ id: m.id, n: (p?.n ?? 0) + 1 }));
+  };
+  const previewBackground = (b: StoreBackground) => {
+    buzz.light();
+    setDemoBg(b.id);
+    setDemoLabel(ownedBackgrounds.has(b.id) ? (b.name ?? null) : `Preview · ${b.name ?? "Scene"}`);
+  };
   const buyMove = async (m: StoreMove) => {
     setBusyId(m.id);
     const ok = await purchaseMove(m.id);
@@ -457,8 +493,18 @@ export default function CustomizeScreen() {
 
       {/* stage */}
       <View style={[styles.stage, { height: stageH, backgroundColor: c.card, borderBottomColor: c.border }]}>
-        <View style={[styles.floor, { backgroundColor: c.secondary }]} />
-        <AvatarDisplay avatar={avatar} equipped={equipped} catalog={byId} size="lg" focus={focus} cheerSignal={cheer} move={play} loadingSpinner />
+        {cat === "scenes" ? (
+          <AvatarBackdrop id={demoBg ?? background} style={StyleSheet.absoluteFill} />
+        ) : (
+          <View style={[styles.floor, { backgroundColor: c.secondary }]} />
+        )}
+        <AvatarDisplay avatar={avatar} equipped={equipped} catalog={byId} size="lg" focus={focus} cheerSignal={cheer} move={play} active={focused} loadingSpinner />
+        {demoLabel && (cat === "scenes" || cat === "moves") ? (
+          <View pointerEvents="none" style={[styles.demoPill, { backgroundColor: c.alpha(c.background, 0.85), borderColor: c.border }]}>
+            <MaterialCommunityIcons name={cat === "scenes" ? "image-filter-hdr" : "music-note"} size={13} color={c.primary} />
+            <Text style={[styles.demoText, { color: c.foreground }]} numberOfLines={1}>{demoLabel}</Text>
+          </View>
+        ) : null}
         {toast ? (
           <Animated.View
             pointerEvents="none"
@@ -500,7 +546,11 @@ export default function CustomizeScreen() {
               accessibilityLabel={x.label}
               onPress={() => {
                 buzz.tick();
+                if (x.id !== cat) dropUncarted();
                 setCat(x.id);
+                setDemoBg(null);
+                setDemoLabel(null);
+                if (x.id === "moves" || x.id === "scenes") tourEvent(`shop:${x.id}`);
               }}
               style={[styles.cat, { backgroundColor: on ? c.primarySoft : "transparent", borderColor: on ? c.primary : "transparent" }]}
             >
@@ -557,7 +607,7 @@ export default function CustomizeScreen() {
         {cat === "moves" && (
           <>
             <Text style={[styles.note, { color: moveNote ? c.warning : c.mutedForeground }]}>
-              {moveNote ?? `${ownedMoves.size} moves owned · ${loadout.length} of ${MAX_LOADOUT} on your dance button`}
+              {moveNote ?? `Tap a move to watch your character do it · ${ownedMoves.size} owned · ${loadout.length} of ${MAX_LOADOUT} on your dance button`}
             </Text>
             {moveList.map((m) => (
               <MoveCard
@@ -578,7 +628,7 @@ export default function CustomizeScreen() {
         {cat === "scenes" && (
           <>
             <Text style={[styles.note, { color: c.mutedForeground }]}>
-              {ownedBackgrounds.size} scenes owned · Level {progress.level}
+              Tap a scene to see it behind your character · {ownedBackgrounds.size} owned · Level {progress.level}
             </Text>
             <View style={styles.sceneGrid}>
               {backgroundList.map((b) => (
@@ -592,7 +642,7 @@ export default function CustomizeScreen() {
                     busy={busyId === b.id}
                     onBuy={() => void buyBackground(b)}
                     onUse={() => void applyBackground(b)}
-                    onPreview={() => (ownedBackgrounds.has(b.id) ? void applyBackground(b) : undefined)}
+                    onPreview={() => previewBackground(b)}
                   />
                 </View>
               ))}
@@ -615,18 +665,34 @@ export default function CustomizeScreen() {
       </ScrollView>
       </TourTarget>
 
-      {cartView.count > 0 ? (
+      {unowned.length > 0 ? (
         <View style={[styles.cartBar, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.5), bottom: insets.bottom + 12 }]}>
-          <MaterialCommunityIcons name="cart" size={18} color={c.primary} />
           <View style={{ flex: 1 }}>
             <Text style={[styles.buyName, { color: c.foreground }]} numberOfLines={1}>
-              {cartView.count} {cartView.count === 1 ? "item" : "items"} in your cart · {cartView.total.toLocaleString()}
+              {notInCart.length
+                ? `Trying on ${notInCart.length} new ${notInCart.length === 1 ? "item" : "items"}`
+                : `${cartView.count} ${cartView.count === 1 ? "item" : "items"} in your cart · ${cartView.total.toLocaleString()}`}
             </Text>
             <Text style={[styles.buySub, { color: balance < cartView.total ? c.negative : c.mutedForeground }]} numberOfLines={1}>
-              {balance < cartView.total ? `You have ${balance.toLocaleString()} credits` : unowned.length ? "Buy them to save this look" : "Ready when you are"}
+              {notInCart.length ? "Tap + to add to your cart" : !cartView.count ? "" : balance < cartView.total ? `You have ${balance.toLocaleString()} credits` : unowned.length ? "Buy them to save this look" : "Ready when you are"}
             </Text>
           </View>
-          <Button label="Checkout" size="sm" onPress={checkout} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={notInCart.length ? "Add to cart" : "Remove from cart"}
+            onPress={notInCart.length ? addTriedOn : removeTriedOn}
+            hitSlop={8}
+            style={[styles.addCart, { backgroundColor: notInCart.length ? c.primary : c.negative }]}
+          >
+            {notInCart.length ? (
+              <>
+                <MaterialCommunityIcons name="plus" size={16} color={c.primaryForeground} />
+                <MaterialCommunityIcons name="cart" size={18} color={c.primaryForeground} />
+              </>
+            ) : (
+              <Text style={styles.removeText}>Remove</Text>
+            )}
+          </Pressable>
         </View>
       ) : null}
 
@@ -779,6 +845,8 @@ const styles = StyleSheet.create({
   title: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold" },
   round: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   stage: { borderBottomWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
+  demoPill: { position: "absolute", top: 10, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1, maxWidth: "80%" },
+  demoText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   floor: { position: "absolute", left: 0, right: 0, bottom: 0, height: "22%" },
   toast: {
     position: "absolute",
@@ -828,6 +896,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
+  addCart: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 14, height: 38, borderRadius: 999 },
+  removeText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
   buyName: { fontSize: 14, fontFamily: "Inter_700Bold" },
   buySub: { fontSize: 12, fontFamily: "Inter_400Regular" },
 });

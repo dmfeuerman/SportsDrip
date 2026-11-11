@@ -29,6 +29,7 @@ export default function RollingNumber({
   downColor = "#FF4D63",
   accessibilityLabel,
   haptics = flash,
+  format,
 }: {
   value: number;
   style?: StyleProp<TextStyle>;
@@ -40,11 +41,13 @@ export default function RollingNumber({
   accessibilityLabel?: string;
   /** Tick-tick-click as the number climbs (increases only). Defaults to `flash`. */
   haptics?: boolean;
+  /** Custom text for the value (e.g. compact 8.5K); defaults to a grouped integer. */
+  format?: (value: number) => string;
 }) {
   const flat = StyleSheet.flatten(style) ?? {};
   const fontSize = flat.fontSize ?? 16;
   const lh = Math.round(fontSize * 1.22);
-  const text = `${prefix}${Math.round(value).toLocaleString()}`;
+  const text = `${prefix}${format ? format(value) : Math.round(value).toLocaleString()}`;
   const chars = text.split("");
 
   const prev = useRef(value);

@@ -601,6 +601,16 @@ export class AvatarRig {
     this.reaction = { t: 0, dur: clip.duration, kind };
   }
 
+  /** Cuts a playing move or reaction short and eases back into the idle. */
+  stopMove() {
+    const a = this.current;
+    if (!a) return;
+    this.current = null;
+    this.reaction = null;
+    a.fadeOut(0.25);
+    this.idle?.reset().fadeIn(0.25).play();
+  }
+
   private playOnce(a: THREE.AnimationAction) {
     const done = (e: { action: THREE.AnimationAction }) => {
       if (e.action !== a) return;

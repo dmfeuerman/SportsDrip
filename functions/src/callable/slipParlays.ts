@@ -28,7 +28,7 @@ export const MAX_SLIP_LEGS = 10;
 /** Combined price cap, so a long ticket can't print the economy. */
 export const MAX_SLIP_ODDS = 250;
 const MIN_STAKE = 10;
-const MAX_STAKE = 100_000;
+const MAX_STAKE = 1_000_000;
 
 type LegStatus = "pending" | "won" | "lost" | "push" | "void";
 interface SlipLeg {

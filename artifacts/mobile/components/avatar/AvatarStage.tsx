@@ -293,7 +293,7 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
         </View>
       ) : null}
       {assets.base && glReady.ready ? (
-        <View style={[styles.fill, loadingSpinner && !complete ? { opacity: 0 } : null]} {...(tapHandlers ?? {})}>
+        <View style={styles.fill} {...(tapHandlers ?? {})}>
         <Canvas
           style={styles.fill}
           frameloop={active ? "always" : "never"}
@@ -524,7 +524,10 @@ function StageScene({
 
   const moveN = move?.n;
   useEffect(() => {
-    if (move) rig.playMove(move.id);
+    if (move) {
+      if (move.id) rig.playMove(move.id);
+      else rig.stopMove();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rig, moveN]);
 

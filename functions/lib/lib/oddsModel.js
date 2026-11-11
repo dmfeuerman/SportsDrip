@@ -1,6 +1,6 @@
 "use strict";
 /**
- * SportDrip model line: our own moneyline for games the feed hasn't priced.
+ * On The House model line: our own moneyline for games the feed hasn't priced.
  *
  * One shared rating per team per sport, stored at ratings/{sport} and updated
  * server-side as results come in, so every user sees the same price.

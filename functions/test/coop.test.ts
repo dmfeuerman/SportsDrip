@@ -24,7 +24,7 @@ test("co-op: only in the treatment arm, counts each win once, grants the reward 
   const { leagueId, code } = await call<{ leagueId: string; code: string }>(createLeague, "ann", {
     idempotencyKey: key(),
     name: "Coop",
-    startingLeagueTokens: 1000,
+    startingLeagueTokens: 10_000,
     duration: "1 Month",
     sports: ["NBA"],
     buyIn: 0,
