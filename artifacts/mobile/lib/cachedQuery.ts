@@ -98,7 +98,7 @@ export function subscribeCached<T extends CachedItem>(
   const list = () => (o.keep ? o.keep([...map.values()]) : [...map.values()]);
   const emit = (fromCache: boolean) => alive && onItems(list(), { fromCache });
   const write = () => {
-    const stored: Stored = { v: o.version, fullAt, cursor, items: list().map(freeze) };
+    const stored: Stored = { v: o.version * 1000 + CACHE_EPOCH, fullAt, cursor, items: list().map(freeze) };
     AsyncStorage.setItem(o.key, JSON.stringify(stored)).catch(() => {});
   };
   const save = () => {
@@ -165,7 +165,7 @@ export function subscribeCached<T extends CachedItem>(
     .then((raw) => {
       if (!alive) return;
       const s = raw ? (JSON.parse(raw) as Stored) : null;
-      if (s && s.v === o.version && Array.isArray(s.items) && Date.now() - s.fullAt < fullEvery) {
+      if (s && s.v === o.version * 1000 + CACHE_EPOCH && Array.isArray(s.items) && Date.now() - s.fullAt < fullEvery) {
         map = new Map((s.items.map(thaw) as T[]).map((d) => [d.id, d]));
         cursor = s.cursor;
         fullAt = s.fullAt;
@@ -266,6 +266,9 @@ export function sharedCached<T extends CachedItem>(opts: CachedQueryOpts<T>) {
 }
 
 /** Wipes every list cached on this phone (sign-out: the next account mustn't see this one's bets). */
+/** Bump to drop every cached list on every phone (e.g. after a server-side migration rewrote old docs). 1: coins x10. */
+const CACHE_EPOCH = 1;
+
 export async function clearCachedQueries(): Promise<void> {
   try {
     const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith("sd.cache."));

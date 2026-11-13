@@ -3,7 +3,7 @@ import { z } from "zod";
 import { applyCreditsMany, db, FieldValue, pairId, requireAuth } from "../lib/economy";
 import { writeNotification } from "../lib/notify";
 import { simpleNotification } from "../lib/notifyModel";
-import { levelFromXp } from "../lib/progression";
+import { playerLevel } from "../lib/progression";
 import { nyDay } from "../lib/streak";
 import { accountAgeOk } from "./gifts";
 
@@ -74,7 +74,7 @@ async function friendPair(tx: Tx, me: string, other: string): Promise<{ meSnap: 
 }
 
 function assertSenderLevel(sender: Snap) {
-  if (levelFromXp(sender.get("xp")) < FRIEND_SEND_LEVEL) {
+  if (playerLevel(sender) < FRIEND_SEND_LEVEL) {
     throw new HttpsError("failed-precondition", `Sending credits unlocks at level ${FRIEND_SEND_LEVEL}.`);
   }
 }

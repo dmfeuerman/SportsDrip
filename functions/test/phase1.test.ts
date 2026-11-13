@@ -79,12 +79,12 @@ test("placeBet refuses an unpriced game and a legacy game with no priced flag, a
 });
 
 test("placeLeagueBet refuses an unpriced game and leaves league tokens alone", async () => {
-  seedUser("ann", 1000);
+  seedUser("ann", 10_000);
   const { leagueId } = await league("ann");
   await addPal(leagueId);
   seedGame("nl", { priced: false });
-  await rejects(call(placeLeagueBet, "ann", { leagueId, gameId: "nl", side: "away", stake: 100, idempotencyKey: key() }), /No line yet/);
-  assert.equal(tokens(leagueId, "ann"), 1000);
+  await rejects(call(placeLeagueBet, "ann", { leagueId, gameId: "nl", side: "away", stake: 1000, idempotencyKey: key() }), /No line yet/);
+  assert.equal(tokens(leagueId, "ann"), 10_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ async function threeInALeague() {
 test("a tail copies the side, bumps the counter once, posts to the feed and notifies the original bettor", async () => {
   const { leagueId, sourceId } = await threeInALeague();
   const res = await call<{ betId: string }>(placeLeagueBet, "bob", {
-    leagueId, gameId: "g", side: "home", stake: 300, idempotencyKey: key(), tailOf: sourceId,
+    leagueId, gameId: "g", side: "home", stake: 3000, idempotencyKey: key(), tailOf: sourceId,
   });
   const mine = leagueBet(leagueId, res.betId);
   assert.equal(mine.tailOf, sourceId);
@@ -133,7 +133,7 @@ test("a tail copies the side, bumps the counter once, posts to the feed and noti
   assert.equal(src.tails, 1);
   assert.equal(src.fades, 0);
   assert.deepEqual(src.followers, { bob: "tail" });
-  assert.equal(tokens(leagueId, "bob"), 700);
+  assert.equal(tokens(leagueId, "bob"), 7000);
 
   const feed = db.read(`leagues/${leagueId}/activity/bet_${res.betId}`)!;
   assert.equal(feed.type, "bet_tailed");
@@ -146,7 +146,7 @@ test("a tail copies the side, bumps the counter once, posts to the feed and noti
   assert.equal(notificationRoute(notes[0] as never), `/league/${leagueId}?tab=bets`);
 
   await rejects(
-    call(placeLeagueBet, "bob", { leagueId, gameId: "g", side: "home", stake: 50, idempotencyKey: key(), tailOf: sourceId }),
+    call(placeLeagueBet, "bob", { leagueId, gameId: "g", side: "home", stake: 500, idempotencyKey: key(), tailOf: sourceId }),
     /already tailed/
   );
   assert.equal(leagueBet(leagueId, sourceId).tails, 1, "a second attempt doesn't count");
@@ -174,29 +174,29 @@ test("a fade must take the other side; tails must take the same one", async () =
 test("you can't follow your own bet, a settled bet, a bet on another game, or both at once", async () => {
   const { leagueId, sourceId } = await threeInALeague();
   await rejects(
-    call(placeLeagueBet, "ann", { leagueId, gameId: "g", side: "home", stake: 100, idempotencyKey: key(), tailOf: sourceId }),
+    call(placeLeagueBet, "ann", { leagueId, gameId: "g", side: "home", stake: 1000, idempotencyKey: key(), tailOf: sourceId }),
     /your own bet/
   );
   seedGame("other");
   await rejects(
-    call(placeLeagueBet, "bob", { leagueId, gameId: "other", side: "home", stake: 100, idempotencyKey: key(), tailOf: sourceId }),
+    call(placeLeagueBet, "bob", { leagueId, gameId: "other", side: "home", stake: 1000, idempotencyKey: key(), tailOf: sourceId }),
     /different game/
   );
   await rejects(
-    call(placeLeagueBet, "bob", { leagueId, gameId: "g", side: "home", stake: 100, idempotencyKey: key(), tailOf: sourceId, fadeOf: sourceId }),
+    call(placeLeagueBet, "bob", { leagueId, gameId: "g", side: "home", stake: 1000, idempotencyKey: key(), tailOf: sourceId, fadeOf: sourceId }),
     /tail or fade, not both/
   );
   await rejects(
-    call(placeLeagueBet, "bob", { leagueId, gameId: "g", side: "home", stake: 100, idempotencyKey: key(), tailOf: "nope" }),
+    call(placeLeagueBet, "bob", { leagueId, gameId: "g", side: "home", stake: 1000, idempotencyKey: key(), tailOf: "nope" }),
     /isn't in this league/
   );
-  assert.equal(tokens(leagueId, "bob"), 1000, "every refusal leaves tokens alone");
+  assert.equal(tokens(leagueId, "bob"), 10_000, "every refusal leaves tokens alone");
 
   finishGame("g", 3, 1);
   await settleLeagueBetsForGame("g");
   seedGame("g", { status: "upcoming" });
   await rejects(
-    call(placeLeagueBet, "bob", { leagueId, gameId: "g", side: "home", stake: 100, idempotencyKey: key(), tailOf: sourceId }),
+    call(placeLeagueBet, "bob", { leagueId, gameId: "g", side: "home", stake: 1000, idempotencyKey: key(), tailOf: sourceId }),
     /already settled/
   );
 });

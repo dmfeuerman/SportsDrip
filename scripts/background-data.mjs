@@ -9,10 +9,12 @@
  *   levelRequired  only buyable at or above this level
  *   levelReward    granted free on reaching this level; still buyable before then
  */
+/** Every listed price is x10 since the coin upgrade (2026-11); the numbers below are the old ones. */
+const PRICE_SCALE = 10;
 const bg = (id, name, price, rarity, description, extra = {}) => ({
   id,
   name,
-  price,
+  price: price * PRICE_SCALE,
   rarity,
   description,
   available: true,

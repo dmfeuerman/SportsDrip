@@ -96,10 +96,10 @@ const TEMPLATES: Template[] = [
     id: "sweat",
     label: "Season Sweat",
     icon: "fire",
-    desc: "A month-long bankroll league: everyone starts with 10K tokens, bets at real odds and can borrow from The House, with a new head-to-head opponent every Monday. Highest net worth takes the 100-credit-a-head pot.",
+    desc: "A month-long bankroll league: everyone starts with 100K tokens, bets at real odds and can borrow from The House, with a new head-to-head opponent every Monday. Highest net worth takes the 1,000-credit-a-head pot.",
     mode: "bankroll",
-    tokens: 10_000,
-    buyIn: 100,
+    tokens: 100_000,
+    buyIn: 1000,
     duration: "1 Month",
     bankLoanEnabled: true,
     matchupsEnabled: true,
@@ -112,7 +112,7 @@ const TEMPLATES: Template[] = [
     icon: "sword-cross",
     desc: "Matchups only: twice a week you're paired with one league-mate, and whoever grows their stack more wins the round. The table goes by W-L record and the last round is a playoff. Free to join.",
     mode: "matchups",
-    tokens: 10_000,
+    tokens: 100_000,
     buyIn: 0,
     duration: "1 Month",
     bankLoanEnabled: false,
@@ -124,10 +124,10 @@ const TEMPLATES: Template[] = [
     id: "season",
     label: "Full Season",
     icon: "calendar-star",
-    desc: "Follows one sport until it crowns a champion (see the end date below). 25K tokens, weekly matchups, and members can vote for The House to pay everyone a stimulus if stacks run dry over the long haul.",
+    desc: "Follows one sport until it crowns a champion (see the end date below). 250K tokens, weekly matchups, and members can vote for The House to pay everyone a stimulus if stacks run dry over the long haul.",
     mode: "bankroll",
-    tokens: 25_000,
-    buyIn: 250,
+    tokens: 250_000,
+    buyIn: 2500,
     duration: "Full Season",
     bankLoanEnabled: true,
     matchupsEnabled: true,
@@ -138,10 +138,10 @@ const TEMPLATES: Template[] = [
     id: "high",
     label: "High Rollers",
     icon: "diamond-stone",
-    desc: "Three months, 50K-token stacks and a 1,000-credit buy-in. Loans from The House and weekly matchups are on — for groups that want big swings and a big pot.",
+    desc: "Three months, 500K-token stacks and a 10,000-credit buy-in. Loans from The House and weekly matchups are on — for groups that want big swings and a big pot.",
     mode: "bankroll",
-    tokens: 50_000,
-    buyIn: 1_000,
+    tokens: 500_000,
+    buyIn: 10_000,
     duration: "3 Months",
     bankLoanEnabled: true,
     matchupsEnabled: true,
@@ -154,7 +154,7 @@ const TEMPLATES: Template[] = [
     icon: "checkbox-marked-circle-outline",
     desc: "No stakes to manage: pick straight-up winners each week, 1 point per correct pick. Most points after a month wins. Free to join.",
     mode: "pickem",
-    tokens: 10_000,
+    tokens: 100_000,
     buyIn: 0,
     duration: "1 Month",
     bankLoanEnabled: false,
@@ -166,10 +166,10 @@ const TEMPLATES: Template[] = [
     id: "survivor",
     label: "Survivor Pool",
     icon: "skull-outline",
-    desc: "Pick one team to win each week and never the same team twice. Lose — or miss a week — and you're out. Last one standing takes the 250-credit-a-head pot.",
+    desc: "Pick one team to win each week and never the same team twice. Lose — or miss a week — and you're out. Last one standing takes the 2,500-credit-a-head pot.",
     mode: "survivor",
-    tokens: 10_000,
-    buyIn: 250,
+    tokens: 100_000,
+    buyIn: 2500,
     duration: "3 Months",
     bankLoanEnabled: false,
     matchupsEnabled: false,
@@ -213,7 +213,7 @@ export default function CreateLeagueModal({
   const [matchupsEnabled, setMatchupsEnabled] = useState(true);
   const [matchupCadence, setMatchupCadence] = useState<MatchupCadence>("weekly");
   const [stimulusEnabled, setStimulusEnabled] = useState(false);
-  const [startingLeagueTokens, setStartingLeagueTokens] = useState(10_000);
+  const [startingLeagueTokens, setStartingLeagueTokens] = useState(100_000);
   const [duration, setDuration] = useState<LeagueDuration>(DEFAULT_DURATION);
   const [sports, setSports] = useState<Sport[]>([...SPORT_OPTIONS]);
   const [startNow, setStartNow] = useState(false);
@@ -323,7 +323,7 @@ export default function CreateLeagueModal({
     setMatchupsEnabled(true);
     setMatchupCadence("weekly");
     setStimulusEnabled(false);
-    setStartingLeagueTokens(10_000);
+    setStartingLeagueTokens(100_000);
     setDuration("1 Month");
     setSports([...SPORT_OPTIONS]);
     setStartNow(false);

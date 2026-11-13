@@ -484,8 +484,8 @@ export const SPORT_ICONS: Record<Sport, string> = {
 };
 
 /** Must match functions/src/lib/leagueConfig.ts. */
-export const BUY_IN_OPTIONS = [0, 100, 250, 500, 1_000];
-export const TOKEN_START_OPTIONS = [1_000, 5_000, 10_000, 25_000, 50_000];
+export const BUY_IN_OPTIONS = [0, 1_000, 2_500, 5_000, 10_000];
+export const TOKEN_START_OPTIONS = [10_000, 50_000, 100_000, 250_000, 500_000];
 export const BANK_PRINCIPAL_CAP_MULTIPLIER = 1;
 export const PEER_LOAN_MAX_PCT = 0.5;
 export const MIN_LEAGUE_STAKE = 10;

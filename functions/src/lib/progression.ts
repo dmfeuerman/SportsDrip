@@ -25,6 +25,19 @@ export function totalXpForLevel(level: number): number {
   return 150 * n + 50 * n * l;
 }
 
+/**
+ * The level a player is at. Levels follow XP directly; the stored
+ * `users/{uid}.level` (kept by lib/xp.ts) can briefly sit below what the XP
+ * would give on accounts from the old challenge-gated system — it catches up
+ * (paying each crossed level's credit bonus) on their next XP grant. Never
+ * above it; missing on very old profiles, where XP decides.
+ */
+export function playerLevel(user: { get(field: string): unknown }): number {
+  const fromXp = levelFromXp(user.get("xp"));
+  const stored = user.get("level");
+  return typeof stored === "number" && Number.isFinite(stored) && stored >= 1 ? Math.min(Math.floor(stored), fromXp) : fromXp;
+}
+
 export function levelFromXp(xp: unknown): number {
   const v = typeof xp === "number" && Number.isFinite(xp) && xp > 0 ? xp : 0;
   let lo = 1;
@@ -47,20 +60,24 @@ export interface LevelProgress {
   /** 0–1 through the current level (1 at max). */
   pct: number;
   maxed: boolean;
+  /** Stored level still catching up to the XP (legacy challenge-gated accounts). */
+  blocked: boolean;
 }
 
-export function progressOf(xp: unknown): LevelProgress {
+/** `level`: the stored (challenge-gated) level, if known; the XP bar stops full while it's behind. */
+export function progressOf(xp: unknown, level?: number): LevelProgress {
   const v = typeof xp === "number" && Number.isFinite(xp) && xp > 0 ? Math.floor(xp) : 0;
-  const level = levelFromXp(v);
-  const maxed = level >= MAX_LEVEL;
-  const needed = xpForNext(level);
-  const into = v - totalXpForLevel(level);
-  return { level, xp: v, into: maxed ? 0 : into, needed, pct: maxed ? 1 : Math.min(1, into / needed), maxed };
+  const fromXp = levelFromXp(v);
+  const lv = typeof level === "number" && Number.isFinite(level) && level >= 1 ? Math.min(Math.floor(level), fromXp) : fromXp;
+  const maxed = lv >= MAX_LEVEL;
+  const needed = xpForNext(lv);
+  const into = Math.min(needed, v - totalXpForLevel(lv));
+  return { level: lv, xp: v, into: maxed ? 0 : into, needed, pct: maxed ? 1 : Math.min(1, into / needed), maxed, blocked: lv < fromXp };
 }
 
-/** Credits paid on reaching `level`. */
+/** Cash bonus paid into the wallet on reaching `level`. */
 export function levelUpCredits(level: number): number {
-  return level <= 1 ? 0 : 500 * level;
+  return level <= 1 ? 0 : 1000 * level;
 }
 
 export const XP = {

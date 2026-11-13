@@ -114,3 +114,11 @@ Manual probes that must succeed:
 - **Notifications** (§26). Nothing implemented. FCM triggered from `onGameFinal` and `respondFriendRequest` is the natural fit — both already exist as the right hook points.
 - **Leaderboards, streaks, achievements** (§25, §31). `users/{uid}.stats` is now maintained server-side, which is the data these need, but there are no screens.
 - **Tests.** The repo has none and this pass adds none beyond the rules-emulator command above. Now that the economy *is* the security boundary, `functions/src` needs unit tests before launch — the idempotency and negative-balance paths especially.
+
+## 2026-11-13 — Results clarity, trophy celebrations, ungated levels
+
+- **Result popup shows the bet**: new slip block (market · pick label · matchup · final score · odds) on win/loss popups; recap rows show the pick label too. `AppNotification.bet` now carries `market/selection/line/label` (the server already wrote them).
+- **Trophy celebration**: `TrophyCelebrationHost` — a level-up-style takeover (god rays, confetti, the TrophyArt piece slamming in) for freshly earned achievements; queues behind results/level-ups (`OVERLAY.trophy`), marks the notification read on dismiss.
+- **Challenges no longer gate levels**: XP alone levels you up (`gatedLevel` ungated, `xp.ts` follows XP directly, multi-level catch-up pays each crossed level's credits). Challenges stay as per-level bonus-XP sets, claimed ones still shown as done; pool extended with level 16/25/40 tiers so sets never run dry. Copy updated on Levels + challenge card; tests rewritten.
+- **Level cash bonus** raised to 1,000 × level (was 500 ×) and surfaced on the Levels hero ("Level N pays +X credits").
+- **Clothing prices**: `demoCatalog` was never ×10'd in the coin upgrade — now scaled like the seed data. Rebalance: entry commons 900/950 → 750 (first purchase on day-one 10,000 balance), gold shades 35,000 → 38,000. Re-run `node scripts/seed-catalog.mjs` to push prices to Firestore.

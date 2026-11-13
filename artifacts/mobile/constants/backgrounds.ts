@@ -27,6 +27,8 @@ export interface BackgroundInfo {
 export const FREE_BACKGROUNDS = ["locker_room"] as const;
 export const DEFAULT_BACKGROUND = "locker_room";
 
+/** Every listed price is x10 since the coin upgrade (2026-11); the numbers below are the old ones. */
+const PRICE_SCALE = 10;
 const bg = (
   id: string,
   name: string,
@@ -34,7 +36,7 @@ const bg = (
   rarity: BackgroundRarity,
   description: string,
   extra: Partial<Pick<BackgroundInfo, "levelRequired" | "levelReward">> = {}
-): BackgroundInfo => ({ id, name, price, rarity, description, levelRequired: null, levelReward: null, ...extra });
+): BackgroundInfo => ({ id, name, price: price * PRICE_SCALE, rarity, description, levelRequired: null, levelReward: null, ...extra });
 
 export const BACKGROUND_LIBRARY: BackgroundInfo[] = [
   bg("locker_room", "Locker Room", 0, "common", "Where every career starts."),

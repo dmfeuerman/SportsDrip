@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { applyCredits, db, FieldValue, requireAuth } from "../lib/economy";
 import { equipOne } from "./avatar";
-import { levelFromXp } from "../lib/progression";
+import { playerLevel } from "../lib/progression";
 import { windowError, windowState } from "../lib/storeWindow";
 import { assignArm, CONTROL, EXPERIMENTS, type ExperimentsDoc } from "../lib/experiments";
 
@@ -19,10 +19,10 @@ export type Slot = (typeof SLOTS)[number];
 
 /**
  * Shared sale checks for purchase and gifting: time window, level rules, price.
- * `xp` is the level-gated party's xp (the buyer; for gifts, the recipient).
+ * `user` is the level-gated party (the buyer; for gifts, the recipient).
  * Returns the server price.
  */
-export function assertSellable(item: FirebaseFirestore.DocumentSnapshot, xp: unknown, now: number, rotationArm: string = CONTROL): number {
+export function assertSellable(item: FirebaseFirestore.DocumentSnapshot, user: { get(field: string): unknown }, now: number, rotationArm: string = CONTROL): number {
   const data = item.data() ?? {};
   // shop_rotation_v1: control / holdout keep the static shop (rotating items always
   // on sale, windows ignored) so the rotation's retention lift is measured.
@@ -36,7 +36,7 @@ export function assertSellable(item: FirebaseFirestore.DocumentSnapshot, xp: unk
     throw new HttpsError("failed-precondition", `Not for sale — unlocked by reaching level ${reward}.`);
   }
   const required = (item.get("levelRequired") as number | null | undefined) ?? 0;
-  if (required > levelFromXp(xp)) {
+  if (required > playerLevel(user)) {
     throw new HttpsError("failed-precondition", `Reach level ${required} to buy this.`);
   }
 
@@ -79,7 +79,7 @@ export const purchaseItem = onCall({ region: "us-central1" }, async (req) => {
 
     if (!item.exists) throw new HttpsError("not-found", "That item isn't in the store.");
     if (owned.exists) throw new HttpsError("already-exists", "You already own this.");
-    const price = assertSellable(item, user.get("xp"), Date.now(), await rotationArmFor(tx, uid));
+    const price = assertSellable(item, user, Date.now(), await rotationArmFor(tx, uid));
 
     const balance = await applyCredits(tx, uid, {
       delta: -price,

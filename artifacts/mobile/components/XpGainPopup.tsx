@@ -211,10 +211,10 @@ export default function XpGainHost() {
   };
 
   if (!gain || !myTurn) return null;
-  return <XpGain from={gain.from} to={gain.to} reason={gain.reason} onClose={close} />;
+  return <XpGain from={gain.from} to={gain.to} level={profile?.level} reason={gain.reason} onClose={close} />;
 }
 
-export function XpGain({ from, to, reason, onClose }: { from: number; to: number; reason?: XpReasonInfo; onClose: () => void }) {
+export function XpGain({ from, to, level, reason, onClose }: { from: number; to: number; level?: number; reason?: XpReasonInfo; onClose: () => void }) {
   const c = useColors();
   const reduced = useReducedMotion();
   const gained = to - from;
@@ -228,10 +228,10 @@ export function XpGain({ from, to, reason, onClose }: { from: number; to: number
     for (let i = 0; i <= STEPS; i++) {
       const v = Math.round(from + (gained * i) / STEPS);
       inRange.push(i / STEPS);
-      pcts.push(progressOf(v).pct);
+      pcts.push(progressOf(v, level).pct);
     }
     return { inRange, pcts };
-  }, [from, gained]);
+  }, [from, gained, level]);
 
   const t = useSharedValue(reduced ? 1 : 0);
   const [shownXp, setShownXp] = useState(reduced ? to : from);
@@ -264,8 +264,8 @@ export function XpGain({ from, to, reason, onClose }: { from: number; to: number
 
   const barStyle = useAnimatedStyle(() => ({ width: `${interpolate(t.value, inRange, pcts) * 100}%` }));
 
-  const p = progressOf(shownXp);
-  const crossed = levelFromXp(to) > levelFromXp(from);
+  const p = progressOf(shownXp, level);
+  const crossed = progressOf(to, level).level > progressOf(from, level).level;
   const coins = useMemo(
     () => Array.from({ length: COINS }, (_, i) => ({ x: (Math.random() - 0.5) * 280, y: -170 - Math.random() * 130, delay: 380 + i * 70 })),
     []

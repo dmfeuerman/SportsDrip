@@ -8,7 +8,9 @@
  *
  * Fields: name, description, price, rarity, available, releaseAt (epoch ms).
  */
-const move = (id, name, price, rarity, description) => ({ id, name, price, rarity, description, available: true, releaseAt: null });
+/** Every listed price is x10 since the coin upgrade (2026-11); the numbers below are the old ones. */
+const PRICE_SCALE = 10;
+const move = (id, name, price, rarity, description) => ({ id, name, price: price * PRICE_SCALE, rarity, description, available: true, releaseAt: null });
 
 export const MOVES = [
   move("two_step", "Two-Step", 1500, "common", "Step, touch, step, touch — loose arms, easy groove."),

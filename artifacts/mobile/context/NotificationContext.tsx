@@ -95,7 +95,13 @@ export interface AppNotification {
     betId: string;
     gameId: string;
     sport: string | null;
-    side: "home" | "away";
+    side: "home" | "away" | null;
+    /** What was bet (server notifyModel.ts BetSummary): older docs may lack these. */
+    market?: "ml" | "spread" | "total";
+    selection?: "home" | "away" | "over" | "under";
+    line?: number | null;
+    /** Pick as written on the slip, e.g. "LAL -3.5" or "Over 224.5". */
+    label?: string;
     teamName: string;
     teamAbbr: string;
     teamColor: string;

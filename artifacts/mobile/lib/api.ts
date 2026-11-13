@@ -124,7 +124,7 @@ export const getWeeklyQuests = (args: Record<string, never>) =>
 export const claimSeasonTier = callable<{ seasonId: string; tier: number }, { ok: true; duplicate?: boolean }>("claimSeasonTier");
 export const claimQuest = callable<{ questId: string }, { ok: true; xp: number; level: number }>("claimQuest");
 
-/** XP challenges that scale with level; unfinished ones stay until claimed. */
+/** This level's XP challenges: all must be claimed to reach the next level. */
 export interface LevelChallenge {
   id: string;
   title: string;
@@ -134,6 +134,8 @@ export interface LevelChallenge {
   minLevel: number;
   explore: boolean;
   progress: number;
+  /** Claimed: shown done (greyed) until the next level deals a new set. */
+  claimed?: boolean;
 }
 export const getLevelChallenges = callable<Record<string, never>, { level: number; challenges: LevelChallenge[] }>("getLevelChallenges");
 export const claimLevelChallenge = callable<{ id: string }, { ok: true; xp: number; level: number }>("claimLevelChallenge");
@@ -391,7 +393,7 @@ export const giftItem = callable<
 // ── friends: credits and loans outside leagues (functions/src/callable/friendMoney.ts) ──
 export const FRIEND_SEND_MIN = 10;
 export const FRIEND_SEND_MAX = 5_000;
-export const FRIEND_DAILY_SEND_CAP = 10_000;
+export const FRIEND_DAILY_SEND_CAP = 100_000;
 export const FRIEND_LOAN_RATES = [0, 5, 10, 20] as const;
 export const FRIEND_SEND_LEVEL = 5;
 export const loanOwed = (amount: number, pct: number) => amount + Math.round((amount * pct) / 100);

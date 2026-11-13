@@ -1,10 +1,11 @@
 import { XP } from "./progression";
 /**
- * XP challenges that scale with level. A player always has CHALLENGE_SLOTS
- * active; an unfinished challenge stays until it's claimed (levelling up never
- * removes one), and a claimed one is replaced by the next from the pool.
- * Replacements prefer "explore" challenges (learn the app), then the hardest
- * tier the player's level has unlocked.
+ * XP challenges that scale with level. Reaching a level deals that level's set
+ * (up to CHALLENGE_SLOTS). A claimed challenge stays in the set (shown as done)
+ * and isn't replaced. Challenges are bonus XP, never a gate: XP alone moves
+ * the player up, and each new level deals a fresh set. Sets prefer "explore"
+ * challenges (learn the app), then the hardest tier the player's level has
+ * unlocked.
  */
 
 export type ChallengeMetric =
@@ -96,19 +97,53 @@ export const CHALLENGE_POOL: ChallengeDef[] = [
   { id: "l12_friends", minLevel: 12, metric: "friends", target: 8, xp: 180, title: "Have 8 friends", to: "/(tabs)/leagues?seg=friends" },
   { id: "l12_items", minLevel: 12, metric: "items", target: 20, xp: 180, title: "Own 20 Drip Shop items", to: "/customize?category=hat" },
 
+  // Level 16+
+  { id: "l16_wins", minLevel: 16, metric: "wins", target: 60, xp: 300, title: "Win 60 bets", to: "/(tabs)/games" },
+  { id: "l16_freebets", minLevel: 16, metric: "freeBets", target: 30, xp: 250, title: "Use 30 Daily Free Bets", to: "/(tabs)" },
+  { id: "l16_moves", minLevel: 16, metric: "moves", target: 4, xp: 220, title: "Own 4 dance moves", to: "/customize?category=moves" },
+
   // Level 20+
   { id: "l20_bets", minLevel: 20, metric: "bets", target: 250, xp: 350, title: "Place 250 bets", to: "/(tabs)/games" },
   { id: "l20_wins", minLevel: 20, metric: "wins", target: 100, xp: 400, title: "Win 100 bets", to: "/(tabs)/games" },
   { id: "l20_parlays", minLevel: 20, metric: "parlays", target: 30, xp: 350, title: "Place 30 parlays", to: "/(tabs)/games" },
   { id: "l20_freebets", minLevel: 20, metric: "freeBets", target: 60, xp: 350, title: "Use 60 Daily Free Bets", to: "/(tabs)" },
 
+  // Level 25+
+  { id: "l25_bets", minLevel: 25, metric: "bets", target: 400, xp: 450, title: "Place 400 bets", to: "/(tabs)/games" },
+  { id: "l25_leagues", minLevel: 25, metric: "leagues", target: 3, xp: 400, title: "Play in 3 leagues", to: "/(tabs)/leagues" },
+  { id: "l25_friends", minLevel: 25, metric: "friends", target: 15, xp: 400, title: "Have 15 friends", to: "/(tabs)/leagues?seg=friends" },
+
   // Level 30+
   { id: "l30_bets", minLevel: 30, metric: "bets", target: 600, xp: 600, title: "Place 600 bets", to: "/(tabs)/games" },
   { id: "l30_wins", minLevel: 30, metric: "wins", target: 250, xp: 700, title: "Win 250 bets", to: "/(tabs)/games" },
   { id: "l30_items", minLevel: 30, metric: "items", target: 40, xp: 500, title: "Own 40 Drip Shop items", to: "/customize?category=hat" },
+
+  // Level 40+
+  { id: "l40_bets", minLevel: 40, metric: "bets", target: 1000, xp: 900, title: "Place 1,000 bets", to: "/(tabs)/games" },
+  { id: "l40_wins", minLevel: 40, metric: "wins", target: 400, xp: 1000, title: "Win 400 bets", to: "/(tabs)/games" },
+  { id: "l40_parlays", minLevel: 40, metric: "parlays", target: 75, xp: 900, title: "Place 75 parlays", to: "/(tabs)/games" },
+  { id: "l40_items", minLevel: 40, metric: "items", target: 60, xp: 800, title: "Own 60 Drip Shop items", to: "/customize?category=hat" },
 ];
 
 const byId = new Map(CHALLENGE_POOL.map((c) => [c.id, c]));
+
+/** The set dealt on reaching `level`: unclaimed challenges only, never two on one metric. */
+export function dealLevelSet(claimed: Record<string, boolean>, level: number): string[] {
+  return dealChallenges([], claimed, level);
+}
+
+/** Every challenge in the level's set is claimed (an empty set counts as done). Display only — never gates. */
+export function levelSetComplete(active: readonly string[], claimed: Record<string, boolean>): boolean {
+  return active.every((id) => !byId.has(id) || !!claimed[id]);
+}
+
+/**
+ * The level after an XP change: whatever the XP allows. Challenges don't gate
+ * levelling (they're optional bonus XP). Never down.
+ */
+export function gatedLevel(xpLevel: number, current: number, _setDone?: boolean): number {
+  return Math.max(current, xpLevel);
+}
 export const challengeById = (id: string) => byId.get(id);
 
 /**

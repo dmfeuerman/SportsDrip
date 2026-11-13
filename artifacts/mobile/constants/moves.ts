@@ -41,16 +41,16 @@ export const MAX_LOADOUT = 4;
 export const MOVE_LIBRARY: MoveInfo[] = [
   { id: "cheer", name: "Cheer", description: "Both arms up. The classic.", icon: "human-handsup", rarity: "common", price: 0, seconds: 1.7 },
   { id: "fist_pump", name: "Fist Pump", description: "A hop, arms in a V, then three big pumps.", icon: "arm-flex", rarity: "common", price: 0, seconds: 2.7 },
-  { id: "two_step", name: "Two-Step", description: "Step, touch, step, touch — loose arms, easy groove.", icon: "shoe-sneaker", rarity: "common", price: 1500, seconds: 6 },
-  { id: "hype_clap", name: "Hype Clap", description: "Bounce and clap, then take it over your head.", icon: "hand-clap", rarity: "common", price: 1800, seconds: 5 },
-  { id: "shoulder_shimmy", name: "Shoulder Shimmy", description: "Low stance, fists up, shoulders popping on the beat.", icon: "music", rarity: "uncommon", price: 3200, seconds: 4.6 },
-  { id: "raise_the_roof", name: "Raise the Roof", description: "Palms up and push it — every beat.", icon: "home-roof", rarity: "uncommon", price: 3800, seconds: 4.8 },
-  { id: "the_dab", name: "The Dab", description: "Two bounces, hit it right, switch, hit it left.", icon: "lightning-bolt", rarity: "uncommon", price: 4500, seconds: 4.4 },
-  { id: "sprinkler", name: "The Sprinkler", description: "Hand behind the head, tick-tick-tick across, sweep back.", icon: "sprinkler", rarity: "rare", price: 7500, seconds: 3.9 },
-  { id: "disco_point", name: "Disco Point", description: "Point to the sky, point to the floor, hips on the beat.", icon: "star-four-points", rarity: "rare", price: 8500, seconds: 5 },
-  { id: "the_robot", name: "The Robot", description: "Locked joints, hard stops, a little mechanical ring.", icon: "robot", rarity: "epic", price: 16000, seconds: 4.8 },
-  { id: "the_floss", name: "The Floss", description: "Arms swinging front and back, hips the other way.", icon: "swap-horizontal", rarity: "epic", price: 18000, seconds: 4.6 },
-  { id: "champion_spin", name: "Champion Spin", description: "Wind up, jump into a full turn, land it, point to the sky.", icon: "trophy", rarity: "legendary", price: 40000, seconds: 4.4 },
+  { id: "two_step", name: "Two-Step", description: "Step, touch, step, touch — loose arms, easy groove.", icon: "shoe-sneaker", rarity: "common", price: 15000, seconds: 6 },
+  { id: "hype_clap", name: "Hype Clap", description: "Bounce and clap, then take it over your head.", icon: "hand-clap", rarity: "common", price: 18000, seconds: 5 },
+  { id: "shoulder_shimmy", name: "Shoulder Shimmy", description: "Low stance, fists up, shoulders popping on the beat.", icon: "music", rarity: "uncommon", price: 32000, seconds: 4.6 },
+  { id: "raise_the_roof", name: "Raise the Roof", description: "Palms up and push it — every beat.", icon: "home-roof", rarity: "uncommon", price: 38000, seconds: 4.8 },
+  { id: "the_dab", name: "The Dab", description: "Two bounces, hit it right, switch, hit it left.", icon: "lightning-bolt", rarity: "uncommon", price: 45000, seconds: 4.4 },
+  { id: "sprinkler", name: "The Sprinkler", description: "Hand behind the head, tick-tick-tick across, sweep back.", icon: "sprinkler", rarity: "rare", price: 75000, seconds: 3.9 },
+  { id: "disco_point", name: "Disco Point", description: "Point to the sky, point to the floor, hips on the beat.", icon: "star-four-points", rarity: "rare", price: 85000, seconds: 5 },
+  { id: "the_robot", name: "The Robot", description: "Locked joints, hard stops, a little mechanical ring.", icon: "robot", rarity: "epic", price: 160000, seconds: 4.8 },
+  { id: "the_floss", name: "The Floss", description: "Arms swinging front and back, hips the other way.", icon: "swap-horizontal", rarity: "epic", price: 180000, seconds: 4.6 },
+  { id: "champion_spin", name: "Champion Spin", description: "Wind up, jump into a full turn, land it, point to the sky.", icon: "trophy", rarity: "legendary", price: 400000, seconds: 4.4 },
 ];
 
 export const MOVES_BY_ID = new Map(MOVE_LIBRARY.map((m) => [m.id, m]));

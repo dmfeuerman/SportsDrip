@@ -19,7 +19,7 @@ import { formatOdds, kickoffLabel } from "@/lib/odds";
 import { useOddsFormat } from "@/lib/settings";
 import { tourEvent, tourPractice } from "@/lib/tour/store";
 
-const QUICK = [25, 50, 100, 250];
+const QUICK = [250, 500, 1000, 2500];
 const MIN_STAKE = 10;
 const MARKET_NAME: Record<SlipLeg["market"], string> = { ml: "Moneyline", spread: "Spread", total: "Total" };
 

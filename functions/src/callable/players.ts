@@ -3,7 +3,7 @@ import { isValidTz } from "../lib/pushBudget";
 import { z } from "zod";
 import { db, FieldValue, pairId, requireAuth, Timestamp } from "../lib/economy";
 import { isFreeMove, loadoutOf } from "../lib/moves";
-import { levelFromXp } from "../lib/progression";
+import { playerLevel } from "../lib/progression";
 
 /**
  * Player profiles: what a tapped league card or friend row opens.
@@ -176,7 +176,7 @@ export const getPlayerProfile = onCall({ region: "us-central1" }, async (req) =>
         loadoutOf(user.get("moves")).filter((id) => isFreeMove(id) || ownedMovesSnap.docs.some((d) => d.id === id))
       ),
       favoriteTeams: user.get("favoriteTeams") ?? [],
-      level: levelFromXp(user.get("xp")),
+      level: playerLevel(user),
       background: (user.get("background") as string | undefined) ?? null,
       stats: user.get("stats") ?? null,
       streak: user.get("streak") ?? null,

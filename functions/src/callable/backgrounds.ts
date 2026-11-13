@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { applyCredits, db, FieldValue, requireAuth } from "../lib/economy";
 import { BACKGROUND_ID_RE, DEFAULT_BACKGROUND, isFreeBackground } from "../lib/backgrounds";
-import { levelFromXp } from "../lib/progression";
+import { playerLevel } from "../lib/progression";
 
 const BackgroundId = z.string().regex(BACKGROUND_ID_RE, "Unknown background.");
 
@@ -33,7 +33,7 @@ export const purchaseBackground = onCall({ region: "us-central1" }, async (req) 
     if (releaseAt && releaseAt > Date.now()) throw new HttpsError("failed-precondition", "That background hasn't dropped yet.");
     // Level-reward scenes are granted free on reaching that level, and can be bought before then.
     const required = (listing.get("levelRequired") as number | null | undefined) ?? 0;
-    if (required > levelFromXp(user.get("xp"))) {
+    if (required > playerLevel(user)) {
       throw new HttpsError("failed-precondition", `Reach level ${required} to buy this background.`);
     }
     const price = listing.get("price") as number;

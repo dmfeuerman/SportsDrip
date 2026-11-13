@@ -168,23 +168,23 @@ const tokens = (id: string, uid: string) => (league(id).members as Record<string
 const loansOf = (id: string) => db.list(`leagues/${id}/loans/`).map((d) => d.data);
 
 test("create and join charge the buy-in once, build the pot, and reject double-joins", async () => {
-  seedUser("ann", 1000);
-  seedUser("ben", 1000);
+  seedUser("ann", 10_000);
+  seedUser("ben", 10_000);
   const { leagueId, code } = await makeLeague("ann");
-  assert.equal(balance("ann"), 900);
+  assert.equal(balance("ann"), 9000);
   await Promise.all([call(joinLeague, "ben", { code }), call(joinLeague, "ben", { code })]);
-  assert.equal(balance("ben"), 900);
+  assert.equal(balance("ben"), 9000);
   const l = league(leagueId);
-  assert.equal(l.pot, 200);
+  assert.equal(l.pot, 2000);
   assert.deepEqual((l.memberIds as string[]).sort(), ["ann", "ben"]);
-  assert.equal(tokens(leagueId, "ben"), 1000);
+  assert.equal(tokens(leagueId, "ben"), 10_000);
   await rejects(call(joinLeague, "ben", { code: "ZZZZZZ" }), /No league with that code/);
 });
 
 test("scheduled start: at least a day out, joins only before it, betting only after; full season is one sport", async () => {
-  seedUser("ann", 1000);
-  seedUser("ben", 1000);
-  seedUser("cat", 1000);
+  seedUser("ann", 10_000);
+  seedUser("ben", 10_000);
+  seedUser("cat", 10_000);
   const t0 = Date.now();
   await rejects(makeLeague("ann", { startNow: false, startsAt: t0 + 3_600_000 }), /at least a day from now/);
   await rejects(makeLeague("ann", { duration: "Full Season", sports: ["NBA", "NFL"] }), /covers one sport/);
@@ -196,7 +196,7 @@ test("scheduled start: at least a day out, joins only before it, betting only af
   await call(realJoin, "ben", { code });
   seedGame("g_pre", { startsAt: t0 + 3 * 86_400_000 });
   await rejects(
-    call(placeLeagueBet, "ben", { leagueId, gameId: "g_pre", side: "home", stake: 50, idempotencyKey: key() }),
+    call(placeLeagueBet, "ben", { leagueId, gameId: "g_pre", side: "home", stake: 500, idempotencyKey: key() }),
     /starts .* Betting opens then/
   );
 
@@ -206,7 +206,7 @@ test("scheduled start: at least a day out, joins only before it, betting only af
   // Start Now with nobody else in: it waits, still joinable, and the second player starts it.
   clock.set(t0);
   const now = await makeLeague("cat", { startNow: true });
-  await rejects(call(placeLeagueBet, "cat", { leagueId: now.leagueId, gameId: "g_pre", side: "home", stake: 50, idempotencyKey: key() }), /at least 2 players/);
+  await rejects(call(placeLeagueBet, "cat", { leagueId: now.leagueId, gameId: "g_pre", side: "home", stake: 500, idempotencyKey: key() }), /at least 2 players/);
   clock.set(t0 + 3 * 86_400_000);
   await call(realJoin, "ann", { code: now.code });
   const started = league(now.leagueId);
@@ -216,11 +216,11 @@ test("scheduled start: at least a day out, joins only before it, betting only af
 });
 
 test("a scheduled league nobody joins by its start date is cancelled and refunded", async () => {
-  seedUser("ann", 1000);
-  seedUser("ben", 1000);
+  seedUser("ann", 10_000);
+  seedUser("ben", 10_000);
   const t0 = Date.now();
   const { leagueId, code } = await makeLeague("ann", { startNow: false, startsAt: t0 + 2 * 86_400_000 });
-  assert.equal(await balance("ann"), 900);
+  assert.equal(await balance("ann"), 9000);
   await sweepLeagues(t0 + 86_400_000);
   assert.equal(league(leagueId).status, "active", "not before the start date");
 
@@ -230,9 +230,9 @@ test("a scheduled league nobody joins by its start date is cancelled and refunde
   const l = league(leagueId);
   assert.equal(l.status, "ended");
   assert.equal(l.cancelled, true);
-  assert.equal(await balance("ann"), 1000, "buy-in refunded");
+  assert.equal(await balance("ann"), 10_000, "buy-in refunded");
   await sweepLeagues(Date.now() + 3_600_000);
-  assert.equal(await balance("ann"), 1000, "refunded once");
+  assert.equal(await balance("ann"), 10_000, "refunded once");
 });
 
 test("a scheduled league with a second player by its start date is not cancelled", async () => {
@@ -247,46 +247,46 @@ test("a scheduled league with a second player by its start date is not cancelled
 });
 
 test("league bets debit league tokens only, respect allowed sports, and settle exactly once", async () => {
-  seedUser("ann", 1000);
+  seedUser("ann", 10_000);
   const { leagueId } = await makeLeague("ann");
   await addPal(leagueId);
   seedGame("nba1");
   seedGame("mlb1", { sport: "MLB" });
   await rejects(
-    call(placeLeagueBet, "ann", { leagueId, gameId: "mlb1", side: "home", stake: 100, idempotencyKey: key() }),
+    call(placeLeagueBet, "ann", { leagueId, gameId: "mlb1", side: "home", stake: 1000, idempotencyKey: key() }),
     /MLB isn't part of this league/
   );
-  await call(placeLeagueBet, "ann", { leagueId, gameId: "nba1", side: "away", stake: 400, idempotencyKey: key() });
-  assert.equal(tokens(leagueId, "ann"), 600);
-  assert.equal(balance("ann"), 900, "real credits untouched");
+  await call(placeLeagueBet, "ann", { leagueId, gameId: "nba1", side: "away", stake: 4000, idempotencyKey: key() });
+  assert.equal(tokens(leagueId, "ann"), 6000);
+  assert.equal(balance("ann"), 9000, "real credits untouched");
   await rejects(
-    call(placeLeagueBet, "ann", { leagueId, gameId: "nba1", side: "away", stake: 700, idempotencyKey: key() }),
+    call(placeLeagueBet, "ann", { leagueId, gameId: "nba1", side: "away", stake: 7000, idempotencyKey: key() }),
     /Not enough league tokens/
   );
 
   finishGame("nba1", 99, 100);
   const n = await Promise.all([settleLeagueBetsForGame("nba1"), settleLeagueBetsForGame("nba1")]);
   assert.equal(n[0] + n[1], 1);
-  assert.equal(tokens(leagueId, "ann"), 600 + 840);
+  assert.equal(tokens(leagueId, "ann"), 6000 + 8400);
   const notes = notifications("ann").filter((x) => x.wallet === "league");
   assert.equal(notes.length, 1);
-  assert.equal(notes[0]!.balanceAfter, 1440);
+  assert.equal(notes[0]!.balanceAfter, 14_400);
   assert.equal(notes[0]!.leagueName, "Office");
 });
 
 test("one user in two leagues: bets on the same game settle into the right league", async () => {
-  seedUser("ann", 2000);
+  seedUser("ann", 20_000);
   const a = await makeLeague("ann", { name: "A" });
   const b = await makeLeague("ann", { name: "B" });
   await addPal(a.leagueId);
   await addPal(b.leagueId);
   seedGame("g");
-  await call(placeLeagueBet, "ann", { leagueId: a.leagueId, gameId: "g", side: "home", stake: 100, idempotencyKey: key() });
-  await call(placeLeagueBet, "ann", { leagueId: b.leagueId, gameId: "g", side: "away", stake: 300, idempotencyKey: key() });
+  await call(placeLeagueBet, "ann", { leagueId: a.leagueId, gameId: "g", side: "home", stake: 1000, idempotencyKey: key() });
+  await call(placeLeagueBet, "ann", { leagueId: b.leagueId, gameId: "g", side: "away", stake: 3000, idempotencyKey: key() });
   finishGame("g", 10, 5);
   await settleLeagueBetsForGame("g");
-  assert.equal(tokens(a.leagueId, "ann"), 900 + 180);
-  assert.equal(tokens(b.leagueId, "ann"), 700);
+  assert.equal(tokens(a.leagueId, "ann"), 9000 + 1800);
+  assert.equal(tokens(b.leagueId, "ann"), 7000);
   assert.deepEqual(notifications("ann").map((x) => x.type).sort(), ["bet_lost", "bet_won"]);
 });
 
@@ -309,45 +309,45 @@ test("non-members can't bet, peek, or end; only the creator ends early", async (
 });
 
 test("bank loans: flat interest, capped principal, interest-first repayment, idempotent repay", async () => {
-  seedUser("ann", 1000);
+  seedUser("ann", 10_000);
   const { leagueId } = await makeLeague("ann");
   await addPal(leagueId);
-  await call(takeBankLoan, "ann", { leagueId, amount: 600, idempotencyKey: key() });
-  assert.equal(tokens(leagueId, "ann"), 1600);
-  await rejects(call(takeBankLoan, "ann", { leagueId, amount: 500, idempotencyKey: key() }), /lends up to 1,000/);
+  await call(takeBankLoan, "ann", { leagueId, amount: 6000, idempotencyKey: key() });
+  assert.equal(tokens(leagueId, "ann"), 16_000);
+  await rejects(call(takeBankLoan, "ann", { leagueId, amount: 5000, idempotencyKey: key() }), /lends up to 10,000/);
 
   clock.advanceHours(48); // time doesn't matter: 10% of 600, once
   const [loan] = loansOf(leagueId);
   const snap = loanSnapshot(loan as never, clock.get());
-  assert.equal(snap.interestCharged, 60);
-  assert.equal(snap.totalOwed, 660);
+  assert.equal(snap.interestCharged, 600);
+  assert.equal(snap.totalOwed, 6600);
 
   // Revisiting / re-reading never changes the stored loan.
   assert.deepEqual(loansOf(leagueId)[0], loan);
 
   const rk = key();
   const [r1, r2] = await Promise.all([
-    call<{ applied: number; toInterest: number; toPrincipal: number }>(repayLoan, "ann", { leagueId, loanId: loan!.id, amount: 300, idempotencyKey: rk }),
-    call<{ applied: number }>(repayLoan, "ann", { leagueId, loanId: loan!.id, amount: 300, idempotencyKey: rk }),
+    call<{ applied: number; toInterest: number; toPrincipal: number }>(repayLoan, "ann", { leagueId, loanId: loan!.id, amount: 3000, idempotencyKey: rk }),
+    call<{ applied: number }>(repayLoan, "ann", { leagueId, loanId: loan!.id, amount: 3000, idempotencyKey: rk }),
   ]);
-  assert.equal(r1.applied, 300);
-  assert.equal(r2.applied, 300, "the duplicate reports the original receipt");
-  assert.equal(r1.toInterest, 60);
-  assert.equal(r1.toPrincipal, 240);
-  assert.equal(tokens(leagueId, "ann"), 1300);
+  assert.equal(r1.applied, 3000);
+  assert.equal(r2.applied, 3000, "the duplicate reports the original receipt");
+  assert.equal(r1.toInterest, 600);
+  assert.equal(r1.toPrincipal, 2400);
+  assert.equal(tokens(leagueId, "ann"), 13_000);
 
   clock.advanceHours(24 * 3); // still nothing new accrues
   const after = loanSnapshot(loansOf(leagueId)[0] as never, clock.get());
-  assert.equal(after.principalOutstanding, 360);
+  assert.equal(after.principalOutstanding, 3600);
   assert.equal(after.interestOutstanding, 0);
 
-  const done = await call<{ settled: boolean; applied: number }>(repayLoan, "ann", { leagueId, loanId: loan!.id, amount: 10_000, idempotencyKey: key() });
-  assert.equal(done.applied, 360);
+  const done = await call<{ settled: boolean; applied: number }>(repayLoan, "ann", { leagueId, loanId: loan!.id, amount: 100_000, idempotencyKey: key() });
+  assert.equal(done.applied, 3600);
   assert.equal(done.settled, true);
   assert.equal(loansOf(leagueId)[0]!.status, "repaid");
   // A rate change applies to new loans only.
   await call(updateLeagueSettings, "ann", { leagueId, bankLoanEnabled: true, bankInterestRate: 20, bankInterestIntervalHours: 12 });
-  await call(takeBankLoan, "ann", { leagueId, amount: 100, idempotencyKey: key() });
+  await call(takeBankLoan, "ann", { leagueId, amount: 1000, idempotencyKey: key() });
   const newest = loansOf(leagueId).find((l) => l.status === "active")!;
   assert.equal(newest.ratePct, 20);
   assert.equal(newest.intervalHours, 12);
@@ -389,22 +389,22 @@ test("a closed league rejects every mutation", async () => {
 
 test("peer loans move tokens between members and repayments reach the lender", async () => {
   process.env.PEER_LOAN_REQUESTS_ENABLED = "true";
-  seedUser("ann", 1000);
-  seedUser("ben", 1000);
-  seedUser("cat", 1000);
+  seedUser("ann", 10_000);
+  seedUser("ben", 10_000);
+  seedUser("cat", 10_000);
   const { leagueId, code } = await makeLeague("ann");
   await call(joinLeague, "ben", { code });
   await call(joinLeague, "cat", { code });
 
-  await rejects(call(requestPeerLoan, "ben", { leagueId, amount: 600, rate: 5, idempotencyKey: key() }), /capped at 500/);
-  const { loanId } = await call<{ loanId: string }>(requestPeerLoan, "ben", { leagueId, amount: 400, rate: 5, idempotencyKey: key() });
+  await rejects(call(requestPeerLoan, "ben", { leagueId, amount: 6000, rate: 5, idempotencyKey: key() }), /capped at 5,000/);
+  const { loanId } = await call<{ loanId: string }>(requestPeerLoan, "ben", { leagueId, amount: 4000, rate: 5, idempotencyKey: key() });
   assert.ok(notifications("ann").some((n) => n.type === "loan_request"));
   await rejects(call(peerLoanAction, "ben", { leagueId, loanId, action: "fund" }), /own request/);
 
   await call(peerLoanAction, "cat", { leagueId, loanId, action: "counter", rate: 8 });
   await call(peerLoanAction, "ben", { leagueId, loanId, action: "accept_counter" });
-  assert.equal(tokens(leagueId, "cat"), 600);
-  assert.equal(tokens(leagueId, "ben"), 1400);
+  assert.equal(tokens(leagueId, "cat"), 6000);
+  assert.equal(tokens(leagueId, "ben"), 14_000);
   const loan = loansOf(leagueId)[0]!;
   assert.equal(loan.lenderId, "cat");
   assert.equal(loan.ratePct, 8);
@@ -413,9 +413,9 @@ test("peer loans move tokens between members and repayments reach the lender", a
   await rejects(call(peerLoanAction, "ann", { leagueId, loanId, action: "fund" }), /isn't open/);
 
   clock.advanceHours(24 * 3);
-  await call(repayLoan, "ben", { leagueId, loanId, amount: 432, idempotencyKey: key() }); // 400 + 8% flat
-  assert.equal(tokens(leagueId, "cat"), 1032);
-  assert.equal(tokens(leagueId, "ben"), 968);
+  await call(repayLoan, "ben", { leagueId, loanId, amount: 4320, idempotencyKey: key() }); // 400 + 8% flat
+  assert.equal(tokens(leagueId, "cat"), 10_320);
+  assert.equal(tokens(leagueId, "ben"), 9680);
   assert.equal(loansOf(leagueId)[0]!.status, "repaid");
   assert.ok(notifications("cat").some((n) => n.type === "loan_repaid"));
 });
@@ -436,22 +436,22 @@ test("leaving is blocked while loans or open bets tie you to the league", async 
 });
 
 test("ending a league ranks on net worth, voids open bets, and pays the pot exactly once", async () => {
-  seedUser("ann", 1000);
-  seedUser("ben", 1000);
-  seedUser("cat", 1000);
+  seedUser("ann", 10_000);
+  seedUser("ben", 10_000);
+  seedUser("cat", 10_000);
   const { leagueId, code } = await makeLeague("ann");
   await call(joinLeague, "ben", { code });
   await call(joinLeague, "cat", { code });
-  assert.equal(league(leagueId).pot, 300);
+  assert.equal(league(leagueId).pot, 3000);
 
   // ben borrows heavily: more tokens, but not more net worth.
-  await call(takeBankLoan, "ben", { leagueId, amount: 1000, idempotencyKey: key() });
+  await call(takeBankLoan, "ben", { leagueId, amount: 10_000, idempotencyKey: key() });
   // cat has a bet open when the season ends.
   seedGame("late");
-  await call(placeLeagueBet, "cat", { leagueId, gameId: "late", side: "home", stake: 500, idempotencyKey: key() });
+  await call(placeLeagueBet, "cat", { leagueId, gameId: "late", side: "home", stake: 5000, idempotencyKey: key() });
   // ann wins a bet.
   seedGame("w");
-  await call(placeLeagueBet, "ann", { leagueId, gameId: "w", side: "home", stake: 100, idempotencyKey: key() });
+  await call(placeLeagueBet, "ann", { leagueId, gameId: "w", side: "home", stake: 1000, idempotencyKey: key() });
   finishGame("w", 3, 1);
   await settleLeagueBetsForGame("w");
 
@@ -465,14 +465,14 @@ test("ending a league ranks on net worth, voids open bets, and pays the pot exac
   assert.equal(l.status, "ended");
   const results = l.results as Array<{ memberId: string; prizeTokens: number; paid: boolean; netWorth: number }>;
   assert.deepEqual(results.map((r) => r.memberId), ["ann", "cat", "ben"]);
-  assert.equal(results[2]!.netWorth, 1000 - 100, "ben owes the 10% flat fee");
-  assert.deepEqual(results.map((r) => r.prizeTokens), [210, 90, 0]);
+  assert.equal(results[2]!.netWorth, 10_000 - 1000, "ben owes the 10% flat fee");
+  assert.deepEqual(results.map((r) => r.prizeTokens), [2100, 900, 0]);
   assert.ok(results.filter((r) => r.prizeTokens > 0).every((r) => r.paid));
   assert.equal(l.payoutStatus, "paid");
 
-  assert.equal(balance("ann"), 900 + 210);
-  assert.equal(balance("cat"), 900 + 90);
-  assert.equal(balance("ben"), 900);
+  assert.equal(balance("ann"), 9000 + 2100);
+  assert.equal(balance("cat"), 9000 + 900);
+  assert.equal(balance("ben"), 9000);
   assert.equal(ledger("ann").filter((x) => x.type === "league_payout").length, 1);
   assert.equal(notifications("ann").filter((n) => n.type === "league_payout").length, 1);
   assert.equal(notifications("ben").filter((n) => n.type === "league_ended").length, 1);
@@ -482,7 +482,7 @@ test("ending a league ranks on net worth, voids open bets, and pays the pot exac
   finishGame("late", 1, 0);
   assert.equal(await settleLeagueBetsForGame("late"), 0);
   await rejects(
-    call(placeLeagueBet, "ann", { leagueId, gameId: "late", side: "home", stake: 10, idempotencyKey: key() }),
+    call(placeLeagueBet, "ann", { leagueId, gameId: "late", side: "home", stake: 100, idempotencyKey: key() }),
     /ended/
   );
 });

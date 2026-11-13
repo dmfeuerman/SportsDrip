@@ -11,14 +11,14 @@ import { useColors } from "@/hooks/useColors";
  * no Firestore reads or writes, no league is created, nobody is invited.
  */
 const MEMBERS = [
-  { name: "Jordan", worth: 12_480, debt: 0 },
-  { name: "You", worth: 10_000, debt: 0, me: true },
-  { name: "Sam", worth: 9_150, debt: 500 },
-  { name: "Riley", worth: 8_320, debt: 0 },
+  { name: "Jordan", worth: 124_800, debt: 0 },
+  { name: "You", worth: 100_000, debt: 0, me: true },
+  { name: "Sam", worth: 91_500, debt: 5_000 },
+  { name: "Riley", worth: 83_200, debt: 0 },
 ];
 const CHAT = [
   { name: "Jordan", text: "Bills -3.5 is free money 🔒" },
-  { name: "Sam", text: "Borrowed 500 from The House. Don't judge me." },
+  { name: "Sam", text: "Borrowed 5,000 from The House. Don't judge me." },
   { name: "Riley", text: "Who's tailing my parlay?" },
 ];
 
@@ -56,7 +56,7 @@ export default function TutorialLeagueScreen() {
           <TourTarget id="practice.wallet">
             <Card style={{ gap: 6 }}>
               <Text style={[styles.k, { color: c.mutedForeground }]}>YOUR LEAGUE TOKENS</Text>
-              <Amount value={10_000} currency="league" size="lg" />
+              <Amount value={100_000} currency="league" size="lg" />
               <Text style={[styles.sub, { color: c.mutedForeground }]}>Separate from your credits. Pick this league under “Pay with” on any bet slip.</Text>
             </Card>
           </TourTarget>
@@ -80,7 +80,7 @@ export default function TutorialLeagueScreen() {
               <Text style={[styles.k, { color: c.mutedForeground }]}>LOANS</Text>
               <View style={styles.row}>
                 <MaterialCommunityIcons name="home-city" size={20} color={c.debt} />
-                <Text style={[styles.sub, { color: c.foreground, flex: 1 }]}>Sam borrowed 500 from The House at 10% — pays back 550, never more.</Text>
+                <Text style={[styles.sub, { color: c.foreground, flex: 1 }]}>Sam borrowed 5,000 from The House at 10% — pays back 5,500, never more.</Text>
               </View>
               <View style={styles.row}>
                 <MaterialCommunityIcons name="account-cash" size={20} color={c.league} />

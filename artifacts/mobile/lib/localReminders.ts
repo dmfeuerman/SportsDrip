@@ -106,7 +106,7 @@ export function planReminders(i: ReminderInput): Reminder[] {
     id: `${PREFIX}freebet`,
     at: freeAt,
     title: "Your free bet is ready",
-    body: "100 credits on the house, same as every day. I'm at the board when you are.",
+    body: "1,000 credits on the house, same as every day. I'm at the board when you are.",
     data: { url: "/" },
   });
   return out;

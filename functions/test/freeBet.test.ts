@@ -12,12 +12,12 @@ beforeEach(() => {
 });
 
 test("daily free bet: costs nothing, one per day, a win pays the winnings only", async () => {
-  seedUser("amy", 500);
+  seedUser("amy", 5000);
   seedGame("g1"); // BOS 1.8 / NYK 2.1
   seedGame("g2");
   const r = await call<{ betId: string; winnings: number }>(placeFreeBet, "amy", { gameId: "g1", side: "away", idempotencyKey: key() });
-  assert.equal(r.winnings, 110, "100 × 2.1 − 100");
-  assert.equal(balance("amy"), 500, "nothing debited");
+  assert.equal(r.winnings, 1100, "1000 × 2.1 − 1000");
+  assert.equal(balance("amy"), 5000, "nothing debited");
   const bet = db.read(`bets/${r.betId}`)!;
   assert.equal(bet.stake, 0);
   assert.equal(bet.freeBet, true);
@@ -26,7 +26,7 @@ test("daily free bet: costs nothing, one per day, a win pays the winnings only",
   finishGame("g1", 90, 101);
   await settleBetsForGame("g1");
   assert.equal(db.read(`bets/${r.betId}`)!.status, "won");
-  assert.equal(balance("amy"), 610);
+  assert.equal(balance("amy"), 6100);
 
   // A new day brings a new one.
   clock.set(Date.UTC(2026, 10, 5, 17));

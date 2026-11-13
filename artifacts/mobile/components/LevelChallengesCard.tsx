@@ -5,6 +5,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { ActionChip, Card } from "@/components/ui";
 import { recordXpReason } from "@/components/XpGainPopup";
+import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import * as api from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
@@ -12,12 +13,13 @@ import { DEMO } from "@/lib/demo";
 import { haptic } from "@/lib/motion";
 
 /**
- * XP challenges. They get harder as you level up; an unfinished one stays
- * until you finish it, and each one you claim is replaced by a new one.
+ * This level's XP challenges — optional bonus XP, never a gate. A claimed one
+ * stays, greyed out, until the next level deals a new set.
  */
 export default function LevelChallengesCard() {
   const c = useColors();
   const focused = useIsFocused();
+  const { progress: lvl } = useApp();
   const [list, setList] = useState<api.LevelChallenge[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -41,6 +43,13 @@ export default function LevelChallengesCard() {
     loadedAt.current = Date.now();
     load();
   }, [focused, load]);
+  // A new level deals a new set.
+  const seenLevel = useRef(lvl.level);
+  useEffect(() => {
+    if (seenLevel.current === lvl.level) return;
+    seenLevel.current = lvl.level;
+    load();
+  }, [lvl.level, load]);
 
   if (!list?.length) {
     if (DEMO) return null;
@@ -55,7 +64,7 @@ export default function LevelChallengesCard() {
             <Text style={[styles.sub, { color: c.mutedForeground }]}>Couldn't load your challenges. Tap to retry.</Text>
           </Pressable>
         ) : (
-          <Text style={[styles.sub, { color: c.mutedForeground }]}>{list ? "All done — new ones unlock as you level up." : "Loading…"}</Text>
+          <Text style={[styles.sub, { color: c.mutedForeground }]}>{list ? "Nothing to do here — keep earning XP to reach the next level." : "Loading…"}</Text>
         )}
       </Card>
     );
@@ -66,10 +75,24 @@ export default function LevelChallengesCard() {
       <View style={styles.head}>
         <MaterialCommunityIcons name="flag-checkered" size={18} color={c.accent} />
         <Text style={[styles.title, { color: c.foreground, flex: 1 }]}>XP Challenges</Text>
-        <Text style={[styles.sub, { color: c.mutedForeground }]}>Finish one to unlock the next</Text>
+        <Text style={[styles.sub, { color: c.mutedForeground }]}>
+          {list.filter((q) => q.claimed).length}/{list.length} done
+        </Text>
       </View>
+      <Text style={[styles.sub, { color: c.mutedForeground }]}>
+        {lvl.maxed ? "Max level." : `Bonus XP toward level ${lvl.level + 1} — knock out any you like.`}
+      </Text>
       {list.map((q) => {
         const complete = q.progress >= q.target;
+        if (q.claimed) {
+          return (
+            <View key={q.id} accessibilityLabel={`${q.title}, done`} style={[styles.row, { opacity: 0.4 }]}>
+              <MaterialCommunityIcons name="check-circle" size={18} color={c.mutedForeground} />
+              <Text style={[styles.qt, { color: c.mutedForeground, flex: 1, textDecorationLine: "line-through" }]}>{q.title}</Text>
+              <Text style={[styles.sub, { color: c.mutedForeground }]}>Done</Text>
+            </View>
+          );
+        }
         return (
           <Pressable
             key={q.id}
@@ -96,10 +119,10 @@ export default function LevelChallengesCard() {
                 chevron={false}
                 disabled={busy === q.id}
                 onPress={async () => {
-                  // Instant: the claimed challenge leaves the list now; the server grants the XP behind it (it comes back if refused).
+                  // Instant: the claimed challenge greys out now; the server grants the XP behind it (undone if refused).
                   const before = list;
                   setBusy(q.id);
-                  setList((cur) => cur?.filter((x) => x.id !== q.id) ?? cur);
+                  setList((cur) => cur?.map((x) => (x.id === q.id ? { ...x, claimed: true } : x)) ?? cur);
                   haptic.success();
                   try {
                     recordXpReason(`Challenge: ${q.title}`, "flag-checkered");

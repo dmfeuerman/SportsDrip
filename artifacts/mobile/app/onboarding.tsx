@@ -486,7 +486,7 @@ export default function OnboardingScreen() {
                     icon: "account-heart",
                     text: `You start with ${(1000 + REFERRAL.newUserCredits).toLocaleString()} credits — ${REFERRAL.newUserCredits.toLocaleString()} of them from ${referred}'s invite — and you're already friends.`,
                   }
-                : { icon: "lightning-bolt", text: "You start with 1,000 credits — and a free starter kit waiting in the Drip Shop." },
+                : { icon: "lightning-bolt", text: "You start with 10,000 credits — and a free starter kit waiting in the Drip Shop." },
               { icon: "star-circle-outline", text: "Win, buy and invite friends to level up. Every level pays credits and unlocks gear." },
               { icon: "sportscourt", text: "Call games right and your credits grow. Results settle automatically." },
               { icon: "gift-outline", text: "Prize boxes hand out free credits on a timer." },

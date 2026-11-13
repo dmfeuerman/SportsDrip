@@ -132,7 +132,9 @@ export default function ResultRecap({ items, onDismiss }: { items: AppNotificati
                       {n.bet ? `${n.bet.teamName}${n.bet.finalHomeScore !== null && n.bet.finalAwayScore !== null ? ` · ${score(n)}` : ""}` : n.title}
                     </Text>
                     <Text style={[styles.rowSub, { color: c.mutedForeground }]} numberOfLines={1}>
-                      {n.leagueName ?? (n.bet ? `${n.bet.stake.toLocaleString()} at ${n.bet.odds.toFixed(2)}x` : n.body)}
+                      {n.bet
+                        ? `${n.bet.label ?? n.bet.teamName} · ${n.bet.stake.toLocaleString()} at ${n.bet.odds.toFixed(2)}x${n.leagueName ? ` · ${n.leagueName}` : ""}`
+                        : n.leagueName ?? n.body}
                     </Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>

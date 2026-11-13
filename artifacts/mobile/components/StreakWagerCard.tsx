@@ -27,7 +27,7 @@ import { nyDayOf } from "@/lib/streakGrid";
 
 /** Mirrors functions/src/lib/streakWager.ts. The server decides. */
 const WAGER_DAYS = 7;
-const STAKES = [50, 100, 250] as const;
+const STAKES = [500, 1000, 2500] as const;
 
 const dayNum = (ymd: string) => {
   const [y, m, d] = ymd.split("-").map(Number);

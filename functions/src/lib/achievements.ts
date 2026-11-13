@@ -1,7 +1,7 @@
 import { db, FieldValue } from "./economy";
 import { writeNotification } from "./notify";
 import { simpleNotification } from "./notifyModel";
-import { levelFromXp } from "./progression";
+import { playerLevel } from "./progression";
 
 /**
  * Lifetime achievements. They fill the Locker trophy shelf
@@ -57,7 +57,7 @@ export async function checkAchievements(uid: string): Promise<string[]> {
     betsPlaced: (user.get("stats.betsPlaced") as number) ?? 0,
     betsWon: (user.get("stats.betsWon") as number) ?? 0,
     streakLongest: Math.max((user.get("streak.longest") as number) ?? 0, (user.get("streak.count") as number) ?? 0),
-    level: levelFromXp((user.get("xp") as number) ?? 0),
+    level: playerLevel(user),
     dailyWins: (user.get("dailyRecord.w") as number) ?? 0,
     friends: friendCount,
   };

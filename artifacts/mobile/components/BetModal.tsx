@@ -246,7 +246,7 @@ export default function BetModal({
   const lockAlreadyUsed = isLeague && !!wallet && !!lockUsed?.[wallet.id];
 
   const stake = Number.parseInt(amount, 10) || 0;
-  // Tutorials wait on the stake ("slip:stake" for any, "slip:stake:10" for exactly ten).
+  // Tutorials wait on the stake ("slip:stake" for any, "slip:stake:100" for exactly a hundred).
   const { tour: tourOn, step: tourStep } = useTourState();
   useEffect(() => {
     if (!visible || !tourOn) return;
@@ -279,7 +279,7 @@ export default function BetModal({
 
   const quick = useMemo(() => {
     // Fixed quick stakes; ones the wallet can't cover (or under the minimum) are left out.
-    return [10, 50, 100].filter((x) => x >= MIN_STAKE && x <= available);
+    return [100, 500, 1000].filter((x) => x >= MIN_STAKE && x <= available);
   }, [available]);
 
   function focusInput() {

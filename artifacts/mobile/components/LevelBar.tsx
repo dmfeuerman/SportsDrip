@@ -70,7 +70,9 @@ export default function LevelBar({
 
   const label = progress.maxed
     ? `Level ${progress.level}, max level`
-    : `Level ${progress.level}, ${progress.into.toLocaleString()} of ${progress.needed.toLocaleString()} XP`;
+    : progress.blocked
+      ? `Level ${progress.level}, XP full. Finish this level's challenges to level up`
+      : `Level ${progress.level}, ${progress.into.toLocaleString()} of ${progress.needed.toLocaleString()} XP`;
 
   return (
     <Pressable
@@ -87,7 +89,7 @@ export default function LevelBar({
           <Text style={styles.level}>LEVEL {progress.level}</Text>
           <View style={{ flex: 1 }} />
           <Text style={styles.xp} numberOfLines={1}>
-            {progress.maxed ? "MAX" : `${progress.into.toLocaleString()} / ${progress.needed.toLocaleString()} XP`}
+            {progress.maxed ? "MAX" : progress.blocked ? "FINISH CHALLENGES" : `${progress.into.toLocaleString()} / ${progress.needed.toLocaleString()} XP`}
           </Text>
         </View>
         <View style={styles.track}>

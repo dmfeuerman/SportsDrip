@@ -87,8 +87,10 @@ export const demoPrizeBoxes: Record<BoxTier, PrizeBoxState> = {
 };
 
 // Mirrors scripts/catalog-data.mjs (a functions test checks ids and models match).
+/** Every listed price is x10 since the coin upgrade (2026-11); the numbers below are the old ones, same as catalog-data.mjs. */
+const PRICE_SCALE = 10;
 const item = (id: string, name: string, slot: CatalogItem["slot"], model: string, price: number, rarity: CatalogItem["rarity"], color: string, secondaryColor: string | null = null): CatalogItem => ({
-  id, name, slot, model, price, rarity, color, secondaryColor, description: "", thumbnailUrl: null, assetUrl: null, excludes: null, available: true, releaseAt: null,
+  id, name, slot, model, price: price * PRICE_SCALE, rarity, color, secondaryColor, description: "", thumbnailUrl: null, assetUrl: null, excludes: null, available: true, releaseAt: null,
 });
 export const demoCatalog: CatalogItem[] = [
   item("tee_basic_white", "Basic Tee", "top", "top_tee", 0, "common", "#F5F5F5", "#D9D9D9"),

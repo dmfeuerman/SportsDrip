@@ -2,19 +2,20 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db, FieldValue, requireAuth } from "../lib/economy";
 import { grantXp } from "../lib/xp";
-import { levelFromXp } from "../lib/progression";
+import { playerLevel } from "../lib/progression";
 import {
   challengeById,
   CLIENT_ACTIONS,
   THEME_CHALLENGE_ID,
-  dealChallenges,
+  dealLevelSet,
   type ChallengeDef,
   type ChallengeMetric,
 } from "../lib/levelChallenges";
 
 /**
  * Level challenges (lib/levelChallenges.ts). State lives at
- * users/{uid}/levelChallenges/state: { active: id[], claimed: {id: true}, counts: {action: n} }.
+ * users/{uid}/levelChallenges/state: { setLevel, active: id[] (this level's set, claimed ones
+ * included), claimed: {id: true}, counts: {action: n} }.
  * Progress is lifetime and counted on the server, except the few app-only
  * actions in CLIENT_ACTIONS, which the app reports.
  */
@@ -66,20 +67,23 @@ async function metricValue(uid: string, m: ChallengeMetric, user: FirebaseFirest
 async function load(uid: string) {
   const [user, state] = await Promise.all([db.collection("users").doc(uid).get(), stateRef(uid).get()]);
   if (!user.exists) throw new HttpsError("not-found", "Profile not found.");
-  const level = levelFromXp(user.get("xp"));
+  const level = playerLevel(user);
   const claimed = (state.get("claimed") as Record<string, boolean> | undefined) ?? {};
   const counts = (state.get("counts") as Record<string, number> | undefined) ?? {};
-  const before = (state.get("active") as string[] | undefined) ?? [];
-  const active = dealChallenges(before, claimed, level);
-  if (active.join(",") !== before.join(",")) await stateRef(uid).set({ active }, { merge: true });
+  // One set per level: dealt on reaching it, kept (claimed ones too) until the next level.
+  let active = (state.get("active") as string[] | undefined) ?? [];
+  if (state.get("setLevel") !== level) {
+    active = dealLevelSet(claimed, level);
+    await stateRef(uid).set({ setLevel: level, active }, { merge: true });
+  }
   const defs = active.map((id) => challengeById(id)).filter((c): c is ChallengeDef => !!c);
   const progress = await Promise.all(defs.map((c) => metricValue(uid, c.metric, user, counts)));
-  return { level, defs, progress };
+  return { level, defs, progress, claimed };
 }
 
 export const getLevelChallenges = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
-  const { level, defs, progress } = await load(uid);
+  const { level, defs, progress, claimed } = await load(uid);
   return {
     level,
     challenges: defs.map((c, i) => ({
@@ -91,6 +95,7 @@ export const getLevelChallenges = onCall({ region: "us-central1" }, async (req) 
       minLevel: c.minLevel,
       explore: !!c.explore,
       progress: Math.min(c.target, progress[i] ?? 0),
+      claimed: !!claimed[c.id],
     })),
   };
 });
@@ -98,12 +103,15 @@ export const getLevelChallenges = onCall({ region: "us-central1" }, async (req) 
 export const claimLevelChallenge = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
   const { id } = z.object({ id: z.string().min(1) }).parse(req.data);
-  const { defs, progress } = await load(uid);
+  const { defs, progress, claimed } = await load(uid);
   const i = defs.findIndex((c) => c.id === id);
   if (i < 0) throw new HttpsError("not-found", "That challenge isn't active.");
   const c = defs[i]!;
+  if (claimed[c.id]) throw new HttpsError("failed-precondition", "Already claimed.");
   if ((progress[i] ?? 0) < c.target) throw new HttpsError("failed-precondition", "Not done yet.");
-  await stateRef(uid).set({ claimed: { [c.id]: true }, active: FieldValue.arrayRemove(c.id) }, { merge: true });
+  // Stays in the set (shown as done) until the next level deals a new one. Marked before the XP
+  // so this claim can be the one that completes the set and levels the player up.
+  await stateRef(uid).set({ claimed: { [c.id]: true } }, { merge: true });
   // "quest" so it also feeds the season pass, like the weekly quests did.
   const res = await grantXp(uid, c.xp, `levelChallenge_${c.id}`, "quest");
   return { ok: true as const, xp: res.applied ? c.xp : 0, level: res.level };
@@ -119,8 +127,8 @@ export const recordChallengeAction = onCall({ region: "us-central1" }, async (re
   if (action === "theme") {
     const def = challengeById(THEME_CHALLENGE_ID);
     if (def) {
+      await stateRef(uid).set({ claimed: { [def.id]: true } }, { merge: true });
       const res = await grantXp(uid, def.xp, `levelChallenge_${def.id}`, "quest");
-      await stateRef(uid).set({ claimed: { [def.id]: true }, active: FieldValue.arrayRemove(def.id) }, { merge: true });
       return { ok: true as const, xp: res.applied ? def.xp : 0 };
     }
   }

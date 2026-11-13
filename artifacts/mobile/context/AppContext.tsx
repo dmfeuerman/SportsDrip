@@ -972,7 +972,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
 
   const ownedMoves = useMemo(() => new Set<string>([...FREE_MOVES, ...boughtMoves]), [boughtMoves]);
   const loadout = useMemo(() => loadoutOf(profile?.moves), [profile?.moves]);
-  const progress = useMemo(() => progressOf(profile?.xp ?? 0), [profile?.xp]);
+  const progress = useMemo(() => progressOf(profile?.xp ?? 0, profile?.level), [profile?.xp, profile?.level]);
   const ownedBackgrounds = useMemo(() => new Set<string>([...FREE_BACKGROUNDS, ...boughtBackgrounds]), [boughtBackgrounds]);
   const background = useMemo(() => backgroundOf(profile?.background), [profile?.background]);
 

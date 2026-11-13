@@ -183,8 +183,12 @@ function ResultPopup({
     return () => clearTimeout(t);
   }, [lost, big, shake]);
 
-  const my = bet ? (bet.side === "home" ? bet.finalHomeScore : bet.finalAwayScore) : null;
-  const their = bet ? (bet.side === "home" ? bet.finalAwayScore : bet.finalHomeScore) : null;
+  const my = bet ? (bet.side === "away" ? bet.finalAwayScore : bet.finalHomeScore) : null;
+  const their = bet ? (bet.side === "away" ? bet.finalHomeScore : bet.finalAwayScore) : null;
+  // What the bet actually was, slip-style: market, pick and matchup.
+  const marketName = bet ? (bet.market === "spread" ? "Point Spread" : bet.market === "total" ? "Total Points" : "Moneyline") : "";
+  const pick = bet ? (bet.label ?? `${bet.teamName} ${formatOdds(bet.odds, fmt)}`) : "";
+  const matchup = bet ? (bet.side === "away" ? `${bet.teamAbbr} @ ${bet.opponentAbbr}` : `${bet.opponentAbbr} @ ${bet.teamAbbr}`) : "";
 
   const fx = celebrate("bet_win", { big });
   return (
@@ -238,14 +242,29 @@ function ResultPopup({
             <Text style={[styles.title, { color: c.foreground }]} accessibilityRole="header">
               {n.title}
             </Text>
-            {bet && my !== null && their !== null ? (
-              <Text style={[styles.score, { color: c.mutedForeground }]}>
-                Final · {bet.teamAbbr} {my}–{their} {bet.opponentAbbr}
-              </Text>
-            ) : (
-              <Text style={[styles.score, { color: c.mutedForeground }]}>{n.body}</Text>
-            )}
+            {!bet ? <Text style={[styles.score, { color: c.mutedForeground }]}>{n.body}</Text> : null}
           </View>
+
+          {/* The slip: exactly what was bet, so a win or loss is never a mystery. */}
+          {bet ? (
+            <View style={[styles.slip, { borderColor: c.border, backgroundColor: c.alpha(c.foreground, 0.04) }]}>
+              <View style={styles.slipHead}>
+                <View style={[styles.slipDot, { backgroundColor: bet.teamColor }]} />
+                <Text style={[styles.slipKicker, { color: c.mutedForeground }]}>
+                  YOUR BET · {marketName.toUpperCase()}
+                  {n.wallet === "league" ? " · LEAGUE" : ""}
+                </Text>
+                <Text style={[styles.slipOdds, { color: accent }]}>{formatOdds(bet.odds, fmt)}</Text>
+              </View>
+              <Text style={[styles.slipPick, { color: c.foreground }]} numberOfLines={1}>
+                {pick}
+              </Text>
+              <Text style={[styles.slipGame, { color: c.mutedForeground }]} numberOfLines={1}>
+                {matchup}
+                {my !== null && their !== null ? ` · Final ${bet.side === "away" ? `${my}–${their}` : `${their}–${my}`}` : ""}
+              </Text>
+            </View>
+          ) : null}
 
           <View style={[styles.hero, { backgroundColor: soft }]}>
             <Text style={[styles.heroLabel, { color: accent }]}>
@@ -256,7 +275,6 @@ function ResultPopup({
 
           {bet && (
             <View style={styles.rows}>
-              <Row label="Your Pick" value={`${bet.teamName} · ${formatOdds(bet.odds, fmt)}`} />
               <Row label={friend ? "Your stake" : "Stake"} value={bet.stake.toLocaleString()} />
               {friend ? <Row label="Pot" value={bet.payout.toLocaleString()} /> : null}
               <Row label={won ? "Paid out" : friend ? `Went to ${friend}` : "Returned"} value={(won ? bet.payout : friend ? bet.payout : 0).toLocaleString()} />
@@ -435,6 +453,13 @@ const styles = StyleSheet.create({
   stage: { height: 230, marginHorizontal: 16, marginTop: 14, borderRadius: 18, overflow: "hidden" },
   stageBadge: { position: "absolute", top: 10, right: 10, width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   top: { alignItems: "center", paddingHorizontal: 20, paddingTop: 14, gap: 8 },
+  slip: { marginHorizontal: 16, marginTop: 12, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
+  slipHead: { flexDirection: "row", alignItems: "center", gap: 7 },
+  slipDot: { width: 8, height: 8, borderRadius: 4 },
+  slipKicker: { flex: 1, fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  slipOdds: { fontSize: 12, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
+  slipPick: { fontSize: 16, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.3 },
+  slipGame: { fontSize: 12, fontFamily: "Inter_500Medium" },
   iconRing: { width: 68, height: 68, borderRadius: 34, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   pills: { flexDirection: "row", gap: 6, flexWrap: "wrap", justifyContent: "center" },
   title: { fontSize: 22, lineHeight: 27, fontFamily: "Inter_900Black", textAlign: "center", letterSpacing: -0.6 },

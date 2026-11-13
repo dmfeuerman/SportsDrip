@@ -10,12 +10,13 @@ import { Pressable } from "@/components/fx/Tap";
 import LevelBar, { LevelBadge, levelTier } from "@/components/LevelBar";
 import { replayLevelUp } from "@/components/LevelUpHost";
 import { Card, ScreenHeader, SectionHeader, useBottomPad } from "@/components/ui";
-import { REFERRAL, scaledXp, totalXpForLevel, XP } from "@/constants/progression";
+import { levelUpCredits, REFERRAL, scaledXp, totalXpForLevel, XP } from "@/constants/progression";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { useLevelRewards, type LevelUnlock } from "@/hooks/useLevelRewards";
 import { haptic } from "@/lib/motion";
 import * as api from "@/lib/api";
+import LevelChallengesCard from "@/components/LevelChallengesCard";
 
 type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
@@ -83,8 +84,16 @@ export default function LevelsScreen() {
           <Text style={styles.heroSub}>
             {progress.maxed ? "Max level. Legend." : `${toNext.toLocaleString()} XP to level ${progress.level + 1}`}
           </Text>
+          {!progress.maxed ? (
+            <Text style={[styles.heroBonus, { color: "#FFD56A" }]}>
+              <MaterialCommunityIcons name="cash-multiple" size={13} color="#FFD56A" /> Level {progress.level + 1} pays +{levelUpCredits(progress.level + 1).toLocaleString()} credits
+            </Text>
+          ) : null}
           <LevelBar progress={progress} nextReward={next} style={{ alignSelf: "stretch", marginTop: 6 }} />
         </View>
+
+        <SectionHeader title="This Level's Challenges" />
+        <LevelChallengesCard />
 
         <SectionHeader title="Earn XP" />
         <Card style={{ padding: 0, overflow: "hidden" }}>
@@ -183,6 +192,7 @@ const styles = StyleSheet.create({
   heroTitle: { color: "#FFFFFF", fontSize: 30, fontFamily: "Inter_900Black", letterSpacing: -1, marginTop: 8 },
   heroRank: { fontSize: 12, fontFamily: "Inter_900Black", letterSpacing: 3 },
   heroSub: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontFamily: "Inter_600SemiBold", marginTop: 4 },
+  heroBonus: { fontSize: 12, fontFamily: "Inter_800ExtraBold", marginTop: 4 },
   earnRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
   earnIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   earnLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold" },

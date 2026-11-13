@@ -16,7 +16,7 @@ const esm = new Function("u", "return import(u)") as (u: string) => Promise<any>
 const importData = (f: string) => esm(pathToFileURL(join(ROOT, "scripts", f)).href);
 
 const cfg = normalizeConfig({ enabled: true, dropSize: 4, returnEvery: 3, returnCooldownWeeks: 2, pool: ["a", "b", "c", "d", "e", "f", "g", "h", "cheap"] });
-const pool = ["a", "b", "c", "d", "e", "f", "g", "h"].map((id) => ({ id, price: 5000 })).concat({ id: "cheap", price: 100 });
+const pool = ["a", "b", "c", "d", "e", "f", "g", "h"].map((id) => ({ id, price: 50_000 })).concat({ id: "cheap", price: 1000 });
 
 test("drop plan: 3–6 items, never below the Prize Box ceiling, deterministic", () => {
   const p1 = planDrop(cfg, pool, [], "2026-11-09", 0)!;
@@ -81,7 +81,7 @@ beforeEach(() => fake.db.reset());
 test("Monday run drops, is idempotent, sets the co-op reward and activates events", async () => {
   const now = Date.UTC(2026, 10, 9, 5, 5);
   for (const p of pool) fake.db.seed(`catalog/${p.id}`, { price: p.price, available: true, rotation: true, availableUntil: now - 1 });
-  fake.db.seed("catalog/ev", { price: 9000, available: true });
+  fake.db.seed("catalog/ev", { price: 90_000, available: true });
   fake.db.seed("meta/liveOps", {
     enabled: true,
     dropSize: 4,

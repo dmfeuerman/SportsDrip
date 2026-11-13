@@ -112,7 +112,7 @@ export default function ActivityScreen() {
                 teamColor: n.bet.teamColor,
                 opponentAbbr: n.bet.opponentAbbr,
                 side: n.bet.side,
-                market: n.type.startsWith("challenge_") ? "challenge" : "ml",
+                market: n.type.startsWith("challenge_") ? "challenge" : (n.bet.market ?? "ml"),
                 odds: n.bet.odds,
                 stake: n.bet.stake,
                 payout: n.bet.payout,

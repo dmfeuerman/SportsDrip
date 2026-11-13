@@ -1,7 +1,8 @@
 import { db, FieldValue, type Tx } from "./economy";
 import { writeNotification } from "./notify";
 import { simpleNotification } from "./notifyModel";
-import { levelFromXp, levelUpCredits, scaledXp } from "./progression";
+import { levelFromXp, levelUpCredits, playerLevel, scaledXp } from "./progression";
+import { dealLevelSet } from "./levelChallenges";
 import { activeSeason, SEASON_XP_REASONS } from "./seasonPass";
 
 /**
@@ -92,15 +93,22 @@ export async function grantXp(uid: string, amount: number, key: string, reason: 
   const season = SEASON_XP_REASONS.has(reason) ? await activeSeason().catch(() => null) : null;
 
   return db.runTransaction(async (tx) => {
-    const [user, ev] = await Promise.all([tx.get(userRef), tx.get(eventRef)]);
+    const stateRef = userRef.collection("levelChallenges").doc("state");
+    const [user, ev, state] = await Promise.all([tx.get(userRef), tx.get(eventRef), tx.get(stateRef)]);
     if (!user.exists) return none();
     const before = (user.get("xp") as number | undefined) ?? 0;
     if (ev.exists) return none(before);
 
-    const oldLevel = levelFromXp(before);
+    const oldLevel = playerLevel(user);
     amount = scaledXp(Math.floor(amount), oldLevel);
     const after = before + amount;
-    const newLevel = levelFromXp(after);
+    // Levels follow XP directly; challenges are optional bonus XP (lib/levelChallenges.ts).
+    const claimed = (state.get("claimed") as Record<string, boolean> | undefined) ?? {};
+    const setLevel = state.get("setLevel") as number | undefined;
+    const hasSet = setLevel === oldLevel;
+    const newLevel = Math.max(oldLevel, levelFromXp(after));
+    // No set for this level yet (new profile, or one from before sets): deal it now.
+    const dealt = newLevel > oldLevel ? dealLevelSet(claimed, newLevel) : !hasSet ? dealLevelSet(claimed, oldLevel) : null;
 
     // ── reads (all before the first write) ──
     const crossed: number[] = [];
@@ -128,6 +136,7 @@ export async function grantXp(uid: string, amount: number, key: string, reason: 
       });
     });
     pending?.write();
+    if (dealt) tx.set(stateRef, { setLevel: newLevel, active: dealt }, { merge: true });
 
     tx.set(eventRef, { amount: Math.floor(amount), reason, xpAfter: after, createdAt: FieldValue.serverTimestamp() });
     tx.update(userRef, {

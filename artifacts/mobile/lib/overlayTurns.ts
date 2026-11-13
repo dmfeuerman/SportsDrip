@@ -125,4 +125,4 @@ export function isOverlayBusy(): boolean {
 }
 
 /** Priorities: what the player just earned first. */
-export const OVERLAY = { prizeWheel: 40, streakWager: 35, results: 30, creditsEarned: 26, xpGain: 24, levelUp: 20, ladder: 10, walkthrough: 0 } as const;
+export const OVERLAY = { prizeWheel: 40, streakWager: 35, results: 30, creditsEarned: 26, xpGain: 24, trophy: 22, levelUp: 20, ladder: 10, walkthrough: 0 } as const;

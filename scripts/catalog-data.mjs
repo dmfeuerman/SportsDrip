@@ -26,12 +26,14 @@
  *   metalColor  optional tint for the template's metal (chain links, watch
  *               case, crown). Default silver.
  */
+/** Every listed price is x10 since the coin upgrade (2026-11); the numbers below are the old ones. */
+const PRICE_SCALE = 10;
 const item = (id, name, slot, model, price, rarity, color, secondaryColor, description, extra = {}) => ({
   id,
   name,
   slot,
   model,
-  price,
+  price: price * PRICE_SCALE,
   rarity,
   color,
   secondaryColor: secondaryColor ?? null,
@@ -50,9 +52,11 @@ const pat = (type, o = {}) => ({ pattern: { type, ...o } });
 
 /**
  * Prices are set against the prize boxes (functions/src/lib/economy.ts): a gold
- * box pays 400–2,000 credits, so one box buys at most a common item. Bands by
- * rarity — common 900–2,000, uncommon 2,800–4,800, rare 6,500–9,500,
- * epic 14,000–20,000, legendary 32,000–60,000.
+ * box pays 4,000–20,000 credits, so one box buys at most a common item. Bands by
+ * rarity (x10 when listed) — common 900–2,000, uncommon 2,800–4,800, rare 6,500–9,500,
+ * epic 14,000–20,000, legendary 32,000–60,000. Entry commons sit at 750 (7,500
+ * listed) so a new player's 10,000 starting balance buys a first piece of drip
+ * on day one.
  */
 const BASE = [
   // Starter kit — granted free by createProfile, price 0 so it can never be
@@ -63,7 +67,7 @@ const BASE = [
 
   // ── Hats ──
   item("hat_champion_snapback", "Champion Snapback", "hat", "hat_cap", 1500, "common", "#CC0000", "#FFFFFF", "Red fitted cap, classic blocked style."),
-  item("hat_midnight_cap", "Midnight Cap", "hat", "hat_cap", 900, "common", "#111111", null, "All-black stealth cap."),
+  item("hat_midnight_cap", "Midnight Cap", "hat", "hat_cap", 750, "common", "#111111", null, "All-black stealth cap."),
   item("hat_ocean_wave", "Ocean Wave Cap", "hat", "hat_cap", 3200, "uncommon", "#00BFA5", "#004D40", "Teal colorblock snapback."),
   item("hat_courtside_beanie", "Courtside Beanie", "hat", "hat_beanie", 1400, "common", "#C62828", "#FFFFFF", "Ribbed knit with a contrast cuff."),
   item("hat_sand_bucket", "Sand Bucket Hat", "hat", "hat_bucket", 2900, "uncommon", "#C8B68E", "#8D7B55", "Washed canvas bucket."),
@@ -86,7 +90,7 @@ const BASE = [
   item("top_stealth_hoodie", "Stealth Hoodie", "top", "top_hoodie", 7000, "rare", "#212121", "#424242", "All-black premium hoodie."),
   item("top_warmup_longsleeve", "Warm-up Long Sleeve", "top", "top_longsleeve", 1800, "common", "#37474F", "#FF6F00", "Pre-game shooting shirt."),
   item("top_graphite_tee", "Graphite Tee", "top", "top_tee", 1200, "common", "#455A64", "#90A4AE", "Heavyweight charcoal tee."),
-  item("top_sky_tee", "Sky Tee", "top", "top_tee", 900, "common", "#81D4FA", "#FFFFFF", "Light blue everyday tee."),
+  item("top_sky_tee", "Sky Tee", "top", "top_tee", 750, "common", "#81D4FA", "#FFFFFF", "Light blue everyday tee."),
   item("top_volt_tee", "Volt Tee", "top", "top_tee", 2800, "uncommon", "#C6FF00", "#1B1B1B", "Hi-vis training tee."),
   item("top_navy_longsleeve", "Navy Long Sleeve", "top", "top_longsleeve", 1700, "common", "#0D47A1", "#FFFFFF", "Clean navy long sleeve."),
   item("top_hometown_jersey", "Hometown Jersey", "top", "top_jersey", 4000, "uncommon", "#2E7D32", "#FFFFFF", "Green and white home kit."),
@@ -158,13 +162,13 @@ const BASE = [
   item("eyewear_shades_amethyst", "Amethyst Shades", "eyewear", "eyewear_shades", 7000, "rare", "#7E57C2", null, "Violet frames."),
   item("eyewear_shades_chrome", "Chrome Shades", "eyewear", "eyewear_shades", 14000, "epic", "#B0BEC5", null, "Polished chrome frames."),
   item("eyewear_shades_rose", "Rose Gold Shades", "eyewear", "eyewear_shades", 16000, "epic", "#E8A598", null, "Rose gold frames."),
-  item("eyewear_shades_gold", "Gold Frame Shades", "eyewear", "eyewear_shades", 35000, "legendary", "#FFD700", null, "Solid gold frames."),
+  item("eyewear_shades_gold", "Gold Frame Shades", "eyewear", "eyewear_shades", 38000, "legendary", "#FFD700", null, "Solid gold frames."),
 
   // ── Accessories ──
   item("accessory_gold_chain", "Gold Chain", "accessory", "acc_chain", 40000, "legendary", "#FFD700", "#FFC107", "Heavy rope chain."),
   item("accessory_sport_watch", "Sport Watch", "accessory", "acc_watch", 3800, "uncommon", "#212121", "#9E9E9E", "Rubber strap, steel case."),
   item("accessory_studio_headphones", "Studio Headphones", "accessory", "acc_headphones", 9000, "rare", "#FAFAFA", "#212121", "Over-ears. Can't be worn with a hat."),
-  item("accessory_navy_watch", "Navy Field Watch", "accessory", "acc_watch", 950, "common", "#1A237E", "#ECEFF1", "Navy canvas strap."),
+  item("accessory_navy_watch", "Navy Field Watch", "accessory", "acc_watch", 750, "common", "#1A237E", "#ECEFF1", "Navy canvas strap."),
   item("accessory_court_watch", "Court Watch", "accessory", "acc_watch", 1800, "common", "#FAFAFA", "#BDBDBD", "White silicone strap."),
   item("accessory_redzone_watch", "Red Zone Watch", "accessory", "acc_watch", 3200, "uncommon", "#D50000", "#212121", "Red strap, black case."),
   item("accessory_teal_headphones", "Teal Headphones", "accessory", "acc_headphones", 4200, "uncommon", "#00BFA5", "#ECEFF1", "Teal over-ears. Can't be worn with a hat."),

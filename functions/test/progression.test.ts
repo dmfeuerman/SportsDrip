@@ -57,15 +57,32 @@ test("the level curve is monotonic, round-trips, and caps at MAX_LEVEL", () => {
 });
 
 test("ledger XP: wins, buys and boxes earn; stakes, refunds and level rewards don't", () => {
-  assert.equal(xpForLedger("bet_payout", 1910, 1000), XP.betWin + 9);
-  assert.equal(xpForLedger("bet_payout", 100_000, 1000), XP.betWin + XP.betWinBonusCap);
-  assert.equal(xpForLedger("purchase", -1500), 30);
-  assert.equal(xpForLedger("purchase", -100), XP.purchaseMin);
-  assert.equal(xpForLedger("purchase", -1_000_000), XP.purchaseMax);
-  assert.equal(xpForLedger("prize_box", 50), XP.prizeBox);
+  assert.equal(xpForLedger("bet_payout", 19_100, 10_000), XP.betWin + 9);
+  assert.equal(xpForLedger("bet_payout", 1_000_000, 10_000), XP.betWin + XP.betWinBonusCap);
+  assert.equal(xpForLedger("purchase", -15_000), 30);
+  assert.equal(xpForLedger("purchase", -1000), XP.purchaseMin);
+  assert.equal(xpForLedger("purchase", -10_000_000), XP.purchaseMax);
+  assert.equal(xpForLedger("prize_box", 500), XP.prizeBox);
   for (const t of ["bet_stake", "bet_refund", "level_reward", "referral_bonus", "signup_grant", "challenge_refund"]) {
     assert.equal(xpForLedger(t, 500), 0, t);
   }
+});
+
+/** Grants XP until `uid` reaches `level`. */
+async function levelUp(uid: string, level: number) {
+  await grantXp(uid, totalXpForLevel(level), `lvl_${uid}_0`, "test");
+}
+
+test("XP levels you up on its own; each new level deals a fresh challenge set", async () => {
+  seedUser("zed", 1000);
+  const r = await grantXp("zed", totalXpForLevel(5), "z1", "test");
+  assert.equal(r.applied, true);
+  assert.equal(r.level, 5, "challenges never gate levelling");
+  assert.equal(r.levelsGained, 4);
+  const state = db.read("users/zed/levelChallenges/state")!;
+  assert.equal(state.setLevel, 5);
+  assert.ok((state.active as string[]).length > 0, "level 5's set is dealt");
+  assert.ok((state.active as string[]).every((id) => !((state.claimed as Record<string, boolean> | undefined) ?? {})[id]), "a fresh, unclaimed set");
 });
 
 test("grantXp is idempotent per key, pays level credits once, and grants level rewards", async () => {
@@ -76,19 +93,18 @@ test("grantXp is idempotent per key, pays level credits once, and grants level r
   assert.equal(r1.level, 5);
   assert.equal(r1.levelsGained, 4);
   const credits = [2, 3, 4, 5].reduce((s, l) => s + levelUpCredits(l), 0);
-  assert.equal(r1.credits, credits);
   assert.equal(balance("amy"), 1000 + credits);
   assert.equal(db.read("users/amy")!.level, 5);
   assert.ok(owns("amy", "inventory/hat_rookie_cap"), "level 3 item");
   assert.ok(!owns("amy", "inventory/top_level_up_tee"), "level 7 item not yet");
   assert.ok(owns("amy", "backgrounds/confetti_podium"), "level 5 background");
   assert.equal(ledger("amy").filter((l) => l.type === "level_reward").length, 4);
-  const n = notifications("amy").find((x) => x.type === "level_up")!;
-  assert.equal(n.title, "Level 5 reached");
+  assert.ok(notifications("amy").some((x) => x.type === "level_up" && x.title === "Level 5 reached"));
 
+  const xp = db.read("users/amy")!.xp;
   const replay = await grantXp("amy", toFive, "k1", "test");
   assert.equal(replay.applied, false);
-  assert.equal(db.read("users/amy")!.xp, toFive);
+  assert.equal(db.read("users/amy")!.xp, xp);
   assert.equal(balance("amy"), 1000 + credits);
 });
 
@@ -96,7 +112,7 @@ test("level-exclusive items can't be bought; level-gated ones need the level", a
   seedUser("bo", 50_000);
   await rejects(call(purchaseItem, "bo", { itemId: "hat_rookie_cap", idempotencyKey: key() }), /unlocked by reaching level 3/);
   await rejects(call(purchaseItem, "bo", { itemId: "shoes_pro_highs", idempotencyKey: key() }), /Reach level 5/);
-  await grantXp("bo", totalXpForLevel(5), "k", "test");
+  await levelUp("bo", 5);
   await call(purchaseItem, "bo", { itemId: "shoes_pro_highs", idempotencyKey: key() });
   assert.ok(owns("bo", "inventory/shoes_pro_highs"));
   await call(purchaseItem, "bo", { itemId: "hat_plain", idempotencyKey: key() });
@@ -115,7 +131,7 @@ test("backgrounds: buy, auto-select, level gates, and only owned ones can be set
 });
 
 test("invite codes: both players get credits, become friends, and a code can't be reused by its owner", async () => {
-  seedUser("ref", 1000, "Ref");
+  seedUser("ref", 10_000, "Ref");
   const { code } = await call<{ code: string }>(getReferralCode, "ref", {});
   assert.match(code, /^[A-Z2-9]{6}$/);
   const again = await call<{ code: string }>(getReferralCode, "ref", {});
@@ -131,8 +147,9 @@ test("invite codes: both players get credits, become friends, and a code can't b
 
   const res = await call<{ referred: boolean }>(createProfile, "newbie", { username: "newbie_1", displayName: "Newbie", age: 25, birthMonth: 3, acceptedTerms: true, referralCode: code });
   assert.equal(res.referred, true);
-  assert.equal(balance("newbie"), 1000 + REFERRAL.newUserCredits);
-  assert.equal(balance("ref"), 1000 + REFERRAL.referrerCredits + levelUpCredits(2));
+  assert.equal(balance("newbie"), 10_000 + REFERRAL.newUserCredits);
+  // The referrer's XP (300) crosses level 2, which pays its credit bonus too.
+  assert.equal(balance("ref"), 10_000 + REFERRAL.referrerCredits + levelUpCredits(2));
   assert.equal(db.read("users/newbie")!.referredBy, "ref");
   assert.equal(db.read("users/ref")!.referralCount, 1);
   assert.ok(db.read("friendships/newbie_ref"));

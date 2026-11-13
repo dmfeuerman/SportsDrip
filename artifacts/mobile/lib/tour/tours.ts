@@ -71,7 +71,7 @@ export const FIRST_BET_TOUR: Tour = {
   description: "Open a prize box and place your first bet.",
   icon: "ticket-confirmation-outline",
   hidden: true,
-  stake: 10,
+  stake: 100,
   steps: [
     { route: "/", scene: "prize", title: "Prize box", body: "" },
     { target: "tab:games", press: true, title: "Open Games", body: "Every game you can bet on, live and upcoming.", doneWhen: at("/games") },
@@ -82,7 +82,7 @@ export const FIRST_BET_TOUR: Tour = {
       pressLabel: "Tap a team",
       glow: ["game.first.odds.away"],
       title: "Pick a side",
-      body: "Each team shows its record, its current streak and its odds. 2.00x means 10 credits returns 20. Tap the odds of the team you think wins.",
+      body: "Each team shows its record, its current streak and its odds. 2.00x means 100 credits returns 200. Tap the odds of the team you think wins.",
       advanceOn: "pick:selected",
     },
     {
@@ -97,14 +97,14 @@ export const FIRST_BET_TOUR: Tour = {
     {
       target: "slip.stake",
       press: true,
-      pressLabel: "Enter 10",
-      title: "Stake 10 credits",
-      body: "Type 10 in the box. That's what you're putting on it — the prize box just paid for it.",
-      advanceOn: "slip:stake:10",
+      pressLabel: "Enter 100",
+      title: "Stake 100 credits",
+      body: "Type 100 in the box. That's what you're putting on it — the prize box just paid for it.",
+      advanceOn: "slip:stake:100",
     },
-    { target: "slip.summary", title: "What you could win", body: "Returns is what comes back if it lands; Profit is what you're up. Lose and you're down the 10." },
+    { target: "slip.summary", title: "What you could win", body: "Returns is what comes back if it lands; Profit is what you're up. Lose and you're down the 100." },
     { target: "slip.place", press: true, pressLabel: "Place your bet", title: "Lock it in", body: "Press Place bet. Bets lock at kickoff and settle automatically when the game ends.", advanceOn: "bet:placed" },
-    { route: "/", scene: "placed", title: "You're on the board!", body: "10 credits staked — your bet is under My Bets. Results pop up the moment the game goes final. One more thing: your free bet." },
+    { route: "/", scene: "placed", title: "You're on the board!", body: "100 credits staked — your bet is under My Bets. Results pop up the moment the game goes final. One more thing: your free bet." },
     { route: "/", target: "home.bets", title: "Cancelling a bet", body: "Changed your mind? Tap the bet here under My Bets and press Cancel before kickoff — the stake comes straight back. Once the game starts it's locked." },
     {
       route: "/",
@@ -160,7 +160,7 @@ export const GAMES_TOUR: Tour = {
       pressLabel: "Tap a team",
       glow: ["game.first.odds.away"],
       title: "1 · Make a pick",
-      body: "Moneyline = who wins. Under each name: HOME or AWAY, the record, and a flame (winning run) or snowflake (losing run). The button is the odds: 2.00x means 100 credits returns 200. Spreads and totals sit below. Tap a team's odds.",
+      body: "Moneyline = who wins. Under each name: HOME or AWAY, the record, and a flame (winning run) or snowflake (losing run). The button is the odds: 2.00x means 1,000 credits returns 2,000. Spreads and totals sit below. Tap a team's odds.",
       advanceOn: "pick:selected",
     },
     {

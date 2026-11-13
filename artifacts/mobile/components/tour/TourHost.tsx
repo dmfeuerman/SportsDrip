@@ -135,7 +135,7 @@ function AutoFirstBet({ run, onDone }: { run: boolean; onDone: () => void }) {
   useEffect(() => {
     if (!run || started.current) return;
     started.current = true;
-    const stake = FIRST_BET_TOUR.stake ?? 10;
+    const stake = FIRST_BET_TOUR.stake ?? 100;
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
     void (async () => {
       try {
@@ -743,7 +743,7 @@ function PrizeScene() {
       </Text>
       <Text style={[styles.body, { color: c.mutedForeground, textAlign: "center" }]}>
         {phase === "open"
-          ? "We'll walk you through putting 10 credits on a game. Win and it pays out automatically when the game ends."
+          ? "We'll walk you through putting 100 credits on a game. Win and it pays out automatically when the game ends."
           : phase === "error"
             ? "Couldn't open it — check your connection and try again."
             : phase === "ineligible"

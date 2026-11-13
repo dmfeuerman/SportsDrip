@@ -322,7 +322,7 @@ export default function DailyPickCard() {
           <MaterialCommunityIcons name={sportIcon as never} size={20} color={c.primary} />
           <Text style={[styles.title, { color: c.foreground }]}>Daily Free Bet</Text>
           <Text style={[styles.sub, { color: c.mutedForeground, flex: 1 }]} numberOfLines={1}>
-            {game ? `${game.sport} · ${open ? untilKickoff(game.startsAt, now) : game.status === "live" ? "live" : "locked"}` : "100 credits, on us"}
+            {game ? `${game.sport} · ${open ? untilKickoff(game.startsAt, now) : game.status === "live" ? "live" : "locked"}` : "1,000 credits, on us"}
           </Text>
           <Pill label={status.label} tone={status.tone} />
         </View>
@@ -333,7 +333,7 @@ export default function DailyPickCard() {
           </Text>
         ) : (
           <Text style={[styles.sub, { color: c.mutedForeground }]} numberOfLines={1}>
-            {featured?.gameId === game?.id ? "Today's featured game · " : ""}Free 100 credits · tap the card for spread & totals
+            {featured?.gameId === game?.id ? "Today's featured game · " : ""}Free 1,000 credits · tap the card for spread & totals
           </Text>
         )}
       </Pressable>

@@ -38,14 +38,14 @@ export const BOX_DISPLAY: Record<BoxTier, BoxDisplay> = {
     glowColor: "#FF9A3C",
     emoji: "📦",
     segments: [
-      { credits: 50, color: "#8B4513" },
-      { credits: 75, color: "#A0522D" },
-      { credits: 100, color: "#CD7F32" },
-      { credits: 50, color: "#8B4513" },
-      { credits: 125, color: "#D2691E" },
-      { credits: 75, color: "#A0522D" },
-      { credits: 200, color: "#FF8C00" },
-      { credits: 50, color: "#8B4513" },
+      { credits: 500, color: "#8B4513" },
+      { credits: 750, color: "#A0522D" },
+      { credits: 1000, color: "#CD7F32" },
+      { credits: 500, color: "#8B4513" },
+      { credits: 1250, color: "#D2691E" },
+      { credits: 750, color: "#A0522D" },
+      { credits: 2000, color: "#FF8C00" },
+      { credits: 500, color: "#8B4513" },
     ],
   },
   silver: {
@@ -56,14 +56,14 @@ export const BOX_DISPLAY: Record<BoxTier, BoxDisplay> = {
     glowColor: "#E0E0E0",
     emoji: "🎁",
     segments: [
-      { credits: 150, color: "#607D8B" },
-      { credits: 200, color: "#78909C" },
-      { credits: 250, color: "#90A4AE" },
-      { credits: 150, color: "#607D8B" },
-      { credits: 350, color: "#B0BEC5" },
-      { credits: 200, color: "#78909C" },
-      { credits: 500, color: "#CFD8DC" },
-      { credits: 150, color: "#607D8B" },
+      { credits: 1500, color: "#607D8B" },
+      { credits: 2000, color: "#78909C" },
+      { credits: 2500, color: "#90A4AE" },
+      { credits: 1500, color: "#607D8B" },
+      { credits: 3500, color: "#B0BEC5" },
+      { credits: 2000, color: "#78909C" },
+      { credits: 5000, color: "#CFD8DC" },
+      { credits: 1500, color: "#607D8B" },
     ],
   },
   gold: {
@@ -74,14 +74,14 @@ export const BOX_DISPLAY: Record<BoxTier, BoxDisplay> = {
     glowColor: "#FFEC6E",
     emoji: "🏆",
     segments: [
-      { credits: 400, color: "#B8860B" },
-      { credits: 600, color: "#DAA520" },
-      { credits: 800, color: "#C9A227" },
-      { credits: 400, color: "#B8860B" },
-      { credits: 1200, color: "#FFC107" },
-      { credits: 600, color: "#DAA520" },
-      { credits: 2000, color: "#E0B400" },
-      { credits: 400, color: "#B8860B" },
+      { credits: 4000, color: "#B8860B" },
+      { credits: 6000, color: "#DAA520" },
+      { credits: 8000, color: "#C9A227" },
+      { credits: 4000, color: "#B8860B" },
+      { credits: 12_000, color: "#FFC107" },
+      { credits: 6000, color: "#DAA520" },
+      { credits: 20_000, color: "#E0B400" },
+      { credits: 4000, color: "#B8860B" },
     ],
   },
 };
@@ -94,9 +94,9 @@ export const BOX_TIERS: BoxTier[] = ["bronze", "silver", "gold"];
  */
 export const BOX_ODDS: Record<BoxTier, Array<{ credits: number; pct: number }>> = (() => {
   const w: Record<BoxTier, Array<[number, number]>> = {
-    bronze: [[50, 9], [75, 4], [100, 2], [125, 1], [200, 1]],
-    silver: [[150, 9], [200, 4], [250, 2], [350, 1], [500, 1]],
-    gold: [[400, 9], [600, 4], [800, 2], [1200, 1], [2000, 1]],
+    bronze: [[500, 9], [750, 4], [1000, 2], [1250, 1], [2000, 1]],
+    silver: [[1500, 9], [2000, 4], [2500, 2], [3500, 1], [5000, 1]],
+    gold: [[4000, 9], [6000, 4], [8000, 2], [12_000, 1], [20_000, 1]],
   };
   const out = {} as Record<BoxTier, Array<{ credits: number; pct: number }>>;
   for (const t of Object.keys(w) as BoxTier[]) {

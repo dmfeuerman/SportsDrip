@@ -43,6 +43,7 @@ import { PresenceBeat } from "@/lib/presence";
 import EngagementWatchers from "@/components/EngagementWatchers";
 import InviteToastHost from "@/components/InviteToastHost";
 import LevelUpHost from "@/components/LevelUpHost";
+import TrophyCelebrationHost from "@/components/TrophyCelebrationHost";
 import ToastHost from "@/components/ToastHost";
 import TermsGate from "@/components/TermsGate";
 import GlobalHosts from "@/components/GlobalHosts";
@@ -139,7 +140,8 @@ function AppShell() {
               <ParlayProvider>
                 <ChatProvider>
                   <AvatarPortraitStudio />
-                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+                  {/* No swipe-from-the-edge back: screens close only with their own buttons. */}
+                  <Stack screenOptions={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false, contentStyle: { backgroundColor: colors.background } }}>
                     <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
                     <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
                     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -171,6 +173,7 @@ function AppShell() {
                   {uid && bootDone ? <InviteToastHost /> : null}
                   {uid && bootDone && (avatarReady || needsOnboarding) ? <EngagementWatchers /> : null}
                   {uid && inMainApp ? <LevelUpHost /> : null}
+                  {uid && inMainApp ? <TrophyCelebrationHost /> : null}
                   {__DEV__ && hasDevFlags && uid && inMainApp ? <DevFlagsRunner uid={uid} /> : null}
                   <ToastHost />
                   {uid && bootDone ? <GlobalHosts /> : null}

@@ -307,7 +307,7 @@ export function Amount({
           accessibilityLabel={`${Math.abs(value).toLocaleString()} ${currency === "league" ? "league tokens" : "credits"}`}
         />
       ) : (
-        <Text style={[{ color, fontSize: fs, fontFamily: size === "xl" || size === "lg" ? "Inter_900Black" : "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: size === "xl" ? -1.2 : size === "lg" ? -0.6 : -0.2 }, style]}>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={[{ color, fontSize: fs, fontFamily: size === "xl" || size === "lg" ? "Inter_900Black" : "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: size === "xl" ? -1.2 : size === "lg" ? -0.6 : -0.2 }, style]}>
           {sign}
           {Math.abs(value).toLocaleString()}
         </Text>

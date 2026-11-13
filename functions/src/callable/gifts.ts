@@ -50,7 +50,7 @@ export const giftItem = onCall({ region: "us-central1" }, async (req) => {
     }
     if (!item.exists) throw new HttpsError("not-found", "That item isn't in the store.");
     if (owned.exists) throw new HttpsError("already-exists", "They already own this.");
-    const price = assertSellable(item, recipient.get("xp"), now, await rotationArmFor(tx, from));
+    const price = assertSellable(item, recipient, now, await rotationArmFor(tx, from));
 
     const balance = await applyCredits(tx, from, {
       delta: -price,

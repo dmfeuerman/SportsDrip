@@ -120,18 +120,18 @@ test("spread and total markets pay 1.91x, push on the exact number, and enforce 
 // ---------------------------------------------------------------------------
 
 test("daily pick streak counts consecutive ET days and adds a small bonus to prize boxes", async () => {
-  seedUser("amy", 1000, "Amy");
+  seedUser("amy", 10_000, "Amy");
   seedGame("d1", { startsAt: START + 5 * DAY });
   seedGame("d2", { startsAt: START + 5 * DAY });
   seedGame("d3", { startsAt: START + 5 * DAY });
 
-  await call(placeBet, "amy", { gameId: "d1", side: "home", stake: 10, idempotencyKey: key() });
+  await call(placeBet, "amy", { gameId: "d1", side: "home", stake: 100, idempotencyKey: key() });
   // Second bet same ET day does not double-increment.
-  await call(placeBet, "amy", { gameId: "d2", side: "home", stake: 10, idempotencyKey: key() });
+  await call(placeBet, "amy", { gameId: "d2", side: "home", stake: 100, idempotencyKey: key() });
   assert.equal((db.read("users/amy")!.streak as { count: number }).count, 1);
 
   clock.advanceHours(24);
-  await call(placeBet, "amy", { gameId: "d3", side: "home", stake: 10, idempotencyKey: key() });
+  await call(placeBet, "amy", { gameId: "d3", side: "home", stake: 100, idempotencyKey: key() });
   assert.equal((db.read("users/amy")!.streak as { count: number }).count, 2);
 
   await call(openPrizeBox, "amy", { tier: "bronze" });
@@ -142,8 +142,8 @@ test("daily pick streak counts consecutive ET days and adds a small bonus to pri
     { tier: "bronze" }
   );
   assert.equal(claim.streakDays, 2);
-  assert.equal(claim.streakBonus, 10);
-  assert.equal(claim.rewardCredits, claim.baseCredits + 10);
+  assert.equal(claim.streakBonus, 100);
+  assert.equal(claim.rewardCredits, claim.baseCredits + 100);
 });
 
 // ---------------------------------------------------------------------------
@@ -231,16 +231,16 @@ test("ending early takes a majority vote; the creator alone can't cash out a lea
 });
 
 test("tied standings split the combined prize equally instead of favouring earliest joinedAt", async () => {
-  seedUser("ann", 1000, "Ann");
-  seedUser("ben", 1000, "Ben");
-  seedUser("cat", 1000, "Cat");
+  seedUser("ann", 10_000, "Ann");
+  seedUser("ben", 10_000, "Ben");
+  seedUser("cat", 10_000, "Cat");
   const { leagueId, code } = await makeLeague("ann", { prizePreset: "top-2", buyIn: 1_000 });
   await call(joinLeague, "ben", { code });
   await call(joinLeague, "cat", { code });
 
   // Cat loses 100 so Ann and Ben tie for 1st/2nd at 1000 each (pot 300: 210 + 90 = 300 -> 150 each).
   seedGame("g_tie");
-  await call(placeLeagueBet, "cat", { leagueId, gameId: "g_tie", side: "away", stake: 100, idempotencyKey: key() });
+  await call(placeLeagueBet, "cat", { leagueId, gameId: "g_tie", side: "away", stake: 1000, idempotencyKey: key() });
   finishGame("g_tie", 10, 5);
   await settleLeagueBetsForGame("g_tie");
 
@@ -250,15 +250,15 @@ test("tied standings split the combined prize equally instead of favouring earli
   const benRes = results.find((r) => r.memberId === "ben")!;
   assert.equal(annRes.rank, 1);
   assert.equal(benRes.rank, 1);
-  assert.equal(annRes.prizeTokens, 150);
-  assert.equal(benRes.prizeTokens, 150);
-  assert.equal(balance("ann"), 900 + 150);
-  assert.equal(balance("ben"), 900 + 150);
+  assert.equal(annRes.prizeTokens, 1500);
+  assert.equal(benRes.prizeTokens, 1500);
+  assert.equal(balance("ann"), 9000 + 1500);
+  assert.equal(balance("ben"), 9000 + 1500);
 });
 
 test("commissioner rules lock after the first bet, and every settings change/dispute/void writes to audit", async () => {
-  seedUser("ann", 1000, "Ann");
-  seedUser("ben", 1000, "Ben");
+  seedUser("ann", 10_000, "Ann");
+  seedUser("ben", 10_000, "Ben");
   const { leagueId, code } = await makeLeague("ann");
   await call(joinLeague, "ben", { code });
 
@@ -278,7 +278,7 @@ test("commissioner rules lock after the first bet, and every settings change/dis
     leagueId,
     gameId: "g_rule",
     side: "home",
-    stake: 200,
+    stake: 2000,
     idempotencyKey: key(),
   });
   await rejects(
@@ -290,7 +290,7 @@ test("commissioner rules lock after the first bet, and every settings change/dis
   // Settle, then Ben flags the result and Ann voids it with a logged reason.
   finishGame("g_rule", 5, 10);
   await settleLeagueBetsForGame("g_rule");
-  assert.equal(tokens(leagueId, "ben"), 800);
+  assert.equal(tokens(leagueId, "ben"), 8000);
 
   await call(reportResult, "ben", { leagueId, betId: bet.betId, reason: "Stat correction after overtime" });
   assert.ok(sub(leagueId, "audit").some((a) => a.action === "dispute_reported"));
@@ -299,7 +299,7 @@ test("commissioner rules lock after the first bet, and every settings change/dis
   const voidAudit = sub(leagueId, "audit").find((a) => a.action === "bet_voided")!;
   assert.equal(voidAudit.reason, "Verified stat correction");
   assert.equal(db.read(`leagues/${leagueId}/leagueBets/${bet.betId}`)!.status, "cancelled");
-  assert.equal(tokens(leagueId, "ben"), 1000);
+  assert.equal(tokens(leagueId, "ben"), 10_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -501,20 +501,20 @@ test("group parlays cap combined price at 20x and call out whose leg busted the 
 });
 
 test("season awards grant champion crown, lock last-place punishment for 7 days, and bailouts/margin calls fire", async () => {
-  seedUser("ann", 1000, "Ann");
-  seedUser("ben", 1000, "Ben");
-  db.seed("catalog/hat_gold_crown", { id: "hat_gold_crown", name: "Crown", slot: "hat", model: "hat_crown", price: 50000, available: true });
-  db.seed("catalog/hat_bubblegum_beanie", { id: "hat_bubblegum_beanie", name: "Bubblegum Beanie", slot: "hat", model: "hat_beanie", price: 1500, available: true });
-  db.seed("catalog/hat_midnight_cap", { id: "hat_midnight_cap", name: "Cap", slot: "hat", model: "hat_cap", price: 900, available: true });
+  seedUser("ann", 10_000, "Ann");
+  seedUser("ben", 10_000, "Ben");
+  db.seed("catalog/hat_gold_crown", { id: "hat_gold_crown", name: "Crown", slot: "hat", model: "hat_crown", price: 500_000, available: true });
+  db.seed("catalog/hat_bubblegum_beanie", { id: "hat_bubblegum_beanie", name: "Bubblegum Beanie", slot: "hat", model: "hat_beanie", price: 15_000, available: true });
+  db.seed("catalog/hat_midnight_cap", { id: "hat_midnight_cap", name: "Cap", slot: "hat", model: "hat_cap", price: 9000, available: true });
   db.seed("users/ben/inventory/hat_midnight_cap", { itemId: "hat_midnight_cap", slot: "hat" });
 
   const { leagueId, code } = await makeLeague("ann");
   await call(joinLeague, "ben", { code });
 
   // Ben takes a bank loan and loses almost everything -> margin call + bailout.
-  await call(takeBankLoan, "ben", { leagueId, amount: 500, idempotencyKey: key() });
+  await call(takeBankLoan, "ben", { leagueId, amount: 5000, idempotencyKey: key() });
   seedGame("g_bust");
-  await call(placeLeagueBet, "ben", { leagueId, gameId: "g_bust", side: "away", stake: 1450, idempotencyKey: key() });
+  await call(placeLeagueBet, "ben", { leagueId, gameId: "g_bust", side: "away", stake: 14_500, idempotencyKey: key() });
   finishGame("g_bust", 20, 10);
   await settleLeagueBetsForGame("g_bust");
   assert.ok(notifications("ben").some((n) => n.type === "margin_call"));
@@ -522,7 +522,7 @@ test("season awards grant champion crown, lock last-place punishment for 7 days,
   // Ben has 50 tokens left (< 100) and requests a peer loan; Ann funds -> bailout row.
   const { loanId } = await call<{ loanId: string }>(requestPeerLoan, "ben", {
     leagueId,
-    amount: 200,
+    amount: 2000,
     rate: 10,
     idempotencyKey: key(),
   });
