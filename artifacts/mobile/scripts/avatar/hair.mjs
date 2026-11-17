@@ -54,8 +54,9 @@ function shell(x, y, z, line, thick, edgeRound = 0.003) {
   const { theta, phi } = polar(x, y, z);
   const lineTheta = hairline(line, phi);
   const out = (theta - lineTheta) * R_MEAN; // > 0 below the hairline
-  // Hair thins toward the hairline instead of ending in a thick ledge.
-  const t = Math.min(thick(theta, phi, Math.min(1, theta / lineTheta)), 0.0018 + 1.1 * Math.max(0, -out));
+  // Hair thins toward the hairline instead of ending in a thick ledge — over a short distance, so
+  // the line itself stays crisp (a barber's line-up, not a feathered fade into the forehead).
+  const t = Math.min(thick(theta, phi, Math.min(1, theta / lineTheta)), 0.0024 + 2.1 * Math.max(0, -out));
   // Over the skull, and at the nape over the skin where the neck blends into it.
   const base = y < 1.63 ? Math.min(scalpD(x, y, z), headSkinD("oval", x, y, z)) : scalpD(x, y, z);
   return smax(base - t, out, edgeRound);
@@ -90,7 +91,7 @@ export const HAIR = {
       { front: 0.94, side: 1.46, back: 2.38, burn: 0.18 },
       (th, ph, v) => {
         let t = 0.0135 * (1 - 0.5 * v * v) + 0.005 * front(ph) * sstep(0.5, 0.85, th) * (1 - sstep(0.9, 1.0, th));
-        t -= combed(th, ph, 30, 0.003, 1);
+        t -= combed(th, ph, 30, 0.0038, 1);
         return Math.max(0.0025, t);
       }
     ),
@@ -100,9 +101,11 @@ export const HAIR = {
       x, y, z,
       { front: 0.93, side: 1.48, back: 2.36, burn: 0.1 },
       (th, ph) => {
-        const top = 1 - sstep(0.7, 1.02, th + 0.12 * front(ph));
-        let t = 0.0022 + 0.026 * top * (0.8 + 0.2 * front(ph));
-        t -= top * combed(th, ph, 26, 0.004, 2);
+        const top = 1 - sstep(0.7, 1.0, th + 0.12 * front(ph));
+        // A sculpted top: fuller at the front, broken into twisted clumps; the sides fade tight.
+        let t = 0.0022 + 0.022 * top * (0.82 + 0.18 * front(ph));
+        t -= top * combed(th, ph, 30, 0.0052, 2);
+        t -= top * 0.0016 * Math.max(0, noise3(Math.cos(ph) * th * 30, Math.sin(ph) * th * 30, 5.3));
         return t;
       },
       0.004
@@ -134,9 +137,9 @@ export const HAIR = {
     const s = Math.atan2(x - CX, y - (CY - 0.075)); // side-to-side angle, rows meeting below the nape
     const rows = 7;
     const f = (s * rows) / Math.PI;
-    const ridge = Math.pow(Math.abs(Math.cos((Math.PI * f) / 1)), 0.5);
+    const ridge = Math.pow(Math.abs(Math.cos((Math.PI * f) / 1)), 0.75); // rounder rows, deeper parts between them
     const plait = 0.0012 * Math.sin(theta * 70 + (Math.round(f) % 2) * 1.5);
-    let d = shell(x, y, z, { front: 0.94, side: 1.5, back: 2.36, burn: 0.12 }, () => 0.0025 + 0.0052 * ridge + plait, 0.002);
+    let d = shell(x, y, z, { front: 0.94, side: 1.5, back: 2.36, burn: 0.12 }, () => 0.002 + 0.0062 * ridge + plait, 0.002);
     // Braids hanging from the nape.
     for (let i = 0; i < 5; i++) {
       const bx = (i - 2) * 0.03;
@@ -314,7 +317,8 @@ function strands(angle, n, amp, x, y, z, wander = 0.35) {
 const combedStrands = (x, y, z, fine = 170, amp = 0.0006) => {
   const { theta, phi } = polar(x, y, z);
   const atWhorl = sstep(0.06, 0.3, theta);
-  return atWhorl * (strands(phi, fine, amp, x, y, z) + strands(phi, fine * 0.33, amp * 1.6, x + 1, y, z, 0.2));
+  // Fine strands over broader clumps (the clumps carry most of the depth, as on a sculpted game hairstyle).
+  return atWhorl * (strands(phi, fine, amp * 1.15, x, y, z) + strands(phi, fine * 0.3, amp * 2.1, x + 1, y, z, 0.2));
 };
 /** Straight-down strands (around the vertical axis). */
 const fallingStrands = (x, y, z, fine = 190, amp = 0.0007) => {
@@ -371,7 +375,7 @@ export const HAIR_FLOW = {
 
 /** Beard hair: fine strands growing down, over a coarse wiry texture. */
 export function beardDetail(x, y, z) {
-  return strands(x * 40, 26, 0.0004, x, y * 0.3, z, 0.5) + 0.00008 * noise3(x * 300, y * 300, z * 300);
+  return strands(x * 40, 26, 0.0005, x, y * 0.3, z, 0.5) + strands(x * 40, 9, 0.0005, x + 3, y * 0.3, z, 0.3) + 0.00008 * noise3(x * 300, y * 300, z * 300);
 }
 export const beardFlow = (x, y, z) => [...tangential([0, -1, 0.25], x, y, z, [0, 1.6, -0.01]), 0.4];
 
@@ -404,10 +408,11 @@ export function beardRegion(style, x, y, z) {
   }
   // Goatee: chin and a mustache joined at the mouth corners.
   // Wraps the point of the chin and its underside (chins bottom out at y ≈ 1.504–1.508).
-  const chin = Math.max(ax - 0.026 - 0.004 * sstep(1.56, 1.53, y), y - (MOUTH.y - 0.006), 1.497 - y, 0.042 - z);
-  const stache = Math.max(ax - (MOUTH.w + 0.005), Math.abs(y - (MOUTH.y + 0.0125)) - 0.0055, 0.1 - z);
-  const corners = Math.max(Math.abs(ax - (MOUTH.w + 0.004)) - 0.0035, Math.abs(y - MOUTH.y) - 0.012, 0.09 - z);
-  return Math.max(Math.min(chin, stache, corners), -lipsOut);
+  // Rounded outlines (smooth max/min), so the goatee has no box corners.
+  const chin = smax(smax(ax - 0.026 - 0.004 * sstep(1.56, 1.53, y), y - (MOUTH.y - 0.006), 0.005), Math.max(1.497 - y, 0.042 - z), 0.003);
+  const stache = smax(smax(ax - (MOUTH.w + 0.005), Math.abs(y - (MOUTH.y + 0.0125)) - 0.0055, 0.004), 0.1 - z, 0.002);
+  const corners = smax(Math.abs(ax - (MOUTH.w + 0.004)) - 0.0035, Math.max(Math.abs(y - MOUTH.y) - 0.012, 0.09 - z), 0.003);
+  return Math.max(smin(smin(chin, stache, 0.004), corners, 0.004), -lipsOut);
 }
 
 /** Full thickness off the skin, before the taper at the edges. */
@@ -418,7 +423,7 @@ const BEARD_THICK = {
   beard: (x, y, z) => 0.0034 + 0.0038 * sstep(1.585, 1.535, y) * sstep(0.075, 0.02, Math.abs(x)) + 0.001 * sstep(0.02, 0.07, z) * sstep(1.56, 1.52, y),
 };
 /** How far in from the region's edge the hair reaches full thickness. */
-const BEARD_TAPER = { stubble: 0.004, goatee: 0.008, beard: 0.012 };
+const BEARD_TAPER = { stubble: 0.005, goatee: 0.011, beard: 0.014 };
 
 export const FACIAL_HAIR_STYLES = ["stubble", "goatee", "beard"];
 
@@ -429,12 +434,15 @@ export function beardD(style, face, x, y, z) {
   // Thins out to almost nothing at its edge, so it grows from the skin instead of sitting on it like a mask.
   const region = beardRegion(style, x, y, z);
   const ramp = sstep(0, -BEARD_TAPER[style], region);
-  const t = 0.0012 + (BEARD_THICK[style](x, y, z) - 0.0012) * ramp;
-  let d = smax(skin - t, region, style === "stubble" ? 0.002 : 0.0025);
+  // Thin at the edge, so the hair grows out of the skin rather than ending in a step (much thinner
+  // and the shell breaks into slivers that cost triangles).
+  const t = 0.0011 + (BEARD_THICK[style](x, y, z) - 0.0011) * ramp;
+  let d = smax(skin - t, region, style === "stubble" ? 0.002 : 0.003);
   if (style !== "stubble") {
     // Clumps (the strands themselves are in the normal map).
+    // Clumps, tapering out with the hair (the strands themselves are in the normal map).
     const n = noise3(x * 160, y * 90, z * 160);
-    d -= 0.0009 * n * sstep(0.003, 0.006, t);
+    d -= 0.0009 * n * sstep(0.0025, 0.006, t);
   }
   // Not inside the skin: the shell's inner side is buried.
   return smax(d, -(skin + 0.0002), 0.0006);

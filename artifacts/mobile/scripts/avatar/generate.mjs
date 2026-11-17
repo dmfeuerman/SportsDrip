@@ -51,6 +51,7 @@ import { attachmentSpecs } from "./attachments.mjs";
 import { addNormalMaps, atlas, bakeNormals, withUVs } from "./bake.mjs";
 import { encodeJPEG } from "./jpeg.mjs";
 import { sparsifyMorphs } from "./sparse.mjs";
+import { artMesh, artNormalMaps, craniumDeviation, loadArt } from "./art.mjs";
 import { bakeAO, gradient, meshSDF, project, simplify, smax, smin, sstep } from "./sdf.mjs";
 
 // GLTFExporter's binary writer reads its Blob through FileReader.
@@ -104,6 +105,7 @@ export const GARMENT_TRIS = { top: 3000, outerwear: 3200, bottom: 2800, shoes: 2
 export const LAYERS = { shoes: 1, bottom: 2, top: 3, outerwear: 4, hat: 5, eyewear: 5, accessory: 5 };
 /** Materials that keep their own look whatever fabric the template asks for. */
 const OWN_LOOK = { metal: null, lens: null, laces: null, sole: "rubber" };
+const TINT_NAMES = ["primary", "secondary", "primary_dark", "secondary_dark", "metal", "lens", "sole", "laces", "plastic"];
 
 /* ── materials ───────────────────────────────────────────────────────────── */
 
@@ -113,7 +115,8 @@ const OWN_LOOK = { metal: null, lens: null, laces: null, sole: "rubber" };
  * load as MeshPhysicalMaterial.
  */
 const MATERIAL_LOOK = {
-  skin: { color: "#e5b18c", roughness: 0.5, vertexColors: true, sheen: 0.25, sheenColor: "#ff9a7a", sheenRoughness: 0.6 },
+  // Matte skin with a warm, soft sheen at grazing angles (the runtime tints both to the skin tone).
+  skin: { color: "#e5b18c", roughness: 0.58, vertexColors: true, sheen: 0.32, sheenColor: "#ff9a7a", sheenRoughness: 0.5 },
   eye_white: { color: "#f4f1ea", roughness: 0.12 },
   iris: { color: "#3b2415", roughness: 0.1, vertexColors: true },
   pupil: { color: "#08080a", roughness: 0.1 },
@@ -124,12 +127,13 @@ const MATERIAL_LOOK = {
   beard: { color: "#2b1b12", roughness: 0.75, vertexColors: true, sheen: 0.4, sheenColor: "#ffffff", sheenRoughness: 0.6 },
   hair_tie: { color: "#e2564a", roughness: 0.55 },
   lash: { color: "#120c09", roughness: 0.7 },
-  base_layer: { color: "#2f3a35", roughness: 0.82, vertexColors: true, sheen: 0.5, sheenRoughness: 0.8 },
+  // Charcoal microfibre: near-black and matte, with a faint cool sheen so its edges read on dark backgrounds.
+  base_layer: { color: "#25272b", roughness: 0.9, vertexColors: true, sheen: 0.3, sheenColor: "#565b63", sheenRoughness: 0.75 },
   primary: { color: "#f5f5f5", roughness: 0.82, vertexColors: true },
   primary_dark: { color: "#cfcfcf", roughness: 0.86, vertexColors: true },
   secondary: { color: "#1a237e", roughness: 0.78, vertexColors: true },
   secondary_dark: { color: "#101656", roughness: 0.82, vertexColors: true },
-  metal: { color: "#d8d8dc", roughness: 0.22, metalness: 1.0, vertexColors: true },
+  metal: { color: "#e2e2e6", roughness: 0.16, metalness: 1.0, vertexColors: true },
   lens: { color: "#101418", roughness: 0.05, metalness: 0.3, clearcoat: 1 },
   sole: { color: "#f2f2f2", roughness: 0.72, vertexColors: true },
   laces: { color: "#ffffff", roughness: 0.8, vertexColors: true },
@@ -137,13 +141,18 @@ const MATERIAL_LOOK = {
 
 /** Fabric presets a template part can ask for (`look` in templates.mjs). */
 export const FABRIC = {
-  cotton: { roughness: 0.86, sheen: 0.55, sheenRoughness: 0.75 },
-  fleece: { roughness: 0.92, sheen: 0.55, sheenRoughness: 0.85 },
+  // Matte cottons: rough, with a low sheen (a strong one washed dark cloth out to grey).
+  cotton: { roughness: 0.9, sheen: 0.4, sheenRoughness: 0.8 },
+  fleece: { roughness: 0.95, sheen: 0.42, sheenRoughness: 0.88 },
   mesh: { roughness: 0.62, sheen: 0.35, sheenRoughness: 0.5 },
-  nylon: { roughness: 0.38, sheen: 0.3, sheenRoughness: 0.3, clearcoat: 0.25, clearcoatRoughness: 0.4 },
+  // Satin-finish nylon shell: a soft, broad highlight.
+  nylon: { roughness: 0.3, sheen: 0.3, sheenRoughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.28 },
   denim: { roughness: 0.9, sheen: 0.4, sheenRoughness: 0.9 },
-  leather: { roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.35 },
-  knit: { roughness: 0.95, sheen: 0.5, sheenRoughness: 0.9 },
+  // Glossier than the cloth around it: a tight clearcoat highlight.
+  leather: { roughness: 0.34, clearcoat: 0.6, clearcoatRoughness: 0.2 },
+  // Melton wool (varsity bodies): very rough, with a soft, fuzzy sheen.
+  wool: { roughness: 0.94, sheen: 0.55, sheenRoughness: 0.55 },
+  knit: { roughness: 0.95, sheen: 0.45, sheenRoughness: 0.85 },
   canvas: { roughness: 0.88, sheen: 0.3, sheenRoughness: 0.8 },
   plastic: { roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.08 },
   rubber: { roughness: 0.75 },
@@ -716,6 +725,44 @@ function cheerClip() {
   return new THREE.AnimationClip("cheer", cd, tracks);
 }
 
+/* ── art (hand-made meshes, art.mjs) ─────────────────────────────────────── */
+
+/** An art mesh as mesh data; only blendshapes in `keep` are carried (the others are reported). */
+function artData(a, keep = []) {
+  const morphs = {};
+  for (const [k, m] of Object.entries(a.morphs)) {
+    if (keep.includes(k)) morphs[k] = m;
+    else console.warn(`    warning: ${a.name}: shape key "${k}" isn't one the runtime drives; dropped`);
+  }
+  return { positions: a.positions, normals: a.normals, indices: a.indices, colors: a.colors, weights: a.weights, uvs: a.uvs, tangents: a.tangents, morphs };
+}
+
+/** Build / frame blendshapes the art didn't author, transferred from the procedural body. */
+function addMissingBuildMorphs(md, { base = bodyField, weight = () => 1 } = {}) {
+  for (const name of BUILD_MORPHS) {
+    if (md.morphs[name]) continue;
+    const fem = name === "frameFem";
+    md.morphs[name] = fieldMorph(md, base, atMorph(name, base), { transfer: true, weight, maxMove: fem ? 0.065 : 0.04, premap: fem && base === bodyField ? femPremap : null });
+  }
+}
+
+/** Face blendshapes the art didn't author: mouth shapes and the jaw/smile expressions (heads and facial hair). */
+function addMissingFaceMorphs(md, face, nose, { noses = false, normals = true } = {}) {
+  const hs = atFace({ nose }, headSkin(face));
+  for (const [name, detail] of Object.entries(MOUTH_MORPHS)) {
+    if (!md.morphs[name]) md.morphs[name] = fieldMorph(md, hs, atFace({ nose, ...detail }, headSkin(face)), { transfer: true, weight: mouthBox, maxMove: 0.012, normals });
+  }
+  if (noses) for (const [name, detail] of Object.entries(NOSE_MORPHS)) if (!md.morphs[name]) md.morphs[name] = noseMorph(md, hs, atFace(detail, headSkin(face)), { transfer: true, normals });
+  for (const name of EXPRESSIONS) if (!name.startsWith("eyeBlink") && !md.morphs[name]) md.morphs[name] = fnMorph(md, X.EXPRESSION_FNS[name]);
+}
+
+/** Warns when an art mesh is over a triangle target (validate.mjs enforces the file budgets). */
+function artTris(name, md, target) {
+  const t = md.indices.length / 3;
+  if (target && t > target) console.warn(`    warning: ${name}: ${t} triangles, over its ${target} target`);
+  return t;
+}
+
 /* ── export ──────────────────────────────────────────────────────────────── */
 
 let quantizer;
@@ -863,7 +910,9 @@ const underwearField = (() => {
   return (x, y, z) => {
     const r = Math.max(y - 0.99, legPast(0.2, x, y, z));
     if (r > 0.03) return r;
-    return Math.max(C.bodyD(x, y, z) - LAYER_OFFSET.base, r);
+    // A raised elastic waistband (top 3 cm) and a slightly rolled leg hem: a clean, fitted edge.
+    const band = 0.0013 * sstep(0.957, 0.962, y) + 0.0006 * sstep(-0.012, -0.006, r) * sstep(0.95, 0.93, y);
+    return Math.max(C.bodyD(x, y, z) - LAYER_OFFSET.base - band, r);
   };
 })();
 
@@ -891,7 +940,8 @@ const mix1 = (a, b, t) => a + (b - a) * t;
 const braField = (x, y, z) => {
   const r = braShape(x, y, z);
   if (r > 0.03) return r;
-  return smax(C.bodyD(x, y, z) - (LAYER_OFFSET.base + 0.0035), r, 0.006);
+  // The elastic under-band stands a millimetre proud of the cups above it.
+  return smax(C.bodyD(x, y, z) - (LAYER_OFFSET.base + 0.0035 + 0.001 * sstep(1.256, 1.25, y)), r, 0.006);
 };
 const braFem = atFrame(1, braField);
 const bodyFem = atFrame(1, bodyField);
@@ -927,7 +977,11 @@ async function buildUnderwear() {
   const md = meshData(m);
   const P = m.positions;
   md.weights = Array.from({ length: P.length / 3 }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
-  md.colors = rgba(bakeAO((x, y, z) => Math.min(f(x, y, z), C.bodyD(x, y, z)), m, { step: 0.006, strength: 0.9 }));
+  // The waistband knit a shade darker than the body of the garment.
+  md.colors = rgba(bakeAO((x, y, z) => Math.min(f(x, y, z), C.bodyD(x, y, z)), m, { step: 0.006, strength: 0.9 }), (v) => {
+    const k = 1 - 0.22 * sstep(0.955, 0.961, P[v * 3 + 1]);
+    return [k, k, k];
+  });
   addBuildMorphs(md, { transfer: true });
   return md;
 }
@@ -1003,7 +1057,47 @@ async function base() {
     morphs: { build: BUILD_MORPHS, face: Object.keys(MOUTH_MORPHS), facialHair: Object.keys(FACE_MORPHS), expressions: EXPRESSIONS },
   });
   const maps = [];
-  {
+  const art = await loadArt("base");
+  if (artMesh(art, "Body")) {
+    // Hand-made body: split into the hide regions; the base layer from art too, or procedural.
+    const a = artMesh(art, "Body");
+    const md = artData(a, BUILD_MORPHS);
+    const P = md.positions;
+    const n = P.length / 3;
+    artTris("Body", md, TRIS.body);
+    md.weights ??= Array.from({ length: n }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+    addMissingBuildMorphs(md);
+    const region = new Array(md.indices.length / 3);
+    for (let t = 0; t < region.length; t++) {
+      const i = [0, 1, 2].map((k) => md.indices[t * 3 + k] * 3);
+      region[t] = C.regionOf((P[i[0]] + P[i[1]] + P[i[2]]) / 3, (P[i[0] + 1] + P[i[1] + 1] + P[i[2] + 1]) / 3, (P[i[0] + 2] + P[i[1] + 2] + P[i[2] + 2]) / 3);
+    }
+    const named = [];
+    for (const [r, part] of Object.entries(bodyRegions(md, region))) {
+      addMesh(ctx, `Body_${r}`, "skin", toGeometry(part), { skinned: true });
+      named.push({ name: `Body_${r}`, art: a });
+    }
+    const layers = [];
+    for (const [name, build, field] of [["Underwear", buildUnderwear, underwearField], ["Bra", buildBra, braFem]]) {
+      const la = artMesh(art, name);
+      if (la) {
+        const lmd = artData(la, BUILD_MORPHS);
+        const LP = lmd.positions;
+        lmd.weights ??= Array.from({ length: LP.length / 3 }, (_, v) => clothWeights(LP[v * 3], LP[v * 3 + 1], LP[v * 3 + 2]));
+        // The sports top is only drawn on the feminine frame, so it is authored there: no frameFem of its own.
+        if (name === "Bra") lmd.morphs.frameFem ??= { dpos: new Float32Array(LP.length), dnrm: null };
+        addMissingBuildMorphs(lmd, { base: name === "Bra" ? bodyFem : bodyField });
+        addMesh(ctx, name, "base_layer", toGeometry(lmd), { skinned: true });
+        named.push({ name, art: la });
+      } else layers.push({ name, md: await build(), field });
+    }
+    maps.push(...artNormalMaps(named));
+    if (layers.length) {
+      const { mds, png } = bakeSet(layers, texSize("body"));
+      layers.forEach((l, i) => addMesh(ctx, l.name, "base_layer", toGeometry(mds[i]), { skinned: true }));
+      maps.push({ png, meshes: layers.map((l) => l.name) });
+    }
+  } else {
     // Body and base layer share one normal map.
     const body = await buildBody();
     const { mds, png } = bakeSet(
@@ -1020,23 +1114,53 @@ async function base() {
     maps.push({ png, meshes: [...names, "Underwear", "Bra"] });
   }
   for (const nose of NOSE_SHAPES) {
-    // The four face shapes with one nose share a normal map.
+    // The four face shapes with one nose share a normal map (procedural heads); art heads bring their own.
     const heads = [];
-    for (const face of FACE_SHAPES) heads.push({ md: await headMesh(face, nose), field: atFace({ nose }, headSkin(face)) });
-    const { mds, png } = bakeSet(heads, texSize("heads"));
-    FACE_SHAPES.forEach((face, i) => addMesh(ctx, headName(face, nose), "skin", toGeometry(mds[i]), { skinned: true }));
-    maps.push({ png, meshes: FACE_SHAPES.map((f) => headName(f, nose)) });
+    const arts = [];
+    for (const face of FACE_SHAPES) {
+      const a = await artHead(face, nose);
+      if (a) arts.push({ face, ...a });
+      else heads.push({ face, md: await headMesh(face, nose), field: atFace({ nose }, headSkin(face)) });
+    }
+    if (heads.length) {
+      const { mds, png } = bakeSet(heads, texSize("heads"));
+      heads.forEach((h, i) => addMesh(ctx, headName(h.face, nose), "skin", toGeometry(mds[i]), { skinned: true }));
+      maps.push({ png, meshes: heads.map((h) => headName(h.face, nose)) });
+    }
+    for (const h of arts) addMesh(ctx, headName(h.face, nose), "skin", toGeometry(h.md), { skinned: true });
+    maps.push(...artNormalMaps(arts.map((h) => ({ name: headName(h.face, nose), art: h.src }))));
   }
 
   const head = REST.Head;
-  addMesh(ctx, "Eyes", "eye_white", toGeometry(withEyeFem(builtData((b) => F.eyeballs(b))), head));
-  addMesh(ctx, "Iris", "iris", toGeometry(withEyeFem(builtData((b) => F.irises(b))), head));
-  addMesh(ctx, "Pupils", "pupil", toGeometry(withEyeFem(builtData((b) => F.pupils(b))), head));
-  {
+  // Face parts: art when the base art has them (rigid on the Head bone), else procedural.
+  const faceArt = [];
+  const artPart = (name, mat, keep, fill) => {
+    const a = artMesh(art, name);
+    if (!a) return false;
+    const md = artData(a, keep);
+    fill?.(md);
+    addMesh(ctx, name, mat, toGeometry(md, head));
+    faceArt.push({ name, art: a });
+    return true;
+  };
+  const eyeFem = (md) => md.morphs.frameFem ?? withEyeFem(md);
+  if (!artPart("Eyes", "eye_white", ["frameFem"], eyeFem)) addMesh(ctx, "Eyes", "eye_white", toGeometry(withEyeFem(builtData((b) => F.eyeballs(b))), head));
+  if (!artPart("Iris", "iris", ["frameFem"], eyeFem)) addMesh(ctx, "Iris", "iris", toGeometry(withEyeFem(builtData((b) => F.irises(b))), head));
+  if (!artPart("Pupils", "pupil", ["frameFem"], eyeFem)) addMesh(ctx, "Pupils", "pupil", toGeometry(withEyeFem(builtData((b) => F.pupils(b))), head));
+  if (!artPart("Teeth", "teeth", [])) {
     const m = await fieldMesh(F.teethD, F.TEETH_BOX, 0.0005, { targetTris: 200, error: 0.0006 });
     addMesh(ctx, "Teeth", "teeth", toGeometry(meshData(m), head));
   }
   for (const shape of EYE_SHAPES) {
+    const blinks = (lashes) => (md) => {
+      md.morphs.eyeBlinkLeft ??= fnMorph(md, (p) => X.eyeBlink(shape, "L", p, { lashes }));
+      md.morphs.eyeBlinkRight ??= fnMorph(md, (p) => X.eyeBlink(shape, "R", p, { lashes }));
+      eyeFem(md);
+    };
+    const keep = ["eyeBlinkLeft", "eyeBlinkRight", "frameFem"];
+    const lidsArt = artPart(`Lids_${shape}`, "skin", keep, blinks(false));
+    const lashArt = artPart(`Lashes_${shape}`, "lash", keep, blinks(true));
+    if (lidsArt && lashArt) continue;
     // Lids: both eyes in one mesh, with the skin's AO so the crease reads, and a blink per eye.
     const parts = [];
     for (const s of [1, -1]) {
@@ -1051,19 +1175,21 @@ async function base() {
     md.morphs.eyeBlinkLeft = fnMorph(md, (p) => X.eyeBlink(shape, "L", p));
     md.morphs.eyeBlinkRight = fnMorph(md, (p) => X.eyeBlink(shape, "R", p));
     withEyeFem(md);
-    addMesh(ctx, `Lids_${shape}`, "skin", toGeometry(md, head));
+    if (!lidsArt) addMesh(ctx, `Lids_${shape}`, "skin", toGeometry(md, head));
     const lash = builtData((b) => F.lashes(b, shape));
     lash.morphs.eyeBlinkLeft = fnMorph(lash, (p) => X.eyeBlink(shape, "L", p, { lashes: true }));
     lash.morphs.eyeBlinkRight = fnMorph(lash, (p) => X.eyeBlink(shape, "R", p, { lashes: true }));
     withEyeFem(lash);
-    addMesh(ctx, `Lashes_${shape}`, "lash", toGeometry(lash, head));
+    if (!lashArt) addMesh(ctx, `Lashes_${shape}`, "lash", toGeometry(lash, head));
   }
   for (const style of EYEBROWS) {
     if (style === "none") continue;
+    if (artPart(`Brows_${style}`, "brow", [])) continue;
     const f = (x, y, z) => F.browD(style, x, y, z);
     const m = await fieldMesh(f, F.browBox(), 0.0005, { targetTris: TRIS.brows, error: 0.0009 });
     addMesh(ctx, `Brows_${style}`, "brow", toGeometry(meshData(m), head));
   }
+  maps.push(...artNormalMaps(faceArt));
   await write(ctx.scene, `${BASE_KEY}.glb`, [idleClip(), cheerClip()], maps);
 }
 
@@ -1096,6 +1222,8 @@ function mergeMeshes(list) {
 /* ── hair ────────────────────────────────────────────────────────────────── */
 
 async function hairAsset(style) {
+  const art = await loadArt(`hair_${style}`);
+  if (art) return artHairAsset(style, art);
   const ctx = newScene({ kind: "hair", part: `hair_${style}`, style, modes: HAIR_MODES });
   const f = H.HAIR[style];
   const box = H.HAIR_BOX[style] ?? H.HAIR_BOX.default;
@@ -1136,14 +1264,83 @@ async function hairAsset(style) {
   await write(ctx.scene, `hair_${style}.glb`, [], [{ png, aniso: aniso && { png: aniso, strength: 0.5 }, meshes: variants.map((v) => v.name) }]);
 }
 
+/**
+ * A hand-made hairstyle: `Hair` plus one pressed variant per hat mode (`Hair_<mode>`; the pressed
+ * shapes must sit inside fit.mjs's allowance — hatfit.mjs checks it), and for tied styles
+ * `HairTie[_<mode>]`. Rigid on the Head bone; export tangents so the strand highlight follows them.
+ */
+async function artHairAsset(style, art) {
+  const ctx = newScene({ kind: "hair", part: `hair_${style}`, style, modes: HAIR_MODES });
+  const missing = ["Hair", ...HAIR_MODES.map((m) => `Hair_${m}`)].filter((n) => !artMesh(art, n));
+  if (missing.length) throw new Error(`art/hair_${style}.glb is missing ${missing.join(", ")} (every hairstyle needs a pressed variant per hat mode)`);
+  const named = [];
+  for (const a of art.meshes) {
+    if (!/^Hair(_|$)|^HairTie(_|$)/.test(a.name)) {
+      console.warn(`    warning: ${a.name}: not a hair part name; skipped`);
+      continue;
+    }
+    const md = artData(a, []);
+    artTris(a.name, md, a.name.startsWith("HairTie") ? 240 : a.name === "Hair" ? TRIS.hair : TRIS.hairPressed);
+    if (!md.tangents && a.name.startsWith("Hair") && !a.name.startsWith("HairTie")) console.warn(`    warning: ${a.name}: no tangents exported; no strand highlight`);
+    addMesh(ctx, a.name, a.name.startsWith("HairTie") ? "hair_tie" : "hair", toGeometry(md, REST.Head));
+    named.push({ name: a.name, art: a });
+  }
+  await write(ctx.scene, `hair_${style}.glb`, [], artNormalMaps(named));
+}
+
 /* ── facial hair ─────────────────────────────────────────────────────────── */
 
 const headCache = new Map();
+/** One head's mesh data: the art head when the base art has one, else the procedural head. (Stubble is cut from it.) */
 const headMesh = async (face, nose = "button") => {
   const key = `${face}/${nose}`;
-  if (!headCache.has(key)) headCache.set(key, await buildHead(face, nose));
+  if (!headCache.has(key)) headCache.set(key, (await artHead(face, nose))?.md ?? (await buildHead(face, nose)));
   return headCache.get(key);
 };
+
+const artHeadCache = new Map();
+/**
+ * An art head for a face shape × nose: `Head_<face>_<nose>` (or `Head_<face>` for the button nose)
+ * as authored; failing that, `Head_<face>` or a single `Head` with the nose shape carried over from
+ * the procedural noses. Weights and any blendshapes it leaves out are filled in. Null without art.
+ */
+async function artHead(face, nose) {
+  const key = `${face}/${nose}`;
+  if (artHeadCache.has(key)) return artHeadCache.get(key);
+  const art = await loadArt("base");
+  let a = artMesh(art, headName(face, nose));
+  let carryNose = false;
+  if (!a && art) {
+    a = artMesh(art, `Head_${face}`) ?? artMesh(art, "Head");
+    carryNose = !!a && nose !== "button";
+  }
+  let out = null;
+  if (a) {
+    const keep = [...BUILD_MORPHS, ...Object.keys(MOUTH_MORPHS), ...EXPRESSIONS.filter((e) => !e.startsWith("eyeBlink"))];
+    const md = artData(a, keep);
+    const P = md.positions;
+    const f = atFace({ nose }, headSkin(face));
+    if (carryNose) {
+      const hs = headSkin(face);
+      const m = noseMorph({ ...md, positions: P }, hs, atFace({ nose }, hs), { transfer: true, normals: false });
+      md.positions = P.map((v, i) => v + m.dpos[i]);
+    }
+    artTris(headName(face, nose), md, TRIS.head);
+    const Q = md.positions;
+    md.weights ??= Array.from({ length: Q.length / 3 }, (_, v) => headWeights(Q[v * 3], Q[v * 3 + 1], Q[v * 3 + 2]));
+    for (const name of BUILD_MORPHS) {
+      if (md.morphs[name]) continue;
+      const weight = name === "frameFem" ? () => 1 : ([, y]) => sstep(1.58, 1.53, y);
+      md.morphs[name] = fieldMorph(md, f, atMorph(name, f), { weight, maxMove: 0.03, transfer: true });
+    }
+    addMissingFaceMorphs(md, face, nose);
+    const dev = craniumDeviation(Q);
+    if (dev.out > 0.004 || dev.in < -0.006) console.warn(`    warning: ${headName(face, nose)}: scalp is ${(dev.out * 1000).toFixed(1)} mm outside / ${(-dev.in * 1000).toFixed(1)} mm inside rig.HEAD; hats and hair are fitted to rig.HEAD (run hatfit.mjs)`);
+    out = { md, src: a };
+  }
+  artHeadCache.set(key, out);
+  return out;
+}
 
 /**
  * Stubble: not geometry worth meshing (it's ~0.5 mm), but a shadow on the
@@ -1183,6 +1380,8 @@ async function stubbleMesh(face, style = "stubble", { grow = 0, fade = 0.009, al
 }
 
 async function beardAsset(style) {
+  const art = await loadArt(`beard_${style}`);
+  if (art) return artBeardAsset(style, art);
   const ctx = newScene({ kind: "facialHair", part: `beard_${style}`, style, faces: FACE_SHAPES });
   const baked = [];
   for (const face of FACE_SHAPES) {
@@ -1229,6 +1428,31 @@ async function beardAsset(style) {
 
 let SPECS = null;
 
+/**
+ * Hand-made facial hair: `Beard_<face>` per face shape (or one `Beard` used for all four), with an
+ * optional `BeardShadow_<face>` (stubble material, alpha in vertex colour). Nose, mouth and
+ * expression blendshapes it leaves out are carried from the face, like the procedural beards.
+ */
+async function artBeardAsset(style, art) {
+  const ctx = newScene({ kind: "facialHair", part: `beard_${style}`, style, faces: FACE_SHAPES });
+  const keep = [...Object.keys(FACE_MORPHS), ...EXPRESSIONS.filter((e) => !e.startsWith("eyeBlink"))];
+  const named = [];
+  for (const face of FACE_SHAPES) {
+    for (const [prefix, mat] of [["Beard", style === "stubble" ? "stubble" : "beard"], ["BeardShadow", "stubble"]]) {
+      const a = artMesh(art, `${prefix}_${face}`) ?? artMesh(art, prefix);
+      if (!a) continue;
+      const md = artData(a, keep);
+      artTris(`${prefix}_${face}`, md, TRIS.beard * 2);
+      addMissingFaceMorphs(md, face, "button", { noses: true, normals: false });
+      for (const k of Object.keys(md.morphs)) md.morphs[k].dnrm = null;
+      addMesh(ctx, `${prefix}_${face}`, mat, toGeometry(md, REST.Head));
+      named.push({ name: `${prefix}_${face}`, art: a });
+    }
+  }
+  if (!named.some((n) => n.name.startsWith("Beard_"))) throw new Error(`art/beard_${style}.glb has no Beard or Beard_<face> mesh`);
+  await write(ctx.scene, `beard_${style}.glb`, [], artNormalMaps(named));
+}
+
 function area(m) {
   const P = m.positions;
   let a = 0;
@@ -1273,6 +1497,36 @@ async function garment(key, t) {
   const origin = socket ? socket.position : [0, 0, 0];
   const lookOf = (p) => p.look ?? (p.material in OWN_LOOK ? OWN_LOOK[p.material] : t.look ?? null);
 
+  const art = await loadArt(key);
+  if (art) {
+    // Hand-made garment: skinned to the body unless the template hangs from a socket.
+    const named = [];
+    let tris = 0;
+    for (const a of art.meshes) {
+      if (!TINT_NAMES.includes(a.material)) console.warn(`    warning: ${a.name}: material "${a.material}" isn't in the tint contract (${TINT_NAMES.join(", ")}); it renders as authored`);
+      const look = a.look ?? lookOf({ material: a.material });
+      if (socket) {
+        const md = artData(a, []);
+        md.weights = null;
+        addMesh(ctx, a.name, a.material, toGeometry(md, origin), { parent, doubleSided: true, look });
+        tris += md.indices.length / 3;
+      } else {
+        const md = artData(a, BUILD_MORPHS);
+        const P = md.positions;
+        md.weights ??= Array.from({ length: P.length / 3 }, (_, v) => clothWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+        addMissingBuildMorphs(md);
+        for (const k of BUILD_MORPHS) md.morphs[k].dnrm = null;
+        addMesh(ctx, a.name, a.material, toGeometry(md), { skinned: true, doubleSided: true, look });
+        tris += md.indices.length / 3;
+      }
+      named.push({ name: a.name, art: a });
+    }
+    const budget = t.tris ?? GARMENT_TRIS[t.slot] ?? 4000;
+    if (tris > budget) console.warn(`    warning: ${key}: ${tris} triangles, over the ${t.slot} target of ${budget}`);
+    await write(ctx.scene, `${key}.glb`, [], artNormalMaps(named));
+    return;
+  }
+
   // Mesh every part, then share the garment's triangle budget between them.
   const parts = [];
   for (const p of t.parts) {
@@ -1283,7 +1537,10 @@ async function garment(key, t) {
       continue;
     }
     const keep = p.keep ?? (p.kind === "skinned" ? (x, y, z) => C.bodyD(x, y, z) > -0.0015 : null);
-    const m = await fieldMesh(p.field, p.box, p.h, { targetTris: p.tris, keep, error: p.error, minPiece: p.kind === "skinned" ? 40 : 0 });
+    let m = await fieldMesh(p.field, p.box, p.h, { targetTris: p.tris, keep, error: p.error, minPiece: p.kind === "skinned" ? 40 : 0 });
+    // Narrow bands (knitted trims and their stripes) are mostly border, which the first pass keeps
+    // locked; let them reach their own small target with the borders free.
+    if (m && p.tris < 1000 && m.indices.length / 3 > p.tris * 1.05) m = await reduce(m, p.field, p.tris, Math.max(0.0012, p.error ?? 0));
     if (!m) {
       console.warn(`  ${key}/${p.material}: empty`);
       continue;
@@ -1300,7 +1557,8 @@ async function garment(key, t) {
     const W = flex.reduce((n, x) => n + x.w, 0);
     for (const x of flex) {
       const target = Math.min(x.tris, Math.max(60, Math.floor(((budget - fixed) * x.w) / W)));
-      if (target < x.tris) x.m = await reduce(x.m, x.p.field, target);
+      // (Parts that declare a looser meshing error — knitted trims, whose ribs live in the normal map — reduce to it.)
+      if (target < x.tris) x.m = await reduce(x.m, x.p.field, target, Math.max(0.0012, x.p.error ?? 0));
       x.tris = x.m.indices.length / 3;
     }
     // …then, where thin layers held some parts above their share, take the rest from the big smooth ones,

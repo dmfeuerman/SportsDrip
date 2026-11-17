@@ -11,7 +11,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 108820,
+    bytes: 108992,
   },
   "acc_chain": {
     module: require("@/assets/avatar/acc_chain.glb"),
@@ -20,7 +20,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 87412,
+    bytes: 87008,
   },
   "acc_chain_ball": {
     module: require("@/assets/avatar/acc_chain_ball.glb"),
@@ -29,7 +29,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 100140,
+    bytes: 99048,
   },
   "acc_chain_bolt": {
     module: require("@/assets/avatar/acc_chain_bolt.glb"),
@@ -38,7 +38,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 84184,
+    bytes: 85324,
   },
   "acc_chain_crown": {
     module: require("@/assets/avatar/acc_chain_crown.glb"),
@@ -47,7 +47,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 90920,
+    bytes: 91544,
   },
   "acc_chain_cuban": {
     module: require("@/assets/avatar/acc_chain_cuban.glb"),
@@ -56,7 +56,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 36052,
+    bytes: 35548,
   },
   "acc_chain_diamond": {
     module: require("@/assets/avatar/acc_chain_diamond.glb"),
@@ -65,7 +65,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 83436,
+    bytes: 84024,
   },
   "acc_chain_dogtag": {
     module: require("@/assets/avatar/acc_chain_dogtag.glb"),
@@ -74,7 +74,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 87052,
+    bytes: 87708,
   },
   "acc_chain_football": {
     module: require("@/assets/avatar/acc_chain_football.glb"),
@@ -83,7 +83,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 97164,
+    bytes: 95208,
   },
   "acc_chain_heart": {
     module: require("@/assets/avatar/acc_chain_heart.glb"),
@@ -92,7 +92,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 74592,
+    bytes: 73276,
   },
   "acc_chain_number": {
     module: require("@/assets/avatar/acc_chain_number.glb"),
@@ -101,7 +101,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 84536,
+    bytes: 83268,
   },
   "acc_chain_star": {
     module: require("@/assets/avatar/acc_chain_star.glb"),
@@ -110,7 +110,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 80032,
+    bytes: 80612,
   },
   "acc_chain_trophy": {
     module: require("@/assets/avatar/acc_chain_trophy.glb"),
@@ -119,7 +119,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 105084,
+    bytes: 104172,
   },
   "acc_headphones": {
     module: require("@/assets/avatar/acc_headphones.glb"),
@@ -137,25 +137,25 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "accessory",
     hairMode: null,
     excludes: [],
-    bytes: 107884,
+    bytes: 108076,
   },
   "beard_beard": {
     module: require("@/assets/avatar/beard_beard.glb"),
     kind: "facialHair",
     version: 3,
-    bytes: 557956,
+    bytes: 601632,
   },
   "beard_goatee": {
     module: require("@/assets/avatar/beard_goatee.glb"),
     kind: "facialHair",
     version: 3,
-    bytes: 624996,
+    bytes: 738564,
   },
   "beard_stubble": {
     module: require("@/assets/avatar/beard_stubble.glb"),
     kind: "facialHair",
     version: 3,
-    bytes: 76028,
+    bytes: 79624,
   },
   "bottom_joggers": {
     module: require("@/assets/avatar/bottom_joggers.glb"),
@@ -164,7 +164,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "bottom",
     hairMode: null,
     excludes: [],
-    bytes: 340572,
+    bytes: 345304,
   },
   "bottom_pants": {
     module: require("@/assets/avatar/bottom_pants.glb"),
@@ -173,7 +173,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "bottom",
     hairMode: null,
     excludes: [],
-    bytes: 335240,
+    bytes: 339356,
   },
   "bottom_shorts": {
     module: require("@/assets/avatar/bottom_shorts.glb"),
@@ -182,7 +182,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "bottom",
     hairMode: null,
     excludes: [],
-    bytes: 448996,
+    bytes: 457548,
   },
   "eyewear_shades": {
     module: require("@/assets/avatar/eyewear_shades.glb"),
@@ -191,55 +191,55 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "eyewear",
     hairMode: null,
     excludes: [],
-    bytes: 49596,
+    bytes: 50092,
   },
   "hair_afro": {
     module: require("@/assets/avatar/hair_afro.glb"),
     kind: "hair",
     version: 3,
-    bytes: 1036452,
+    bytes: 1032496,
   },
   "hair_braids": {
     module: require("@/assets/avatar/hair_braids.glb"),
     kind: "hair",
     version: 3,
-    bytes: 802580,
+    bytes: 822928,
   },
   "hair_buzz": {
     module: require("@/assets/avatar/hair_buzz.glb"),
     kind: "hair",
     version: 3,
-    bytes: 602416,
+    bytes: 597784,
   },
   "hair_curls": {
     module: require("@/assets/avatar/hair_curls.glb"),
     kind: "hair",
     version: 3,
-    bytes: 1075804,
+    bytes: 1072228,
   },
   "hair_fade": {
     module: require("@/assets/avatar/hair_fade.glb"),
     kind: "hair",
     version: 3,
-    bytes: 680872,
+    bytes: 735728,
   },
   "hair_long": {
     module: require("@/assets/avatar/hair_long.glb"),
     kind: "hair",
     version: 3,
-    bytes: 852668,
+    bytes: 866756,
   },
   "hair_ponytail": {
     module: require("@/assets/avatar/hair_ponytail.glb"),
     kind: "hair",
     version: 3,
-    bytes: 814128,
+    bytes: 832312,
   },
   "hair_short_crop": {
     module: require("@/assets/avatar/hair_short_crop.glb"),
     kind: "hair",
     version: 3,
-    bytes: 742984,
+    bytes: 802024,
   },
   "hat_beanie": {
     module: require("@/assets/avatar/hat_beanie.glb"),
@@ -302,7 +302,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "outerwear",
     hairMode: null,
     excludes: [],
-    bytes: 427836,
+    bytes: 431360,
   },
   "outerwear_bomber_open": {
     module: require("@/assets/avatar/outerwear_bomber_open.glb"),
@@ -311,7 +311,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "outerwear",
     hairMode: null,
     excludes: [],
-    bytes: 426828,
+    bytes: 430692,
   },
   "outerwear_puffer": {
     module: require("@/assets/avatar/outerwear_puffer.glb"),
@@ -320,7 +320,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "outerwear",
     hairMode: null,
     excludes: [],
-    bytes: 416164,
+    bytes: 426756,
   },
   "outerwear_puffer_open": {
     module: require("@/assets/avatar/outerwear_puffer_open.glb"),
@@ -329,7 +329,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "outerwear",
     hairMode: null,
     excludes: [],
-    bytes: 415100,
+    bytes: 416088,
   },
   "outerwear_varsity": {
     module: require("@/assets/avatar/outerwear_varsity.glb"),
@@ -338,7 +338,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "outerwear",
     hairMode: null,
     excludes: [],
-    bytes: 416048,
+    bytes: 501376,
   },
   "outerwear_varsity_open": {
     module: require("@/assets/avatar/outerwear_varsity_open.glb"),
@@ -347,13 +347,13 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "outerwear",
     hairMode: null,
     excludes: [],
-    bytes: 422988,
+    bytes: 491932,
   },
   "sd_base_v3": {
     module: require("@/assets/avatar/sd_base_v3.glb"),
     kind: "base",
     version: 3,
-    bytes: 3378560,
+    bytes: 3795156,
   },
   "shoes_hightop": {
     module: require("@/assets/avatar/shoes_hightop.glb"),
@@ -362,7 +362,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "shoes",
     hairMode: null,
     excludes: [],
-    bytes: 220680,
+    bytes: 223180,
   },
   "shoes_sneaker": {
     module: require("@/assets/avatar/shoes_sneaker.glb"),
@@ -371,7 +371,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "shoes",
     hairMode: null,
     excludes: [],
-    bytes: 181476,
+    bytes: 188632,
   },
   "top_hoodie": {
     module: require("@/assets/avatar/top_hoodie.glb"),
@@ -380,7 +380,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "top",
     hairMode: null,
     excludes: [],
-    bytes: 354500,
+    bytes: 348724,
   },
   "top_jersey": {
     module: require("@/assets/avatar/top_jersey.glb"),
@@ -389,7 +389,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "top",
     hairMode: null,
     excludes: [],
-    bytes: 570540,
+    bytes: 585352,
   },
   "top_longsleeve": {
     module: require("@/assets/avatar/top_longsleeve.glb"),
@@ -398,7 +398,7 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "top",
     hairMode: null,
     excludes: [],
-    bytes: 328548,
+    bytes: 321388,
   },
   "top_tee": {
     module: require("@/assets/avatar/top_tee.glb"),
@@ -407,6 +407,6 @@ export const AVATAR_ASSETS: Record<string, AvatarAssetEntry> = {
     slot: "top",
     hairMode: null,
     excludes: [],
-    bytes: 335900,
+    bytes: 334068,
   },
 };

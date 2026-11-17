@@ -27,7 +27,8 @@ import { clamp, gauss, sdCone, sdEllipsoid, sdRoundBox, smax, smin, sstep } from
 const SIDES = ["L", "R"];
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const cloth = (material, field, box, opts = {}) => ({ material, kind: "skinned", field, box, h: opts.h ?? 0.0026, keep: opts.keep ?? null, ao: opts.ao ?? true, error: opts.error ?? 0.0004, tris: opts.tris ?? 12000, look: opts.look ?? null });
+// `detail` (optional): surface texture carried by the normal map only, not the mesh (overrides the template's `texture`).
+const cloth = (material, field, box, opts = {}) => ({ material, kind: "skinned", field, box, h: opts.h ?? 0.0026, keep: opts.keep ?? null, ao: opts.ao ?? true, error: opts.error ?? 0.0004, tris: opts.tris ?? 12000, look: opts.look ?? null, detail: opts.detail ?? null });
 const rigid = (material, field, box, opts = {}) => ({ material, kind: "rigid", field, box, h: opts.h ?? 0.0012, keep: opts.keep ?? null, ao: opts.ao ?? true, error: opts.error ?? 0.0003, tris: opts.tris ?? 7000, look: opts.look ?? null });
 const built = (material, build, opts = {}) => ({ material, kind: "built", build, skinned: opts.skinned ?? false });
 
@@ -112,8 +113,21 @@ function inflate(off, region, { hands = false, feet = false, k = 0.004, detail =
   };
 }
 
-/** Rib knit: fine grooves around a cuff or band. */
-const rib = (x, z, n = 70, depth = 0.0008) => depth * Math.abs(Math.sin(Math.atan2(x, z) * n));
+/** Rib knit: flat-topped wales with narrow, crisp grooves between them, around a cuff or band. */
+const rib = (x, z, n = 70, depth = 0.0008) => depth * 1.25 * Math.pow(Math.abs(Math.sin(Math.atan2(x, z) * n)), 0.45);
+/** Signed distance (m) to the nearest knitted-in stripe: centres along a band coordinate, each `half` wide. */
+const stripesD = (u, centres, half) => Math.min(...centres.map((c) => Math.abs(u - c))) - half;
+/**
+ * Outerwear sleeves hang: a little extra ease from the upper arm down the forearm, gathering back in
+ * just above the cuff, with soft horizontal creases in the crook of the elbow.
+ */
+function sleeveDrape(x, y, z) {
+  const t = armT(x, y, z);
+  if (t < 0) return 0;
+  const ease = 0.0034 * sstep(0.2, 0.52, t) * (1 - sstep(0.78, 0.862, t));
+  const crook = 0.0011 * gauss(t, 0.5, 0.06) * sstep(0.0, 0.03, z - REST[B("ForeArm", x >= 0 ? "L" : "R")][2]) * Math.sin(y * 230 + 3 * noise3(x * 40, y * 10, z * 40));
+  return ease + crook;
+}
 /** Gentle fabric folds, so cloth doesn't read as painted on. */
 const folds = (x, y, z, amp = 0.0011, f = 38) => amp * noise3(x * f, y * f * 0.7, z * f);
 
@@ -187,8 +201,9 @@ function pocketRegion(x, y, z) {
 const JACKET_NECK = { r: 0.1, front: 1.425, back: 1.46 };
 const zipLine = (x, y, z) => Math.max(Math.abs(x) - 0.004, -z);
 
-function standCollar(off, height = 0.035) {
-  // A band of rib knit standing around the neck opening.
+function standCollar(off, height = 0.035, { stripes = null, part = "all", ribbed = true } = {}) {
+  // A band of rib knit standing around the neck opening; `stripes` (heights above the neckline) are
+  // knitted in: part "base" is the band without them, "stripes" just them — same surface, no overlap.
   return (x, y, z) => {
     const o = JACKET_NECK;
     const zc = -0.012;
@@ -198,7 +213,11 @@ function standCollar(off, height = 0.035) {
     const ring = Math.abs(radial - (o.r + off * 0.6)) - 0.0055;
     let d = Math.max(ring, y0 - 0.012 - y, y - (y0 + height));
     d = smax(d, -(bodyD(x, y, z) - 0.004), 0.004);
-    return d - rib(x, z, 90, 0.0007);
+    if (stripes && part !== "all") {
+      const sd = stripesD(y - y0, stripes, 0.0021);
+      d = Math.max(d, part === "stripes" ? sd : -sd);
+    }
+    return ribbed ? d - rib(x, z, 90, 0.0008) : d;
   };
 }
 
@@ -217,6 +236,19 @@ function legBand(t0, t1, x, y, z) {
   if (t < 0) return 1;
   return Math.max((t0 - t) * LEG_LEN, (t - t1) * LEG_LEN);
 }
+/**
+ * Joggers stack: the extra length gathers in soft, uneven rings over the shin just above the cuff
+ * (each ring a rounded bulge, so it reads as fabric bunching over the high-top's collar).
+ */
+function joggerStack(x, y, z) {
+  const t = legT(x, y, z);
+  if (t < 0) return 0;
+  const zone = sstep(0.72, 0.8, t) * (1 - sstep(0.88, 0.9, t));
+  if (zone <= 0) return 0;
+  const ring = Math.pow(Math.abs(Math.sin(y * 150 + 2.2 * noise3(x * 35, y * 8, z * 35))), 1.6);
+  return 0.0028 * zone * ring;
+}
+
 /** Outer side of a leg: positive away from the stripe. */
 function legStripe(x, y, z, half = 0.009) {
   for (const s of SIDES) {
@@ -360,6 +392,41 @@ const TEXTURE = {
   knit: (x, y, z) => 0.00028 * Math.abs(Math.sin((Math.PI * y) / 0.0042 + 1.4 * Math.abs(Math.sin(Math.atan2(x, z) * 56)))),
 };
 
+/** Varsity stripe centres: hem (height, m), cuffs (arm parameter), collar (height above the neckline, m). */
+const VARSITY_HEM = [0.9455, 0.9565];
+/** Varsity stripes stand this far proud of their band, as a shell this thick (m). */
+const STRIPE_LIFT = 0.0007;
+const stripeShell = (f, t = 0.0024) => (x, y, z) => {
+  const d = f(x, y, z);
+  return Math.max(d, -(d + t));
+};
+/** Stripes around the outside of a stand collar: thin raised bands on its outer face only. */
+function collarStripes(off, height, stripes) {
+  return (x, y, z) => {
+    const o = JACKET_NECK;
+    const radial = Math.hypot(x, (z + 0.012) * 0.92);
+    const fz = sstep(-0.06, 0.06, z);
+    const y0 = lerp(o.back, o.front, fz);
+    const R = o.r + off * 0.6 + 0.0055; // the collar's outer face
+    let d = Math.max(radial - (R + STRIPE_LIFT), R - 0.0024 - radial, y - (y0 + height), stripesD(y - y0, stripes, 0.0021));
+    return smax(d, -(bodyD(x, y, z) - 0.004), 0.004);
+  };
+}
+/** Rib knit on the varsity's trims, as normal-map detail (the bands themselves stay smooth meshes). */
+const hemRib = (x, y, z) => -rib(x, z, 96, 0.0009);
+const cuffRib = (x, y, z) => -rib(x - 0.3 * Math.sign(x), z, 50, 0.0009);
+const collarRib = (x, y, z) => -rib(x, z, 90, 0.0008);
+/** Triangle caps for the knitted trims, so the split bands don't take the jacket body's share of the budget. */
+const TRIM_BASE = { tris: 230, error: 0.0016 };
+const TRIM_STRIPE = { tris: 140, error: 0.0016 };
+const VARSITY_CUFF = [0.887, 0.903];
+const VARSITY_COLLAR = [0.011, 0.0185];
+function cuffStripes(x, y, z) {
+  const t = armT(x, y, z);
+  if (t < 0) return 1;
+  return stripesD(t * ARM_LEN, VARSITY_CUFF.map((c) => c * ARM_LEN), 0.0021);
+}
+
 /* ── the templates ───────────────────────────────────────────────────────── */
 
 /**
@@ -439,7 +506,7 @@ export const TEMPLATES = {
     look: "nylon",
     texture: TEXTURE.nylon,
     parts: [
-      cloth("primary", inflate(L.outer, torsoAndSleeves({ hem: 0.955, sleeve: 0.91, neck: JACKET_NECK }), { detail: (x, y, z) => folds(x, y, z, 0.0022, 26) + 0.004 * sstep(0.2, 0.6, Math.max(0, armT(x, y, z))) }), TOP_BOX, { h: 0.003 }),
+      cloth("primary", inflate(L.outer, torsoAndSleeves({ hem: 0.955, sleeve: 0.91, neck: JACKET_NECK }), { detail: (x, y, z) => folds(x, y, z, 0.0022, 26) + 0.0012 * sstep(0.2, 0.6, Math.max(0, armT(x, y, z))) + sleeveDrape(x, y, z) }), TOP_BOX, { h: 0.003 }),
       cloth("primary_dark", inflate(L.outer + 0.004, (x, y, z) => Math.max(y - 0.975, 0.93 - y), { detail: (x, y, z) => -rib(x, z, 110, 0.0009) }), [[-0.24, 0.9, -0.19], [0.24, 1.0, 0.2]], { h: 0.0022 }),
       cloth("primary_dark", inflate(L.outer + L.trim, (x, y, z) => sleeveBand(0.87, 0.93, x, y, z), { detail: (x, y, z) => -rib(x - 0.3 * Math.sign(x), z, 50, 0.0008) }), TOP_BOX, { h: 0.0022 }),
       cloth("primary_dark", standCollar(L.outer), [[-0.13, 1.39, -0.12], [0.13, 1.52, 0.12]], { h: 0.0018 }),
@@ -456,22 +523,29 @@ export const TEMPLATES = {
   outerwear_varsity: {
     slot: "outerwear",
     hides: ["shoulders", "chest", "abdomen", "elbows"],
-    look: "suede",
+    // Melton wool body, leather sleeves, two-stripe rib knit at the collar, cuffs and hem.
+    look: "wool",
     parts: [
-      cloth("primary", inflate(L.outer, (x, y, z) => Math.max(torsoAndSleeves({ hem: 0.955, sleeve: 0.91, neck: JACKET_NECK })(x, y, z), armT(x, y, z) >= 0.03 ? 0.02 : -1), { detail: (x, y, z) => folds(x, y, z, 0.0018, 26) }), TOP_BOX, { h: 0.003 }),
-      cloth("secondary", inflate(L.outer - 0.001, (x, y, z) => Math.max(armT(x, y, z) >= 0.03 ? -1 : 0.02, armPast(0.91, x, y, z)), { detail: (x, y, z) => folds(x, y, z, 0.0018, 26) }), TOP_BOX, { h: 0.003, look: "leather" }),
-      cloth("primary_dark", inflate(L.outer + 0.004, (x, y, z) => Math.max(y - 0.975, 0.93 - y), { detail: (x, y, z) => -rib(x, z, 110, 0.0009) - 0.0016 * gauss(y, 0.953, 0.0035) }), [[-0.24, 0.9, -0.19], [0.24, 1.0, 0.2]], { h: 0.0018 }),
-      cloth("primary_dark", inflate(L.outer + L.trim, (x, y, z) => sleeveBand(0.87, 0.93, x, y, z), { detail: (x, y, z) => -rib(x - 0.3 * Math.sign(x), z, 50, 0.0008) }), TOP_BOX, { h: 0.0022 }),
-      cloth("primary_dark", standCollar(L.outer, 0.028), [[-0.13, 1.39, -0.12], [0.13, 1.52, 0.12]], { h: 0.0018 }),
-      // Snaps down the front.
+      cloth("primary", inflate(L.outer, (x, y, z) => Math.max(torsoAndSleeves({ hem: 0.955, sleeve: 0.91, neck: JACKET_NECK })(x, y, z), armT(x, y, z) >= 0.03 ? 0.02 : -1), { detail: (x, y, z) => folds(x, y, z, 0.0016, 26) }), TOP_BOX, { h: 0.003 }),
+      cloth("secondary", inflate(L.outer - 0.001, (x, y, z) => Math.max(armT(x, y, z) >= 0.03 ? -1 : 0.02, armPast(0.91, x, y, z)), { detail: (x, y, z) => folds(x, y, z, 0.0014, 30) + sleeveDrape(x, y, z) }), TOP_BOX, { h: 0.003, look: "leather" }),
+      // Hem band: rib knit, with two stripes laid over it (a thin raised shell, so no hidden walls eat the triangle budget).
+      cloth("primary_dark", inflate(L.outer + 0.004, (x, y, z) => Math.max(y - 0.975, 0.93 - y)), [[-0.24, 0.9, -0.19], [0.24, 1.0, 0.2]], { h: 0.0018, look: "knit", ...TRIM_BASE, detail: hemRib }),
+      cloth("secondary", stripeShell(inflate(L.outer + 0.004 + STRIPE_LIFT, (x, y, z) => Math.max(y - 0.975, 0.93 - y, stripesD(y, VARSITY_HEM, 0.0022)))), [[-0.24, 0.9, -0.19], [0.24, 1.0, 0.2]], { h: 0.0016, look: "knit", ...TRIM_STRIPE, detail: hemRib }),
+      // Cuffs, likewise.
+      cloth("primary_dark", inflate(L.outer + L.trim, (x, y, z) => sleeveBand(0.87, 0.93, x, y, z)), TOP_BOX, { h: 0.002, look: "knit", ...TRIM_BASE, tris: 300, detail: cuffRib }),
+      cloth("secondary", stripeShell(inflate(L.outer + L.trim + STRIPE_LIFT, (x, y, z) => Math.max(sleeveBand(0.87, 0.93, x, y, z), cuffStripes(x, y, z)))), TOP_BOX, { h: 0.0016, look: "knit", ...TRIM_STRIPE, tris: 180, detail: cuffRib }),
+      // Stand collar, likewise.
+      cloth("primary_dark", standCollar(L.outer, 0.028, { ribbed: false }), [[-0.13, 1.39, -0.12], [0.13, 1.52, 0.12]], { h: 0.0018, look: "knit", ...TRIM_BASE, detail: collarRib }),
+      cloth("secondary", collarStripes(L.outer, 0.028, VARSITY_COLLAR), [[-0.13, 1.39, -0.12], [0.13, 1.52, 0.12]], { h: 0.0016, look: "knit", ...TRIM_STRIPE, detail: collarRib }),
+      // Snaps down the front: domed caps.
       cloth("metal", inflate(L.outer + 0.004, (x, y, z) => {
         if (z < 0.05) return 1;
         let d = 1;
         for (let i = 0; i < 5; i++) d = Math.min(d, Math.hypot(x, y - (1.0 + i * 0.09)) - 0.0065);
         return d;
-      }), [[-0.02, 0.97, 0.05], [0.02, 1.4, 0.2]], { h: 0.001 }),
+      }, { detail: (x, y, z) => { let k = 0; for (let i = 0; i < 5; i++) k = Math.max(k, 0.0012 * sstep(0.0065, 0.0, Math.hypot(x, y - (1.0 + i * 0.09)))); return k; } }), [[-0.02, 0.97, 0.05], [0.02, 1.4, 0.2]], { h: 0.001 }),
       // Felt chest patch.
-      cloth("secondary", inflate(L.outer + 0.004, (x, y, z) => (z < 0.03 ? 1 : sdRoundBox(x - 0.075, y - 1.27, 0, 0.032, 0.036, 1, 0.012))), [[0.02, 1.2, 0.03], [0.13, 1.34, 0.2]], { h: 0.0015 }),
+      cloth("secondary", inflate(L.outer + 0.004, (x, y, z) => (z < 0.03 ? 1 : sdRoundBox(x - 0.075, y - 1.27, 0, 0.032, 0.036, 1, 0.012))), [[0.02, 1.2, 0.03], [0.13, 1.34, 0.2]], { h: 0.0015, look: "suede" }),
     ],
   },
   outerwear_puffer: {
@@ -543,10 +617,10 @@ export const TEMPLATES = {
     look: "fleece",
     texture: TEXTURE.fleece,
     parts: [
-      cloth("primary", inflate((x, y, z) => L.bottom + 0.006 + 0.003 * sstep(0.1, 0.3, Math.max(0, legT(x, y, z))) - 0.007 * sstep(0.6, 0.93, Math.max(0, legT(x, y, z))), bottomsRegion(0.93, WAIST - 0.02), { drape: hipDrape, detail: (x, y, z) => folds(x, y, z, 0.0018, 30) + 0.0009 * sstep(0.75, 0.9, legT(x, y, z)) * Math.sin(y * 260) }), BOTTOM_BOX, { h: 0.0028 }),
-      cloth("secondary", inflate(L.bottom + 0.012, (x, y, z) => legBand(0.9, 0.97, x, y, z), { drape: null, detail: (x, y, z) => -rib(x - 0.1 * Math.sign(x), z, 60, 0.0007) }), BOTTOM_BOX, { h: 0.002 }),
+      cloth("primary", inflate((x, y, z) => L.bottom + 0.006 + 0.0045 * sstep(0.1, 0.3, Math.max(0, legT(x, y, z))) - 0.0085 * sstep(0.55, 0.88, Math.max(0, legT(x, y, z))), bottomsRegion(0.93, WAIST - 0.02), { drape: hipDrape, detail: (x, y, z) => folds(x, y, z, 0.0018, 30) + joggerStack(x, y, z) }), BOTTOM_BOX, { h: 0.0028 }),
+      cloth("secondary", inflate(L.bottom + 0.012, (x, y, z) => legBand(0.9, 0.97, x, y, z), { drape: null, detail: (x, y, z) => -rib(x - 0.1 * Math.sign(x), z, 60, 0.0009) }), BOTTOM_BOX, { h: 0.002, look: "knit" }),
       cloth("secondary", inflate(L.bottom + 0.006 + L.trim, (x, y, z) => Math.max(y - WAIST, WAIST - 0.035 - y), { drape: hipDrape, detail: (x, y, z) => -rib(x, z, 100, 0.0006) }), [[-0.22, 0.94, -0.17], [0.22, 1.03, 0.17]], { h: 0.0018 }),
-      cloth("secondary", inflate((x, y, z) => L.bottom + 0.006 + L.trim + 0.003 * sstep(0.1, 0.3, Math.max(0, legT(x, y, z))) - 0.007 * sstep(0.6, 0.93, Math.max(0, legT(x, y, z))), (x, y, z) => Math.max(legStripe(x, y, z, 0.006), bottomsRegion(0.9, WAIST - 0.035)(x, y, z), legT(x, y, z) < 0.07 ? 0.01 : -1), { drape: hipDrape }), BOTTOM_BOX, { h: 0.0018 }),
+      cloth("secondary", inflate((x, y, z) => L.bottom + 0.006 + L.trim + 0.0045 * sstep(0.1, 0.3, Math.max(0, legT(x, y, z))) - 0.0085 * sstep(0.55, 0.88, Math.max(0, legT(x, y, z))), (x, y, z) => Math.max(legStripe(x, y, z, 0.006), bottomsRegion(0.9, WAIST - 0.035)(x, y, z), legT(x, y, z) < 0.07 ? 0.01 : -1), { drape: hipDrape, detail: joggerStack }), BOTTOM_BOX, { h: 0.0018 }),
     ],
   },
 

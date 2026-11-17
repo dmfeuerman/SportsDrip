@@ -1,0 +1,856 @@
+{
+ "rig": "sd_rig_v3",
+ "version": 3,
+ "units": "metres, +Y up (glTF), character faces +Z, feet on y = 0; Blender: metres, +Z up, faces -Y (the glTF exporter converts)",
+ "bones": [
+  {
+   "name": "Hips",
+   "parent": null,
+   "rest": [
+    0,
+    0.94,
+    0
+   ]
+  },
+  {
+   "name": "Spine",
+   "parent": "Hips",
+   "rest": [
+    0,
+    1.04,
+    0
+   ]
+  },
+  {
+   "name": "Spine1",
+   "parent": "Spine",
+   "rest": [
+    0,
+    1.14,
+    0
+   ]
+  },
+  {
+   "name": "Spine2",
+   "parent": "Spine1",
+   "rest": [
+    0,
+    1.26,
+    0
+   ]
+  },
+  {
+   "name": "Neck",
+   "parent": "Spine2",
+   "rest": [
+    0,
+    1.445,
+    -0.012
+   ]
+  },
+  {
+   "name": "Head",
+   "parent": "Neck",
+   "rest": [
+    0,
+    1.535,
+    -0.008
+   ]
+  },
+  {
+   "name": "LeftShoulder",
+   "parent": "Spine2",
+   "rest": [
+    0.055,
+    1.425,
+    -0.012
+   ]
+  },
+  {
+   "name": "LeftArm",
+   "parent": "LeftShoulder",
+   "rest": [
+    0.188,
+    1.404,
+    -0.012
+   ]
+  },
+  {
+   "name": "LeftForeArm",
+   "parent": "LeftArm",
+   "rest": [
+    0.284,
+    1.134,
+    -0.024
+   ]
+  },
+  {
+   "name": "LeftHand",
+   "parent": "LeftForeArm",
+   "rest": [
+    0.354,
+    0.891,
+    0.012
+   ]
+  },
+  {
+   "name": "RightShoulder",
+   "parent": "Spine2",
+   "rest": [
+    -0.055,
+    1.425,
+    -0.012
+   ]
+  },
+  {
+   "name": "RightArm",
+   "parent": "RightShoulder",
+   "rest": [
+    -0.188,
+    1.404,
+    -0.012
+   ]
+  },
+  {
+   "name": "RightForeArm",
+   "parent": "RightArm",
+   "rest": [
+    -0.284,
+    1.134,
+    -0.024
+   ]
+  },
+  {
+   "name": "RightHand",
+   "parent": "RightForeArm",
+   "rest": [
+    -0.354,
+    0.891,
+    0.012
+   ]
+  },
+  {
+   "name": "LeftUpLeg",
+   "parent": "Hips",
+   "rest": [
+    0.092,
+    0.905,
+    0
+   ]
+  },
+  {
+   "name": "LeftLeg",
+   "parent": "LeftUpLeg",
+   "rest": [
+    0.106,
+    0.5,
+    0.014
+   ]
+  },
+  {
+   "name": "LeftFoot",
+   "parent": "LeftLeg",
+   "rest": [
+    0.114,
+    0.088,
+    -0.012
+   ]
+  },
+  {
+   "name": "LeftToeBase",
+   "parent": "LeftFoot",
+   "rest": [
+    0.118,
+    0.024,
+    0.112
+   ]
+  },
+  {
+   "name": "RightUpLeg",
+   "parent": "Hips",
+   "rest": [
+    -0.092,
+    0.905,
+    0
+   ]
+  },
+  {
+   "name": "RightLeg",
+   "parent": "RightUpLeg",
+   "rest": [
+    -0.106,
+    0.5,
+    0.014
+   ]
+  },
+  {
+   "name": "RightFoot",
+   "parent": "RightLeg",
+   "rest": [
+    -0.114,
+    0.088,
+    -0.012
+   ]
+  },
+  {
+   "name": "RightToeBase",
+   "parent": "RightFoot",
+   "rest": [
+    -0.118,
+    0.024,
+    0.112
+   ]
+  }
+ ],
+ "sockets": {
+  "HeadTop": {
+   "bone": "Head",
+   "position": [
+    0,
+    1.776,
+    0.004
+   ]
+  },
+  "Face": {
+   "bone": "Head",
+   "position": [
+    0,
+    1.64,
+    0.121
+   ]
+  },
+  "Neck": {
+   "bone": "Spine2",
+   "position": [
+    0,
+    1.43,
+    0.035
+   ]
+  },
+  "Wrist_L": {
+   "bone": "LeftForeArm",
+   "position": [
+    0.347,
+    0.9153,
+    0.0084
+   ]
+  },
+  "Wrist_R": {
+   "bone": "RightForeArm",
+   "position": [
+    -0.347,
+    0.9153,
+    0.0084
+   ]
+  }
+ },
+ "layerOffset": {
+  "base": 0.004,
+  "bottom": 0.006,
+  "top": 0.015,
+  "outer": 0.024,
+  "shoes": 0.012,
+  "trim": 0.0035,
+  "waist": 0.006
+ },
+ "head": {
+  "cranium": {
+   "center": [
+    0,
+    1.648,
+    0.004
+   ],
+   "radii": [
+    0.099,
+    0.127,
+    0.115
+   ]
+  },
+  "eye": {
+   "x": 0.0375,
+   "y": 1.64,
+   "z": 0.0935,
+   "r": 0.0175
+  },
+  "eyeFemScale": 1.1,
+  "mouth": {
+   "y": 1.5595,
+   "z": 0.1135,
+   "w": 0.02
+  },
+  "neckCut": 1.5
+ },
+ "ids": {
+  "faces": [
+   "oval",
+   "round",
+   "square",
+   "heart"
+  ],
+  "noses": [
+   "button",
+   "straight",
+   "broad"
+  ],
+  "mouths": [
+   "neutral",
+   "full",
+   "wide"
+  ],
+  "eyes": [
+   "round",
+   "almond",
+   "sleepy"
+  ],
+  "eyebrows": [
+   "soft",
+   "arched",
+   "bold"
+  ],
+  "hairStyles": [
+   "buzz",
+   "short_crop",
+   "fade",
+   "curls",
+   "afro",
+   "braids",
+   "long",
+   "ponytail"
+  ],
+  "facialHair": [
+   "stubble",
+   "goatee",
+   "beard"
+  ],
+  "hairModes": [
+   "capped",
+   "covered",
+   "helmet",
+   "banded"
+  ],
+  "regions": [
+   "neck",
+   "shoulders",
+   "chest",
+   "abdomen",
+   "waist",
+   "hips",
+   "upperArms",
+   "elbows",
+   "forearms",
+   "hands",
+   "thighs",
+   "knees",
+   "shins",
+   "ankles",
+   "feet"
+  ]
+ },
+ "morphs": {
+  "build": [
+   "buildSlim",
+   "buildBroad",
+   "frameFem"
+  ],
+  "expressions": [
+   "eyeBlinkLeft",
+   "eyeBlinkRight",
+   "mouthSmileLeft",
+   "mouthSmileRight",
+   "jawOpen"
+  ],
+  "nose": [
+   "noseStraight",
+   "noseBroad"
+  ],
+  "mouth": [
+   "lipsFull",
+   "mouthWide"
+  ]
+ },
+ "materials": {
+  "base": [
+   "skin",
+   "eye_white",
+   "iris",
+   "pupil",
+   "teeth",
+   "brow",
+   "lash",
+   "base_layer"
+  ],
+  "hair": [
+   "hair",
+   "hair_tie"
+  ],
+  "facialHair": [
+   "beard",
+   "stubble"
+  ],
+  "garment": [
+   "primary",
+   "secondary",
+   "primary_dark",
+   "secondary_dark",
+   "metal",
+   "lens",
+   "sole",
+   "laces"
+  ],
+  "tint": [
+   "primary",
+   "secondary",
+   "primary_dark",
+   "secondary_dark",
+   "metal",
+   "lens",
+   "sole",
+   "laces"
+  ]
+ },
+ "fabrics": [
+  "cotton",
+  "fleece",
+  "mesh",
+  "nylon",
+  "denim",
+  "leather",
+  "wool",
+  "knit",
+  "canvas",
+  "plastic",
+  "rubber",
+  "suede"
+ ],
+ "budgets": {
+  "files": {
+   "base": {
+    "drawn": 15000,
+    "tris": 60000,
+    "bytes": 3800000
+   },
+   "garment": {
+    "drawn": 5000,
+    "tris": 5000,
+    "bytes": 600000
+   },
+   "hair": {
+    "drawn": 5000,
+    "tris": 25000,
+    "bytes": 1200000
+   },
+   "facialHair": {
+    "drawn": 2500,
+    "tris": 12000,
+    "bytes": 750000
+   }
+  },
+  "garmentSlot": {
+   "top": 3000,
+   "outerwear": 3200,
+   "bottom": 2800,
+   "shoes": 2400,
+   "hat": 2200,
+   "eyewear": 1100,
+   "accessory": 2200
+  },
+  "parts": {
+   "body": 7500,
+   "underwear": 800,
+   "head": 3500,
+   "lids": 500,
+   "brows": 140,
+   "hair": 3600,
+   "hairPressed": 2600,
+   "beard": 900,
+   "stubble": 700
+  }
+ },
+ "templates": {
+  "top_tee": {
+   "slot": "top",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "shoulders",
+    "chest",
+    "abdomen",
+    "upperArms"
+   ],
+   "layer": 3,
+   "look": "cotton",
+   "tris": 3000
+  },
+  "top_longsleeve": {
+   "slot": "top",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "shoulders",
+    "chest",
+    "abdomen",
+    "upperArms",
+    "elbows"
+   ],
+   "layer": 3,
+   "look": "cotton",
+   "tris": 3000
+  },
+  "top_jersey": {
+   "slot": "top",
+   "socket": null,
+   "hairMode": null,
+   "hides": [],
+   "layer": 3,
+   "look": "mesh",
+   "tris": 3000
+  },
+  "top_hoodie": {
+   "slot": "top",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "shoulders",
+    "chest",
+    "abdomen",
+    "waist",
+    "upperArms",
+    "elbows"
+   ],
+   "layer": 3,
+   "look": "fleece",
+   "tris": 3000
+  },
+  "outerwear_bomber": {
+   "slot": "outerwear",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "shoulders",
+    "chest",
+    "abdomen",
+    "elbows"
+   ],
+   "layer": 4,
+   "look": "nylon",
+   "tris": 3200
+  },
+  "outerwear_varsity": {
+   "slot": "outerwear",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "shoulders",
+    "chest",
+    "abdomen",
+    "elbows"
+   ],
+   "layer": 4,
+   "look": "wool",
+   "tris": 3200
+  },
+  "outerwear_puffer": {
+   "slot": "outerwear",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "neck",
+    "shoulders",
+    "chest",
+    "abdomen",
+    "upperArms",
+    "elbows"
+   ],
+   "layer": 4,
+   "look": "nylon",
+   "tris": 3200
+  },
+  "bottom_shorts": {
+   "slot": "bottom",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "hips",
+    "thighs"
+   ],
+   "layer": 2,
+   "look": "mesh",
+   "tris": 2800
+  },
+  "bottom_pants": {
+   "slot": "bottom",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "hips",
+    "thighs",
+    "knees"
+   ],
+   "layer": 2,
+   "look": "canvas",
+   "tris": 2800
+  },
+  "bottom_joggers": {
+   "slot": "bottom",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "hips",
+    "thighs",
+    "knees"
+   ],
+   "layer": 2,
+   "look": "fleece",
+   "tris": 2800
+  },
+  "shoes_sneaker": {
+   "slot": "shoes",
+   "socket": null,
+   "hairMode": null,
+   "hides": [],
+   "layer": 1,
+   "look": "leather",
+   "tris": 2400
+  },
+  "shoes_hightop": {
+   "slot": "shoes",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "feet"
+   ],
+   "layer": 1,
+   "look": "canvas",
+   "tris": 2400
+  },
+  "hat_cap": {
+   "slot": "hat",
+   "socket": "HeadTop",
+   "hairMode": "capped",
+   "hides": [],
+   "layer": 5,
+   "look": "canvas",
+   "tris": 2200
+  },
+  "hat_beanie": {
+   "slot": "hat",
+   "socket": "HeadTop",
+   "hairMode": "covered",
+   "hides": [],
+   "layer": 5,
+   "look": "knit",
+   "tris": 2200
+  },
+  "hat_bucket": {
+   "slot": "hat",
+   "socket": "HeadTop",
+   "hairMode": "covered",
+   "hides": [],
+   "layer": 5,
+   "look": "canvas",
+   "tris": 2200
+  },
+  "hat_helmet": {
+   "slot": "hat",
+   "socket": "HeadTop",
+   "hairMode": "helmet",
+   "hides": [],
+   "layer": 5,
+   "look": "plastic",
+   "tris": 2200
+  },
+  "hat_crown": {
+   "slot": "hat",
+   "socket": "HeadTop",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2800
+  },
+  "eyewear_shades": {
+   "slot": "eyewear",
+   "socket": "Face",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": "plastic",
+   "tris": 1100
+  },
+  "acc_watch": {
+   "slot": "accessory",
+   "socket": "Wrist_L",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": "rubber",
+   "tris": 2200
+  },
+  "hat_headband": {
+   "slot": "hat",
+   "socket": "HeadTop",
+   "hairMode": "banded",
+   "hides": [],
+   "layer": 5,
+   "look": "knit",
+   "tris": 2200
+  },
+  "acc_bracelet": {
+   "slot": "accessory",
+   "socket": "Wrist_L",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": "rubber",
+   "tris": 2200
+  },
+  "acc_headphones": {
+   "slot": "accessory",
+   "socket": "HeadTop",
+   "hairMode": "banded",
+   "hides": [],
+   "layer": 5,
+   "look": "plastic",
+   "tris": 2200
+  },
+  "outerwear_bomber_open": {
+   "slot": "outerwear",
+   "socket": null,
+   "hairMode": null,
+   "hides": [],
+   "layer": 4,
+   "look": "nylon",
+   "tris": 3200
+  },
+  "outerwear_varsity_open": {
+   "slot": "outerwear",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "elbows"
+   ],
+   "layer": 4,
+   "look": "wool",
+   "tris": 3200
+  },
+  "outerwear_puffer_open": {
+   "slot": "outerwear",
+   "socket": null,
+   "hairMode": null,
+   "hides": [
+    "elbows"
+   ],
+   "layer": 4,
+   "look": "nylon",
+   "tris": 3200
+  },
+  "acc_chain": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_star": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_bolt": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_crown": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_heart": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_ball": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_football": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_trophy": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_number": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_diamond": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_dogtag": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2850
+  },
+  "acc_chain_cuban": {
+   "slot": "accessory",
+   "socket": "Neck",
+   "hairMode": null,
+   "hides": [],
+   "layer": 5,
+   "look": null,
+   "tris": 2800
+  }
+ }
+}
