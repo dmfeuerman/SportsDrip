@@ -18,7 +18,7 @@ export default function SyncFailureToaster() {
       id: `sync_${syncFailure.id}`,
       kind: "warning",
       title: "Couldn't save that",
-      body: `${syncFailure.message} ${syncFailure.note}`,
+      body: [syncFailure.message, syncFailure.note].filter(Boolean).join(" "),
     });
   }, [syncFailure, show]);
   return null;

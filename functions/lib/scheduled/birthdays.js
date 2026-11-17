@@ -10,7 +10,7 @@ const economy_1 = require("../lib/economy");
 const notify_1 = require("../lib/notify");
 const notifyModel_1 = require("../lib/notifyModel");
 /** Credits every player gets on the 1st of their birth month. */
-exports.BIRTHDAY_GIFT = 500;
+exports.BIRTHDAY_GIFT = 5000;
 const PAGE = 200;
 /**
  * birthdays/{uid} → { uid, month: 1–12, lastGiftYear }. Server-only (rules deny

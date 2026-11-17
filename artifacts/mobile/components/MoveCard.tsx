@@ -11,18 +11,22 @@ interface Props {
   /** On the dance button. */
   equipped: boolean;
   canAfford: boolean;
+  /** In the cart, waiting for checkout. */
+  inCart?: boolean;
   busy: boolean;
+  /** Adds it to (or takes it out of) the cart. Nothing is bought until checkout. */
   onBuy: () => void;
   onToggleEquip: () => void;
   onPreview: () => void;
 }
 
 /** A dance move in the Drip Shop, laid out like ClothingCard. */
-function MoveCard({ move, owned, equipped, canAfford, busy, onBuy, onToggleEquip, onPreview }: Props) {
+function MoveCard({ move, owned, equipped, canAfford, inCart, busy, onBuy, onToggleEquip, onPreview }: Props) {
   const c = useColors();
   const rarity = c.rarity(move.rarity);
-  const label = busy ? "" : equipped ? "Remove" : owned ? "Equip" : canAfford ? "Buy" : "Can't afford";
-  const disabled = busy || (!owned && !canAfford);
+  const label = busy ? "" : equipped ? "Remove" : owned ? "Equip" : inCart ? "In cart ✓" : "Add to cart";
+  // Adding is always allowed: affordability is checked once, at checkout.
+  const disabled = busy;
 
   return (
     <Pressable
@@ -68,20 +72,20 @@ function MoveCard({ move, owned, equipped, canAfford, busy, onBuy, onToggleEquip
             style={({ pressed }) => [
               styles.action,
               {
-                backgroundColor: equipped ? c.secondary : owned ? c.primary : c.alpha(c.primary, 0.13),
-                borderColor: equipped ? c.border : owned ? "transparent" : c.primary,
+                backgroundColor: equipped ? c.secondary : owned || inCart ? c.primary : c.alpha(c.primary, 0.13),
+                borderColor: equipped ? c.border : owned || inCart ? "transparent" : c.primary,
                 opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
               },
             ]}
             onPress={owned ? onToggleEquip : onBuy}
             disabled={disabled}
             accessibilityRole="button"
-            accessibilityLabel={equipped ? `Take ${move.name} off your dance button` : owned ? `Put ${move.name} on your dance button` : `Buy ${move.name}`}
+            accessibilityLabel={equipped ? `Take ${move.name} off your dance button` : owned ? `Put ${move.name} on your dance button` : inCart ? `Remove ${move.name} from cart` : `Add ${move.name} to cart`}
           >
             {busy ? (
               <ActivityIndicator size="small" color={c.primary} />
             ) : (
-              <Text style={[styles.actionText, { color: equipped ? c.mutedForeground : owned ? c.primaryForeground : c.primary }]}>{label}</Text>
+              <Text style={[styles.actionText, { color: equipped ? c.mutedForeground : owned || inCart ? c.primaryForeground : c.primary }]}>{label}</Text>
             )}
           </Pressable>
         </View>

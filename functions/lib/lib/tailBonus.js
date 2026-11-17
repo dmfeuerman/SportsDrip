@@ -7,7 +7,7 @@ const economy_1 = require("./economy");
 const notify_1 = require("./notify");
 const notifyModel_1 = require("./notifyModel");
 /** Credits to the original picker each time a pick that tailed theirs wins. */
-exports.TAIL_BONUS = 10;
+exports.TAIL_BONUS = 100;
 /** At most this many bonuses per original pick, so a big league can't farm it. */
 exports.TAIL_BONUS_CAP = 5;
 /**

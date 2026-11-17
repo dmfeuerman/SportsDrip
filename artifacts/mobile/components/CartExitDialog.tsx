@@ -31,13 +31,13 @@ export default function CartExitDialog({
   leaveIcon?: React.ComponentProps<typeof ChoiceDialog>["actions"][number]["icon"];
   onCancel: () => void;
 }) {
-  const { items, count, total } = useCartItems();
+  const { names, count, total } = useCartItems();
   const one = count === 1;
   return (
     <ChoiceDialog
       visible={visible && count > 0}
       title={`${count} ${one ? "item" : "items"} in your cart`}
-      body={`${listNames(items.map((i) => i.name))} ${one ? "is" : "are"} in your cart. Check out now, or leave and ${one ? "it stays" : "they stay"} in your cart${onClear ? `, or clear the cart and leave` : ` until you clear ${one ? "it" : "them"} at checkout`}.`}
+      body={`${listNames(names)} ${one ? "is" : "are"} in your cart. Check out now, or leave and ${one ? "it stays" : "they stay"} in your cart${onClear ? `, or clear the cart and leave` : ` until you clear ${one ? "it" : "them"} at checkout`}.`}
       actions={[
         { label: `Checkout · ${total.toLocaleString()}`, icon: "cart", onPress: onCheckout },
         { label: leaveLabel, icon: leaveIcon, variant: "secondary", onPress: onLeave },

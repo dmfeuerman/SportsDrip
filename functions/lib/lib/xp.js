@@ -47,7 +47,7 @@ async function readLevelUnlocks(tx, uid, level) {
  * Adds `amount` XP once per `key` (users/{uid}/xpEvents/{key}). Safe to call
  * from retried triggers. Returns what happened, for tests and callers.
  */
-async function grantXp(uid, amount, key, reason) {
+async function grantXp(uid, amount, key, reason, note) {
     const userRef = economy_1.db.collection("users").doc(uid);
     const eventRef = userRef.collection("xpEvents").doc(key);
     const none = (xp = 0) => ({ applied: false, xp, level: (0, progression_1.levelFromXp)(xp), levelsGained: 0, credits: 0, unlocks: [] });
@@ -56,16 +56,20 @@ async function grantXp(uid, amount, key, reason) {
     // Season pass XP: a parallel counter, only from quests and Daily Picks.
     const season = seasonPass_1.SEASON_XP_REASONS.has(reason) ? await (0, seasonPass_1.activeSeason)().catch(() => null) : null;
     return economy_1.db.runTransaction(async (tx) => {
-        const [user, ev] = await Promise.all([tx.get(userRef), tx.get(eventRef)]);
+        const stateRef = userRef.collection("levelChallenges").doc("state");
+        const [user, ev, state] = await Promise.all([tx.get(userRef), tx.get(eventRef), tx.get(stateRef)]);
         if (!user.exists)
             return none();
         const before = user.get("xp") ?? 0;
         if (ev.exists)
             return none(before);
-        const oldLevel = (0, progression_1.levelFromXp)(before);
+        const oldLevel = (0, progression_1.playerLevel)(user);
         amount = (0, progression_1.scaledXp)(Math.floor(amount), oldLevel);
         const after = before + amount;
-        const newLevel = (0, progression_1.levelFromXp)(after);
+        // Levels follow XP directly; challenges are optional bonus XP. The new level's
+        // set (and its baseline) is dealt by getLevelChallenges the next time it loads.
+        void state;
+        const newLevel = Math.max(oldLevel, (0, progression_1.levelFromXp)(after));
         // ── reads (all before the first write) ──
         const crossed = [];
         for (let l = oldLevel + 1; l <= newLevel; l++)
@@ -98,7 +102,7 @@ async function grantXp(uid, amount, key, reason) {
         tx.update(userRef, {
             xp: after,
             level: newLevel,
-            xpLast: { amount: Math.floor(amount), reason, key, at: Date.now() },
+            xpLast: { amount: Math.floor(amount), reason, key, at: Date.now(), ...(note ? { note } : {}) },
             ...(season ? { [`seasonXp.${season.id}`]: economy_1.FieldValue.increment(Math.floor(amount)) } : {}),
             ...(credits > 0 ? { balance } : {}),
             updatedAt: economy_1.FieldValue.serverTimestamp(),

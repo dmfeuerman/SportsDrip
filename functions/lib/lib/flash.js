@@ -9,7 +9,7 @@ exports.decideFlash = decideFlash;
  * betting is the feature most tied to harm in the gambling research, so this
  * stays free, small and rate-limited by design, and honours play limits.
  */
-exports.FLASH_REWARD = 20;
+exports.FLASH_REWARD = 200;
 exports.FLASH_PER_GAME = 3;
 exports.FLASH_PER_DAY = 12;
 /**

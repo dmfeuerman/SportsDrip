@@ -4,7 +4,9 @@ import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { Amount, Button, CloseButton, Pill, StatTile } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { formatOdds, formatPercent, impliedProbability } from "@/lib/odds";
+import { describeBet } from "@/lib/markets";
+import { formatOdds, formatPercent, impliedProbability, untilKickoff } from "@/lib/odds";
+import type { Game, TeamSide } from "@/types/game";
 import { useOddsFormat } from "@/lib/settings";
 import { shareViewOrText } from "@/lib/shareCard";
 
@@ -53,8 +55,11 @@ export default function BetBreakdownModal({
   onClose,
   onOpenGame,
   onReply,
+  game,
 }: {
   item: BetBreakdownItem | null;
+  /** The live game document, when the board still has it: adds live score, kickoff and team info. */
+  game?: Game | null;
   onClose: () => void;
   onOpenGame?: (gameId: string) => void;
   onReply?: (item: BetBreakdownItem) => void;
@@ -98,6 +103,16 @@ export default function BetBreakdownModal({
             ? `1v1 Challenge${item.friendName ? ` vs ${item.friendName}` : ""}`
             : "Moneyline";
 
+  const single = !item.legs?.length && item.market !== "parlay" && item.market !== "challenge" && !item.friendName;
+  const desc = single ? describeBet({ ...item, market: item.market ?? "ml", side: item.side ?? null }) : null;
+  const typeTint = item.market === "spread" ? c.accent : item.market === "total" ? c.warning : item.teamColor || c.primary;
+
+  // The two teams from the game document, the bet's team first.
+  const mine: TeamSide | null = game ? (item.side === "away" ? game.awayTeam : game.homeTeam) : null;
+  const theirs: TeamSide | null = game ? (item.side === "away" ? game.homeTeam : game.awayTeam) : null;
+  const liveMine = game && game.status === "live" ? (item.side === "away" ? game.awayScore : game.homeScore) : null;
+  const liveTheirs = game && game.status === "live" ? (item.side === "away" ? game.homeScore : game.awayScore) : null;
+
   const legs: BetBreakdownLeg[] = item.legs?.length
     ? item.legs
     : [
@@ -139,11 +154,12 @@ export default function BetBreakdownModal({
                 <Pill
                   label={item.wallet === "league" ? item.leagueName ?? "League Tokens" : "Credits"}
                   tone={item.wallet === "league" ? "league" : "money"}
-                  icon={item.wallet === "league" ? "shield-star" : "lightning-bolt"}
+                  icon={item.wallet === "league" ? "trophy-outline" : "lightning-bolt"}
                 />
               </View>
               <Text style={[styles.title, { color: c.foreground }]}>
-                {item.label || item.teamName} <Text style={{ color: c.mutedForeground }}>vs {item.opponentAbbr}</Text>
+                {item.label || item.teamName}
+                {item.market === "parlay" ? null : <Text style={{ color: c.mutedForeground }}> vs {item.opponentAbbr}</Text>}
               </Text>
               {item.ownerName ? (
                 <Text style={[styles.subtitle, { color: c.mutedForeground }]}>
@@ -173,6 +189,44 @@ export default function BetBreakdownModal({
               </View>
             ) : null}
 
+            {/* Live score while the game is on */}
+            {pending && liveMine !== null && liveTheirs !== null ? (
+              <View style={[styles.scoreCard, { backgroundColor: c.alpha(c.live, 0.1), borderColor: c.alpha(c.live, 0.4) }]}>
+                <View style={styles.scoreCol}>
+                  <Text style={[styles.scoreTeam, { color: c.foreground }]}>{item.teamAbbr}</Text>
+                  <Text style={[styles.scoreNum, { color: c.foreground }]}>{liveMine}</Text>
+                </View>
+                <View style={styles.scoreCenter}>
+                  <Text style={[styles.scoreFinal, { color: c.live }]}>● LIVE</Text>
+                  <Text style={[styles.scoreVs, { color: c.mutedForeground }]}>{game?.clock ?? ""}</Text>
+                </View>
+                <View style={styles.scoreCol}>
+                  <Text style={[styles.scoreTeam, { color: c.foreground }]}>{item.opponentAbbr}</Text>
+                  <Text style={[styles.scoreNum, { color: c.foreground }]}>{liveTheirs}</Text>
+                </View>
+              </View>
+            ) : null}
+
+            {/* What kind of bet this is and what has to happen for it to cash */}
+            {desc ? (
+              <View style={[styles.typeBox, { backgroundColor: c.alpha(typeTint, 0.1), borderColor: c.alpha(typeTint, 0.4) }]}>
+                <View style={styles.typeHead}>
+                  <View style={[styles.typeIcon, { backgroundColor: c.alpha(typeTint, 0.2) }]}>
+                    <MaterialCommunityIcons name={desc.icon} size={18} color={typeTint} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.typeLabel, { color: typeTint }]}>{desc.type.toUpperCase()}</Text>
+                    <Text style={[styles.typePick, { color: c.foreground }]}>{desc.pick}</Text>
+                  </View>
+                </View>
+                <Text style={[styles.typeNeeds, { color: c.foreground }]}>
+                  {pending ? "To win: " : "Needed: "}
+                  <Text style={{ fontFamily: "Inter_500Medium" }}>{desc.needs}</Text>
+                </Text>
+                <Text style={[styles.typeExplain, { color: c.mutedForeground }]}>{TYPE_EXPLAIN[item.market === "spread" ? "spread" : item.market === "total" ? "total" : "ml"]}</Text>
+              </View>
+            ) : null}
+
             {/* Financial Summary Tiles */}
             <View style={styles.tiles}>
               <StatTile label="Stake" hint={item.wallet === "league" ? "league tokens" : "credits"}>
@@ -195,7 +249,7 @@ export default function BetBreakdownModal({
             {/* Detailed Ticket Breakdown */}
             <View style={[styles.detailBox, { backgroundColor: c.card, borderColor: c.border }]}>
               <Text style={[styles.sectionTitle, { color: c.foreground }]}>Ticket Details</Text>
-              <DetailRow label="Market" value={marketLabel} />
+              <DetailRow label="Bet Type" value={desc ? `${desc.type}${item.line != null ? ` (${item.market === "total" ? `O/U ${item.line}` : item.line > 0 ? `+${item.line}` : item.line})` : ""}` : marketLabel} />
               <DetailRow label="Selection" value={item.label || `${item.teamName} (${item.teamAbbr})`} />
               <DetailRow
                 label="Price (Decimal / American)"
@@ -231,7 +285,22 @@ export default function BetBreakdownModal({
               ) : null}
             </View>
 
+            {/* The matchup: kickoff, venue and both teams' form */}
+            {game && mine && theirs ? (
+              <View style={[styles.detailBox, { backgroundColor: c.card, borderColor: c.border }]}>
+                <Text style={[styles.sectionTitle, { color: c.foreground }]}>Matchup</Text>
+                {game.status === "upcoming" ? (
+                  <DetailRow label="Kickoff" value={`${game.startTimeLabel} · in ${untilKickoff(game.startsAt)}`} />
+                ) : null}
+                {game.venue ? <DetailRow label="Venue" value={[game.venue, game.city].filter(Boolean).join(", ")} /> : null}
+                {game.broadcast ? <DetailRow label="Watch on" value={game.broadcast} /> : null}
+                <TeamRow team={mine} yours />
+                <TeamRow team={theirs} />
+              </View>
+            ) : null}
+
             {/* Legs Breakdown */}
+            {legs.length > 1 || !desc ? (
             <View style={[styles.detailBox, { backgroundColor: c.card, borderColor: c.border }]}>
               <Text style={[styles.sectionTitle, { color: c.foreground }]}>
                 {legs.length > 1 ? `Parlay Legs (${legs.length})` : "Leg Breakdown (1 Leg)"}
@@ -267,6 +336,7 @@ export default function BetBreakdownModal({
                 );
               })}
             </View>
+            ) : null}
           </ScrollView>
 
           {/* Footer Actions */}
@@ -310,6 +380,38 @@ export default function BetBreakdownModal({
         </View>
       </View>
     </Modal>
+  );
+}
+
+const TYPE_EXPLAIN = {
+  ml: "Moneyline: you're backing a team to win the game. The margin doesn't matter.",
+  spread: "Point spread: the line is added to your team's final score. Your bet wins if the adjusted score beats the opponent's.",
+  total: "Game total (over/under): it doesn't matter who wins, only how many points both teams score combined.",
+} as const;
+
+function TeamRow({ team, yours }: { team: TeamSide; yours?: boolean }) {
+  const c = useColors();
+  return (
+    <View style={styles.teamRow}>
+      <View style={[styles.teamDot, { backgroundColor: team.color || c.mutedForeground }]} />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.teamName, { color: c.foreground }]} numberOfLines={1}>
+          {team.rank ? `#${team.rank} ` : ""}{team.name}{yours ? "  · your pick" : ""}
+        </Text>
+        <Text style={[styles.teamMeta, { color: c.mutedForeground }]} numberOfLines={1}>
+          {[team.record, team.splitRecord, team.pointsFor != null && team.pointsAgainst != null ? `${team.pointsFor.toFixed(1)} for / ${team.pointsAgainst.toFixed(1)} against` : null].filter(Boolean).join(" · ") || "No record yet"}
+        </Text>
+      </View>
+      {team.form?.length ? (
+        <View style={styles.form}>
+          {team.form.slice(0, 5).map((r, i) => (
+            <View key={i} style={[styles.formDot, { backgroundColor: r === "W" ? c.positive : r === "L" ? c.negative : c.push }]}>
+              <Text style={styles.formText}>{r}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -369,5 +471,19 @@ const styles = StyleSheet.create({
   legTitle: { fontSize: 13, fontFamily: "Inter_700Bold" },
   legSub: { fontSize: 11, fontFamily: "Inter_400Regular" },
   legOdds: { fontSize: 13, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
+  typeBox: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 8 },
+  typeHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  typeIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  typeLabel: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
+  typePick: { fontSize: 18, fontFamily: "Inter_900Black", letterSpacing: -0.3 },
+  typeNeeds: { fontSize: 13, fontFamily: "Inter_800ExtraBold", lineHeight: 18 },
+  typeExplain: { fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 16 },
+  teamRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 4 },
+  teamDot: { width: 10, height: 10, borderRadius: 5 },
+  teamName: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  teamMeta: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  form: { flexDirection: "row", gap: 3 },
+  formDot: { width: 16, height: 16, borderRadius: 4, alignItems: "center", justifyContent: "center" },
+  formText: { fontSize: 9, fontFamily: "Inter_800ExtraBold", color: "#FFFFFF" },
   footer: { flexDirection: "row", gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: StyleSheet.hairlineWidth },
 });

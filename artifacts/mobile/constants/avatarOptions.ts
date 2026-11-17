@@ -6,6 +6,7 @@ import {
   sanitizeAppearance,
   SKIN_TONES,
 } from "@/lib/avatar3d/avatarRules";
+import type { BodyFrame } from "@/lib/avatar3d/avatarRules";
 import type { AvatarConfig } from "@/types/avatar";
 
 /**
@@ -30,6 +31,11 @@ export const HAIR_STYLES: HairStyle[] = [
   { id: "long", label: "Long" },
   { id: "ponytail", label: "Ponytail" },
   { id: "bald", label: "Bald" },
+];
+
+export const BODY_FRAMES: Array<{ id: BodyFrame; label: string }> = [
+  { id: "masc", label: "Boy" },
+  { id: "fem", label: "Girl" },
 ];
 
 export const FACE_SHAPES = [

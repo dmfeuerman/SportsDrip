@@ -37,7 +37,7 @@ async function checkAchievements(uid) {
         betsPlaced: user.get("stats.betsPlaced") ?? 0,
         betsWon: user.get("stats.betsWon") ?? 0,
         streakLongest: Math.max(user.get("streak.longest") ?? 0, user.get("streak.count") ?? 0),
-        level: (0, progression_1.levelFromXp)(user.get("xp") ?? 0),
+        level: (0, progression_1.playerLevel)(user),
         dailyWins: user.get("dailyRecord.w") ?? 0,
         friends: friendCount,
     };

@@ -82,6 +82,7 @@ class FriendsStore {
   private refs = 0;
   private stop: (() => void) | null = null;
   private inflight: Promise<void> | null = null;
+  private dirty = false;
   private lastPull = 0;
 
   constructor(private uid: string) {}
@@ -136,14 +137,20 @@ class FriendsStore {
 
   /** The enriched list. Coalesced: overlapping callers share one call, and a pull within 5 s is reused. */
   refresh = (force = false): Promise<void> => {
-    if (this.inflight) return this.inflight;
+    if (this.inflight) {
+      if (force) this.dirty = true;
+      return this.inflight;
+    }
     if (!force && Date.now() - this.lastPull < 5_000) return Promise.resolve();
     this.inflight = (async () => {
       try {
-        const res = await api.listFriends({});
-        this.lastPull = Date.now();
-        if (JSON.stringify(this.server.friends) !== JSON.stringify(res.friends)) this.set({ friends: res.friends });
-        if (this.server.error) this.set({ error: null });
+        do {
+          this.dirty = false;
+          const res = await api.listFriends({});
+          this.lastPull = Date.now();
+          if (JSON.stringify(this.server.friends) !== JSON.stringify(res.friends)) this.set({ friends: res.friends });
+          if (this.server.error) this.set({ error: null });
+        } while (this.dirty);
       } catch (err) {
         this.set({ error: api.friendlyError(err) });
       } finally {

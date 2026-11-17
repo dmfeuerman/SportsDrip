@@ -4,12 +4,13 @@ import { liveActivitySupported } from "@/modules/live-activity";
 import { celebrate } from "@/lib/celebrate";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Modal, Platform, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Modal, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import Burst from "@/components/fx/Burst";
 import ResultRecap from "@/components/ResultRecap";
+import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import { ActionChip, Amount, Button, Pill } from "@/components/ui";
 import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
@@ -21,9 +22,8 @@ import { trace } from "@/lib/devtrace";
 import { OVERLAY, useOverlayTurn } from "@/lib/overlayTurns";
 import { haptic, REWARD_RARITY } from "@/lib/motion";
 import { useShake } from "@/hooks/useMotion";
-import { formatOdds, untilKickoff } from "@/lib/odds";
+import { untilKickoff } from "@/lib/odds";
 import { useGames } from "@/hooks/useGames";
-import { useOddsFormat } from "@/lib/settings";
 import { shareViewOrText } from "@/lib/shareCard";
 
 /**
@@ -40,10 +40,11 @@ export default function ResultPopupHost() {
   const { breakpoint } = useAds();
   // Native: hold results until launch has settled; a modal (and its 3D
   // stage) presenting during launch is one more thing competing for the main thread.
-  const [armed, setArmed] = useState(Platform.OS === "web");
+  // Results (incl. everything that settled while away) appear 5 s after the loading screen hides.
+  const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (armed) return;
-    const t = setTimeout(() => setArmed(true), 2500);
+    const t = setTimeout(() => setArmed(true), 5000);
     return () => clearTimeout(t);
   }, [armed]);
   useEffect(() => {
@@ -129,7 +130,6 @@ function ResultPopup({
   onDismissAll: () => void;
 }) {
   const c = useColors();
-  const fmt = useOddsFormat();
   const cardRef = useRef<React.ComponentRef<typeof View> | null>(null);
   const won = n.type === "bet_won" || n.type === "challenge_won" || n.type === "league_payout";
   const lost = n.type === "bet_lost" || n.type === "challenge_lost";
@@ -183,12 +183,6 @@ function ResultPopup({
     return () => clearTimeout(t);
   }, [lost, big, shake]);
 
-  const my = bet ? (bet.side === "away" ? bet.finalAwayScore : bet.finalHomeScore) : null;
-  const their = bet ? (bet.side === "away" ? bet.finalHomeScore : bet.finalAwayScore) : null;
-  // What the bet actually was, slip-style: market, pick and matchup.
-  const marketName = bet ? (bet.market === "spread" ? "Point Spread" : bet.market === "total" ? "Total Points" : "Moneyline") : "";
-  const pick = bet ? (bet.label ?? `${bet.teamName} ${formatOdds(bet.odds, fmt)}`) : "";
-  const matchup = bet ? (bet.side === "away" ? `${bet.teamAbbr} @ ${bet.opponentAbbr}` : `${bet.opponentAbbr} @ ${bet.teamAbbr}`) : "";
 
   const fx = celebrate("bet_win", { big });
   return (
@@ -245,24 +239,36 @@ function ResultPopup({
             {!bet ? <Text style={[styles.score, { color: c.mutedForeground }]}>{n.body}</Text> : null}
           </View>
 
-          {/* The slip: exactly what was bet, so a win or loss is never a mystery. */}
+          {/* The slip: exactly what was bet, drawn as the same ticket as a placed bet. */}
           {bet ? (
-            <View style={[styles.slip, { borderColor: c.border, backgroundColor: c.alpha(c.foreground, 0.04) }]}>
-              <View style={styles.slipHead}>
-                <View style={[styles.slipDot, { backgroundColor: bet.teamColor }]} />
-                <Text style={[styles.slipKicker, { color: c.mutedForeground }]}>
-                  YOUR BET · {marketName.toUpperCase()}
-                  {n.wallet === "league" ? " · LEAGUE" : ""}
-                </Text>
-                <Text style={[styles.slipOdds, { color: accent }]}>{formatOdds(bet.odds, fmt)}</Text>
-              </View>
-              <Text style={[styles.slipPick, { color: c.foreground }]} numberOfLines={1}>
-                {pick}
-              </Text>
-              <Text style={[styles.slipGame, { color: c.mutedForeground }]} numberOfLines={1}>
-                {matchup}
-                {my !== null && their !== null ? ` · Final ${bet.side === "away" ? `${my}–${their}` : `${their}–${my}`}` : ""}
-              </Text>
+            <View style={{ marginHorizontal: 16, marginTop: 12 }}>
+              <BetTicket
+                spacing={0}
+                walletLabel={n.wallet === "league" ? n.leagueName ?? "League" : undefined}
+                bet={
+                  {
+                    id: bet.betId,
+                    gameId: bet.gameId,
+                    sport: bet.sport ?? "",
+                    side: bet.side ?? "home",
+                    market: bet.market,
+                    selection: bet.selection,
+                    line: bet.line ?? undefined,
+                    label: bet.label,
+                    teamName: bet.teamName,
+                    teamAbbr: bet.teamAbbr,
+                    teamColor: bet.teamColor,
+                    opponentAbbr: bet.opponentAbbr,
+                    stake: bet.stake,
+                    odds: bet.odds,
+                    potentialPayout: bet.payout,
+                    status: won ? "won" : lost ? "lost" : "push",
+                    freeBet: false,
+                    finalHomeScore: bet.finalHomeScore ?? undefined,
+                    finalAwayScore: bet.finalAwayScore ?? undefined,
+                  } as unknown as TicketBet
+                }
+              />
             </View>
           ) : null}
 
@@ -453,13 +459,17 @@ const styles = StyleSheet.create({
   stage: { height: 230, marginHorizontal: 16, marginTop: 14, borderRadius: 18, overflow: "hidden" },
   stageBadge: { position: "absolute", top: 10, right: 10, width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   top: { alignItems: "center", paddingHorizontal: 20, paddingTop: 14, gap: 8 },
-  slip: { marginHorizontal: 16, marginTop: 12, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
+  slip: { marginHorizontal: 16, marginTop: 12, borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, gap: 6 },
   slipHead: { flexDirection: "row", alignItems: "center", gap: 7 },
-  slipDot: { width: 8, height: 8, borderRadius: 4 },
+  slipDot: { width: 9, height: 9, borderRadius: 4.5 },
   slipKicker: { flex: 1, fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  oddsPill: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 2 },
   slipOdds: { fontSize: 12, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
-  slipPick: { fontSize: 16, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.3 },
-  slipGame: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  slipPick: { fontSize: 17, fontFamily: "Inter_900Black", letterSpacing: -0.3 },
+  slipFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 7, marginTop: 2, borderTopWidth: StyleSheet.hairlineWidth, gap: 8 },
+  slipGame: { fontSize: 12, fontFamily: "Inter_600SemiBold", flex: 1 },
+  finalBadge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  finalBadgeText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.6, fontVariant: ["tabular-nums"] },
   iconRing: { width: 68, height: 68, borderRadius: 34, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   pills: { flexDirection: "row", gap: 6, flexWrap: "wrap", justifyContent: "center" },
   title: { fontSize: 22, lineHeight: 27, fontFamily: "Inter_900Black", textAlign: "center", letterSpacing: -0.6 },

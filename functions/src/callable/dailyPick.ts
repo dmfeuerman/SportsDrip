@@ -4,9 +4,8 @@ import { onSchedule } from "../lib/onlineSchedule";
 import { logger } from "firebase-functions";
 import { z } from "zod";
 import { db, FieldValue, requireAuth } from "../lib/economy";
-import { advanceStreak, nyDay, STREAK_MILESTONES, type StreakState } from "../lib/streak";
+import { activeStreakCount, advanceStreak, freeBetStreakBonus, nyDay, STREAK_MILESTONES, type StreakState } from "../lib/streak";
 import { recentEmptyDays } from "../lib/streakDays";
-import { grantXp } from "../lib/xp";
 import { checkAchievements } from "../lib/achievements";
 import { requirePricedMarket } from "../lib/pricing";
 import { checkPlayLimits } from "../lib/playLimits";
@@ -111,7 +110,6 @@ export const makeDailyPick = onCall({ region: "us-central1" }, async (req) => {
     return { first: !existing.exists, streak, milestone };
   });
 
-  if (out.first) await grantXp(uid, DAILY_PICK_XP, `daily_${day}`, "daily_pick").catch(() => {});
   await checkAchievements(uid).catch(() => []);
   return { ok: true, day, streak: out.streak.count, freezes: out.streak.freezes ?? 0, milestone: out.milestone };
 });
@@ -197,7 +195,9 @@ export const placeFreeBet = onCall({ region: "us-central1" }, async (req) => {
     }
     const limitUpdate = checkPlayLimits(user, now);
     const priced = requirePricedMarket(game, { market: input.market ?? "ml", side: input.side, selection: input.selection });
-    const winnings = Math.max(1, Math.round(FREE_BET_STAKE * priced.odds) - FREE_BET_STAKE);
+    // Streak bonus: every consecutive betting day adds to today's free stake (lib/streak.ts).
+    const freeStake = FREE_BET_STAKE + freeBetStreakBonus(activeStreakCount(user.get("streak") as Partial<StreakState> | undefined, now));
+    const winnings = Math.max(1, Math.round(freeStake * priced.odds) - freeStake);
 
     tx.set(betRef, {
       id: betId,
@@ -215,7 +215,7 @@ export const placeFreeBet = onCall({ region: "us-central1" }, async (req) => {
       opponentAbbr: priced.opponentAbbr,
       stake: 0,
       freeBet: true,
-      freeStake: FREE_BET_STAKE,
+      freeStake,
       freeDay: day,
       odds: priced.odds,
       potentialPayout: winnings,
@@ -238,7 +238,6 @@ export const placeFreeBet = onCall({ region: "us-central1" }, async (req) => {
     return { duplicate: false, first: true, winnings, streak, milestone };
   });
 
-  if (out.first) await grantXp(uid, DAILY_PICK_XP, `daily_${day}`, "daily_pick").catch(() => {});
   if (out.first) await checkAchievements(uid).catch(() => []);
   return { ok: true, betId, day, winnings: out.winnings, duplicate: out.duplicate, streak: out.streak?.count ?? null, milestone: out.milestone };
 });

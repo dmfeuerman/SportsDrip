@@ -1,15 +1,21 @@
-import { XP } from "./progression";
+import { xpForNext, xpMultiplier } from "./progression";
 /**
- * XP challenges that scale with level. Reaching a level deals that level's set
- * (up to CHALLENGE_SLOTS). A claimed challenge stays in the set (shown as done)
- * and isn't replaced. Challenges are bonus XP, never a gate: XP alone moves
- * the player up, and each new level deals a fresh set. Sets prefer "explore"
- * challenges (learn the app), then the hardest tier the player's level has
- * unlocked.
+ * Level challenges. Every level has its own set, all shown at once; claimed
+ * ones stay, marked done. The set's XP adds up to CHALLENGE_XP_RATIO x what the
+ * level needs, so a player can skip the ones they don't like and still level
+ * up. XP alone moves you up (challenges are a menu, not a gate).
+ *
+ * Level 1 is "learn the app" (one-off explore challenges, lifetime counts).
+ * Level 2+ are goals counted from a baseline taken when the set is dealt
+ * ("Win 3 bets" means 3 more wins this level). Higher levels offer more
+ * challenges with bigger targets.
  */
 
 export type ChallengeMetric =
   | "bets"
+  | "boxes"
+  | "videos"
+  | "referrals"
   | "wins"
   | "parlays"
   | "friends"
@@ -44,127 +50,90 @@ export interface ChallengeDef {
   title: string;
   /** App route that does it. */
   to?: string;
-  /** Learn-the-app challenge: dealt before anything else. */
+  /** Learn-the-app challenge (level 1). Counts lifetime totals. */
   explore?: boolean;
+  /** Counts the lifetime total, not progress since the level's set was dealt. */
+  lifetime?: boolean;
 }
 
-export const CHALLENGE_SLOTS = 3;
+/** The set pays this much more than the level needs, so it's pick-and-choose. */
+export const CHALLENGE_XP_RATIO = 1.6;
 
 /** Paid straight away the first time the app color changes (recordChallengeAction). */
 export const THEME_CHALLENGE_ID = "x_theme";
 
-export const CHALLENGE_POOL: ChallengeDef[] = [
-  // Level 1: explore the app.
-  { id: "x_freebet", minLevel: 1, metric: "freeBets", target: 1, xp: 25, title: "Lock in your Daily Free Bet", to: "/(tabs)", explore: true },
-  { id: "x_hat", minLevel: 1, metric: "ownedHat", target: 1, xp: 30, title: "Buy a hat in the Drip Shop", to: "/customize?category=hat", explore: true },
-  { id: "x_theme", minLevel: 1, metric: "theme", target: 1, xp: XP.themeChange, title: "Change the app color in Settings", to: "/settings", explore: true },
-  { id: "x_bet", minLevel: 1, metric: "bets", target: 1, xp: 25, title: "Place your first bet", to: "/(tabs)/games", explore: true },
-  { id: "x_friend", minLevel: 1, metric: "friends", target: 1, xp: 30, title: "Add a friend", to: "/(tabs)/leagues?seg=friends", explore: true },
-  { id: "x_teams", minLevel: 1, metric: "favoriteTeams", target: 1, xp: 20, title: "Pick your favorite teams in Settings", to: "/settings", explore: true },
-  { id: "x_avatar", minLevel: 1, metric: "avatarSaved", target: 1, xp: 20, title: "Save a new look for your character", to: "/customize?category=body", explore: true },
-  { id: "x_odds", minLevel: 1, metric: "oddsFormat", target: 1, xp: 15, title: "Try another odds format in Settings", to: "/settings", explore: true },
-  { id: "x_levels", minLevel: 1, metric: "levelsViewed", target: 1, xp: 15, title: "Check out the Levels page", to: "/levels", explore: true },
-  { id: "x_dance", minLevel: 1, metric: "danced", target: 1, xp: 15, title: "Show off a dance move in your Locker", to: "/(tabs)/avatar", explore: true },
-  { id: "x_tour", minLevel: 1, metric: "tutorial", target: 1, xp: 15, title: "Finish a tutorial from the ? menu", to: "/(tabs)", explore: true },
+type Def = Omit<ChallengeDef, "xp"> & { weight: number };
 
-  // Level 2+
-  { id: "l2_bets", minLevel: 2, metric: "bets", target: 5, xp: 40, title: "Place 5 bets", to: "/(tabs)/games" },
-  { id: "l2_wins", minLevel: 2, metric: "wins", target: 2, xp: 50, title: "Win 2 bets", to: "/(tabs)/games" },
-  { id: "l2_league", minLevel: 2, metric: "leagues", target: 1, xp: 50, title: "Join or start a league", to: "/(tabs)/leagues" },
-  { id: "l2_parlay", minLevel: 2, metric: "parlays", target: 1, xp: 40, title: "Place a parlay", to: "/(tabs)/games" },
-  { id: "l2_top", minLevel: 2, metric: "ownedTop", target: 2, xp: 40, title: "Own 2 tops", to: "/customize?category=top" },
-  { id: "l2_scene", minLevel: 2, metric: "scene", target: 1, xp: 30, title: "Set a scene behind your character", to: "/customize?category=scenes" },
-
-  // Level 4+
-  { id: "l4_bets", minLevel: 4, metric: "bets", target: 15, xp: 70, title: "Place 15 bets", to: "/(tabs)/games" },
-  { id: "l4_wins", minLevel: 4, metric: "wins", target: 6, xp: 90, title: "Win 6 bets", to: "/(tabs)/games" },
-  { id: "l4_friends", minLevel: 4, metric: "friends", target: 3, xp: 70, title: "Have 3 friends", to: "/(tabs)/leagues?seg=friends" },
-  { id: "l4_parlays", minLevel: 4, metric: "parlays", target: 3, xp: 70, title: "Place 3 parlays", to: "/(tabs)/games" },
-  { id: "l4_moves", minLevel: 4, metric: "moves", target: 2, xp: 60, title: "Own 2 dance moves", to: "/customize?category=moves" },
-  { id: "l4_shoes", minLevel: 4, metric: "ownedShoes", target: 2, xp: 60, title: "Own 2 pairs of shoes", to: "/customize?category=shoes" },
-
-  // Level 7+
-  { id: "l7_bets", minLevel: 7, metric: "bets", target: 40, xp: 120, title: "Place 40 bets", to: "/(tabs)/games" },
-  { id: "l7_wins", minLevel: 7, metric: "wins", target: 15, xp: 150, title: "Win 15 bets", to: "/(tabs)/games" },
-  { id: "l7_leagues", minLevel: 7, metric: "leagues", target: 2, xp: 110, title: "Play in 2 leagues", to: "/(tabs)/leagues" },
-  { id: "l7_items", minLevel: 7, metric: "items", target: 10, xp: 110, title: "Own 10 Drip Shop items", to: "/customize?category=hat" },
-  { id: "l7_freebets", minLevel: 7, metric: "freeBets", target: 14, xp: 120, title: "Use 14 Daily Free Bets", to: "/(tabs)" },
-
-  // Level 12+
-  { id: "l12_bets", minLevel: 12, metric: "bets", target: 100, xp: 200, title: "Place 100 bets", to: "/(tabs)/games" },
-  { id: "l12_wins", minLevel: 12, metric: "wins", target: 40, xp: 250, title: "Win 40 bets", to: "/(tabs)/games" },
-  { id: "l12_parlays", minLevel: 12, metric: "parlays", target: 10, xp: 200, title: "Place 10 parlays", to: "/(tabs)/games" },
-  { id: "l12_friends", minLevel: 12, metric: "friends", target: 8, xp: 180, title: "Have 8 friends", to: "/(tabs)/leagues?seg=friends" },
-  { id: "l12_items", minLevel: 12, metric: "items", target: 20, xp: 180, title: "Own 20 Drip Shop items", to: "/customize?category=hat" },
-
-  // Level 16+
-  { id: "l16_wins", minLevel: 16, metric: "wins", target: 60, xp: 300, title: "Win 60 bets", to: "/(tabs)/games" },
-  { id: "l16_freebets", minLevel: 16, metric: "freeBets", target: 30, xp: 250, title: "Use 30 Daily Free Bets", to: "/(tabs)" },
-  { id: "l16_moves", minLevel: 16, metric: "moves", target: 4, xp: 220, title: "Own 4 dance moves", to: "/customize?category=moves" },
-
-  // Level 20+
-  { id: "l20_bets", minLevel: 20, metric: "bets", target: 250, xp: 350, title: "Place 250 bets", to: "/(tabs)/games" },
-  { id: "l20_wins", minLevel: 20, metric: "wins", target: 100, xp: 400, title: "Win 100 bets", to: "/(tabs)/games" },
-  { id: "l20_parlays", minLevel: 20, metric: "parlays", target: 30, xp: 350, title: "Place 30 parlays", to: "/(tabs)/games" },
-  { id: "l20_freebets", minLevel: 20, metric: "freeBets", target: 60, xp: 350, title: "Use 60 Daily Free Bets", to: "/(tabs)" },
-
-  // Level 25+
-  { id: "l25_bets", minLevel: 25, metric: "bets", target: 400, xp: 450, title: "Place 400 bets", to: "/(tabs)/games" },
-  { id: "l25_leagues", minLevel: 25, metric: "leagues", target: 3, xp: 400, title: "Play in 3 leagues", to: "/(tabs)/leagues" },
-  { id: "l25_friends", minLevel: 25, metric: "friends", target: 15, xp: 400, title: "Have 15 friends", to: "/(tabs)/leagues?seg=friends" },
-
-  // Level 30+
-  { id: "l30_bets", minLevel: 30, metric: "bets", target: 600, xp: 600, title: "Place 600 bets", to: "/(tabs)/games" },
-  { id: "l30_wins", minLevel: 30, metric: "wins", target: 250, xp: 700, title: "Win 250 bets", to: "/(tabs)/games" },
-  { id: "l30_items", minLevel: 30, metric: "items", target: 40, xp: 500, title: "Own 40 Drip Shop items", to: "/customize?category=hat" },
-
-  // Level 40+
-  { id: "l40_bets", minLevel: 40, metric: "bets", target: 1000, xp: 900, title: "Place 1,000 bets", to: "/(tabs)/games" },
-  { id: "l40_wins", minLevel: 40, metric: "wins", target: 400, xp: 1000, title: "Win 400 bets", to: "/(tabs)/games" },
-  { id: "l40_parlays", minLevel: 40, metric: "parlays", target: 75, xp: 900, title: "Place 75 parlays", to: "/(tabs)/games" },
-  { id: "l40_items", minLevel: 40, metric: "items", target: 60, xp: 800, title: "Own 60 Drip Shop items", to: "/customize?category=hat" },
+const EXPLORE: Def[] = [
+  { id: "x_freebet", minLevel: 1, metric: "freeBets", target: 1, weight: 1.2, title: "Lock in your Daily Free Bet", to: "/(tabs)", explore: true },
+  { id: "x_bet", minLevel: 1, metric: "bets", target: 1, weight: 1.2, title: "Place your first bet", to: "/(tabs)/games", explore: true },
+  { id: "x_hat", minLevel: 1, metric: "ownedHat", target: 1, weight: 1.2, title: "Buy a hat in the Drip Shop", to: "/customize?category=hat", explore: true },
+  { id: "x_friend", minLevel: 1, metric: "friends", target: 1, weight: 1.2, title: "Add a friend", to: "/(tabs)/leagues?seg=friends", explore: true },
+  { id: "x_theme", minLevel: 1, metric: "theme", target: 1, weight: 0.8, title: "Change the app color in your Locker", to: "/(tabs)/avatar", explore: true },
+  { id: "x_teams", minLevel: 1, metric: "favoriteTeams", target: 1, weight: 0.8, title: "Pick your favorite teams in Settings", to: "/settings", explore: true },
+  { id: "x_avatar", minLevel: 1, metric: "avatarSaved", target: 1, weight: 0.8, title: "Save a new look for your character", to: "/customize?category=body", explore: true },
+  { id: "x_odds", minLevel: 1, metric: "oddsFormat", target: 1, weight: 0.6, title: "Try another odds format in Settings", to: "/settings", explore: true },
+  { id: "x_levels", minLevel: 1, metric: "levelsViewed", target: 1, weight: 0.6, title: "Check out the Levels page", to: "/levels", explore: true },
+  { id: "x_dance", minLevel: 1, metric: "danced", target: 1, weight: 0.6, title: "Show off a dance move in your Locker", to: "/(tabs)/avatar", explore: true },
+  { id: "x_tour", minLevel: 1, metric: "tutorial", target: 1, weight: 0.6, title: "Finish a tutorial from the ? menu", to: "/(tabs)", explore: true },
 ];
 
-const byId = new Map(CHALLENGE_POOL.map((c) => [c.id, c]));
-
-/** The set dealt on reaching `level`: unclaimed challenges only, never two on one metric. */
-export function dealLevelSet(claimed: Record<string, boolean>, level: number): string[] {
-  return dealChallenges([], claimed, level);
-}
-
-/** Every challenge in the level's set is claimed (an empty set counts as done). Display only — never gates. */
-export function levelSetComplete(active: readonly string[], claimed: Record<string, boolean>): boolean {
-  return active.every((id) => !byId.has(id) || !!claimed[id]);
-}
-
 /**
- * The level after an XP change: whatever the XP allows. Challenges don't gate
- * levelling (they're optional bonus XP). Never down.
+ * Level 2+ goals. `when` picks the levels that offer it. Most count from the
+ * level's baseline ("Win 3 bets" = 3 more this level); `lifetime` ones count
+ * the total ("Have 4 friends").
  */
+type Goal = { key: string; metric: ChallengeMetric; weight: number; to: string; when: (l: number) => boolean; target: (l: number) => number; title: (n: number) => string; lifetime?: boolean };
+const FRIENDS = "/(tabs)/leagues?seg=friends";
+const GOALS: Goal[] = [
+  { key: "bets", metric: "bets", weight: 1, to: "/(tabs)/games", when: () => true, target: (l) => 3 + l, title: (n) => `Place ${n} bets` },
+  { key: "wins", metric: "wins", weight: 1.5, to: "/(tabs)/games", when: () => true, target: (l) => 1 + Math.ceil(l / 2), title: (n) => `Win ${n} bet${n > 1 ? "s" : ""}` },
+  { key: "freeBets", metric: "freeBets", weight: 1, to: "/(tabs)", when: () => true, target: (l) => Math.min(7, 2 + Math.floor(l / 3)), title: (n) => `Use ${n} Daily Free Bets` },
+  { key: "boxes", metric: "boxes", weight: 0.8, to: "/(tabs)", when: () => true, target: (l) => 2 + Math.floor(l / 3), title: (n) => `Open ${n} prize boxes` },
+  { key: "parlays", metric: "parlays", weight: 1.3, to: "/(tabs)/games", when: (l) => l % 2 === 0, target: (l) => 1 + Math.floor(l / 4), title: (n) => `Place ${n} parlay${n > 1 ? "s" : ""}` },
+  { key: "items", metric: "items", weight: 1, to: "/customize?category=hat", when: () => true, target: (l) => 1 + Math.floor(l / 6), title: (n) => `Buy ${n} Drip Shop item${n > 1 ? "s" : ""}` },
+  { key: "videos", metric: "videos", weight: 0.6, to: "/(tabs)", when: (l) => l % 2 === 1, target: (l) => 1 + Math.floor(l / 5), title: (n) => `Watch ${n} bonus video${n > 1 ? "s" : ""}` },
+  { key: "addFriend", metric: "friends", weight: 1.3, to: FRIENDS, when: (l) => l % 3 === 2, target: () => 1, title: () => "Add a new friend" },
+  { key: "haveFriends", metric: "friends", weight: 1.3, to: FRIENDS, when: (l) => l % 3 === 0, target: (l) => 1 + Math.floor(l / 3), title: (n) => `Have ${n} friends`, lifetime: true },
+  { key: "invite", metric: "referrals", weight: 2, to: FRIENDS, when: (l) => l % 4 === 0, target: () => 1, title: () => "Invite a friend with your code" },
+  { key: "moves", metric: "moves", weight: 1.2, to: "/customize?category=moves", when: (l) => l % 4 === 2, target: () => 1, title: () => "Unlock a new dance move" },
+  { key: "leagues", metric: "leagues", weight: 1.5, to: "/(tabs)/leagues", when: (l) => l % 5 === 0, target: () => 1, title: () => "Join or start a new league" },
+];
+
+/** XP (before grantXp's level multiplier) the whole set pays. */
+export function setXpBudget(level: number): number {
+  return Math.ceil((CHALLENGE_XP_RATIO * xpForNext(level)) / xpMultiplier(level));
+}
+
+function priced(defs: Def[], level: number): ChallengeDef[] {
+  const budget = setXpBudget(level);
+  const total = defs.reduce((s, d) => s + d.weight, 0) || 1;
+  return defs.map(({ weight, ...d }) => ({ ...d, xp: Math.max(5, Math.ceil((budget * weight) / total)) }));
+}
+
+/** Every challenge `level` offers, XP split by weight. */
+export function levelSet(level: number): ChallengeDef[] {
+  const l = Math.max(1, Math.floor(level));
+  if (l === 1) return priced(EXPLORE, 1);
+  const defs: Def[] = GOALS.filter((g) => g.when(l)).map((g) => {
+    const n = g.target(l);
+    return { id: `l${l}_${g.key}`, minLevel: l, metric: g.metric, target: n, weight: g.weight, title: g.title(n), to: g.to, ...(g.lifetime ? { lifetime: true } : {}) };
+  });
+  return priced(defs, l);
+}
+
+/** A challenge by id; level-2+ ids carry their level (`l<level>_<metric>`). */
+export function challengeById(id: string): ChallengeDef | undefined {
+  const m = /^l(\d+)_/.exec(id);
+  return levelSet(m ? Number(m[1]) : 1).find((c) => c.id === id);
+}
+
+/** Display only — never gates levelling. */
+export function levelSetComplete(active: readonly string[], claimed: Record<string, boolean>): boolean {
+  return active.every((id) => !!claimed[id]);
+}
+
+/** Levels follow XP; challenges never gate. Never down. */
 export function gatedLevel(xpLevel: number, current: number, _setDone?: boolean): number {
   return Math.max(current, xpLevel);
-}
-export const challengeById = (id: string) => byId.get(id);
-
-/**
- * Pure: the active list after carrying over unfinished challenges and filling
- * empty slots. Keeps order (old ones first) so the card doesn't reshuffle.
- */
-export function dealChallenges(active: readonly string[], claimed: Record<string, boolean>, level: number): string[] {
-  const keep = active.filter((id) => byId.has(id) && !claimed[id]);
-  const taken = new Set(keep);
-  const candidates = CHALLENGE_POOL.filter((c) => c.minLevel <= level && !claimed[c.id] && !taken.has(c.id)).sort((a, b) => {
-    if (!!a.explore !== !!b.explore) return a.explore ? -1 : 1;
-    if (a.minLevel !== b.minLevel) return b.minLevel - a.minLevel;
-    return CHALLENGE_POOL.indexOf(a) - CHALLENGE_POOL.indexOf(b);
-  });
-  // Never two of the same metric at once (e.g. "Place 5 bets" and "Place 15 bets").
-  const metrics = new Set(keep.map((id) => byId.get(id)!.metric));
-  for (const c of candidates) {
-    if (keep.length >= CHALLENGE_SLOTS) break;
-    if (metrics.has(c.metric)) continue;
-    keep.push(c.id);
-    metrics.add(c.metric);
-  }
-  return keep;
 }

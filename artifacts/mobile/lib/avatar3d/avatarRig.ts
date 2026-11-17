@@ -19,6 +19,87 @@ const TINTS: Record<string, (p: THREE.Color, s: THREE.Color) => THREE.Color> = {
   secondary_dark: (_p, s) => s.clone().multiplyScalar(0.72),
 };
 
+/**
+ * Feminine frame shoulders: the shoulder joints sit FEM_ARM_IN closer to the
+ * body and FEM_ARM_DOWN lower (m, each side), and each arm turns out by
+ * FEM_ARM_SPLAY (rad), so the shoulders narrow and slope while the arm itself —
+ * its shape and where the hand hangs — stays as it was.
+ */
+const FEM_ARM_IN = 0.05;
+const FEM_ARM_DOWN = 0.012;
+const FEM_ARM_SPLAY = 0.075;
+const _splayAxis = new THREE.Vector3(0, 0, 1);
+/** Normal-map strength on the feminine frame's chest, abdomen and waist (softens the six-pack). */
+const FEM_ABS_NORMAL = 0.12;
+
+const smooth01 = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+/**
+ * A copy of a body region's geometry with the abs' grooves evened out over
+ * the front of the abdomen: the baked shading (vertex colours) is smoothed
+ * across neighbouring vertices there, and the vertex alpha turns the normal
+ * map down (the navel keeps both). `place` gives a vertex's position on
+ * the body (metres, y up, z forward).
+ */
+function smoothAbsShading(src: THREE.BufferGeometry, place: (i: number, out: THREE.Vector3) => THREE.Vector3): THREE.BufferGeometry {
+  const g = src.clone();
+  const pos = g.getAttribute("position") as THREE.BufferAttribute;
+  if (!g.index) return g;
+  const n = pos.count;
+  const mask = new Float32Array(n);
+  const p = new THREE.Vector3();
+  for (let v = 0; v < n; v++) {
+    place(v, p);
+    // The model is in rig units: the root's height scale is outside it, so these are metres at rest.
+    const x = Math.abs(p.x), y = p.y, z = p.z;
+    // Not the navel: it keeps its shading.
+    const navel = Math.exp(-((x / 0.013) ** 2 + ((y - 1.024) / 0.009) ** 2));
+    mask[v] = smooth01(-0.02, 0.04, z) * (1 - smooth01(0.15, 0.19, x)) * smooth01(0.96, 1.0, y) * (1 - smooth01(1.22, 1.27, y)) * (1 - navel);
+  }
+  const nbrs: number[][] = Array.from({ length: n }, () => []);
+  const idx = g.index.array;
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i], b = idx[i + 1], c = idx[i + 2];
+    nbrs[a].push(b, c);
+    nbrs[b].push(a, c);
+    nbrs[c].push(a, b);
+  }
+  const smoothAttr = (attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined, renormalize = false) => {
+    if (!attr) return;
+    const k = attr.itemSize;
+    const m = Math.min(3, k);
+    let cur = Float32Array.from({ length: n * k }, (_, i) => attr.getComponent(Math.floor(i / k), i % k));
+    for (let it = 0; it < 12; it++) {
+      const next = cur.slice();
+      for (let v = 0; v < n; v++) {
+        if (!mask[v] || !nbrs[v].length) continue;
+        for (let ch = 0; ch < m; ch++) {
+          let sum = 0;
+          for (const u of nbrs[v]) sum += cur[u * k + ch];
+          next[v * k + ch] = cur[v * k + ch] + mask[v] * (sum / nbrs[v].length - cur[v * k + ch]);
+        }
+        if (renormalize) {
+          const l = Math.hypot(next[v * k], next[v * k + 1], next[v * k + 2]) || 1;
+          for (let ch = 0; ch < 3; ch++) next[v * k + ch] /= l;
+        }
+      }
+      cur = next;
+    }
+    for (let v = 0; v < n; v++) for (let ch = 0; ch < m; ch++) attr.setComponent(v, ch, cur[v * k + ch]);
+    attr.needsUpdate = true;
+  };
+  smoothAttr(g.getAttribute("color") as THREE.BufferAttribute | undefined);
+  // Alpha: how much of the normal map shows (1 = all). Low over the abs, full at the navel and elsewhere.
+  const col = g.getAttribute("color") as THREE.BufferAttribute | undefined;
+  if (col && col.itemSize === 4) {
+    for (let v = 0; v < n; v++) col.setW(v, 1 - mask[v] * (1 - FEM_ABS_NORMAL));
+    col.needsUpdate = true;
+  }
+  return g;
+}
+
 /** ARKit-named face blendshapes on the heads, lids, lashes and facial hair. */
 export const EXPRESSIONS = ["eyeBlinkLeft", "eyeBlinkRight", "mouthSmileLeft", "mouthSmileRight", "jawOpen"] as const;
 export type Expression = (typeof EXPRESSIONS)[number];
@@ -144,6 +225,8 @@ export class AvatarRig {
   private bones = new Map<string, THREE.Bone>();
   private sockets = new Map<string, THREE.Object3D>();
   private baseMeshes: THREE.Mesh[] = [];
+  /** Body_chest / Body_abdomen / Body_waist with and without the feminine frame's soft abs (softenAbs). */
+  private absSoft = new Map<THREE.Mesh, { geo: THREE.BufferGeometry; mat: THREE.Material; softGeo: THREE.BufferGeometry; softMat: THREE.MeshStandardMaterial }>();
   /** Instance copies of the asset materials, by source material (each mesh may carry its own normal map). */
   private mats = new Map<THREE.Material, THREE.MeshStandardMaterial>();
   private strandMats = new Map<THREE.Material, THREE.MeshStandardMaterial>();
@@ -157,6 +240,12 @@ export class AvatarRig {
   private hairMode: HairMode | null = null;
   private baseVisible = true;
   private rest = new Map<THREE.Bone, { p: THREE.Vector3; q: THREE.Quaternion }>();
+  /** Bind positions as the asset ships them; `rest` is these plus the body frame's offsets. */
+  private bindPos = new Map<THREE.Bone, THREE.Vector3>();
+  private bindQ = new Map<THREE.Bone, THREE.Quaternion>();
+  private frame: "masc" | "fem" | null = null;
+  /** Per-arm turn-out for the feminine frame (absent on the masculine one); see FEM_ARM_SPLAY. */
+  private splay = new Map<THREE.Bone, THREE.Quaternion>();
   /** Blendshape weights set by the appearance (build, nose, mouth). */
   private shape: Record<string, number> = {};
   /** Live face. */
@@ -195,7 +284,11 @@ export class AvatarRig {
         this.baseMeshes.push(m);
       }
     });
-    for (const b of this.bones.values()) this.rest.set(b, { p: b.position.clone(), q: b.quaternion.clone() });
+    for (const b of this.bones.values()) {
+      this.rest.set(b, { p: b.position.clone(), q: b.quaternion.clone() });
+      this.bindPos.set(b, b.position.clone());
+      this.bindQ.set(b, b.quaternion.clone());
+    }
     this.clips = base.animations;
     this.mixer = new THREE.AnimationMixer(this.model);
   }
@@ -246,7 +339,8 @@ export class AvatarRig {
 
     // Build is a blendshape pair on everything skinned; height a uniform scale.
     const b = Math.max(-1, Math.min(1, (a.bodyType - 0.5) * 2));
-    this.shape = { buildSlim: Math.max(0, -b), buildBroad: Math.max(0, b) };
+    this.shape = { buildSlim: Math.max(0, -b), buildBroad: Math.max(0, b), frameFem: a.bodyFrame === "fem" ? 1 : 0 };
+    this.applyFrame(a.bodyFrame === "fem" ? "fem" : "masc");
     for (const [field, values] of Object.entries(FACE_OPTIONS)) {
       const chosen = a[field as keyof typeof FACE_OPTIONS];
       for (const [value, morph] of Object.entries(values)) this.shape[morph] = chosen === value ? 1 : 0;
@@ -256,6 +350,90 @@ export class AvatarRig {
     this.updateVisibility();
     this.placeRigid();
     this.applyFace();
+  }
+
+  /**
+   * The feminine frame's narrower, sloped shoulders (see FEM_ARM_IN): done on
+   * the skeleton, not the frameFem blendshape, so skin, sleeves and anything
+   * on a wrist socket move together. Updates the rest pose, and drops clips
+   * solved against the old one. Also softens the abs (softenAbs).
+   */
+  private applyFrame(frame: "masc" | "fem") {
+    if (frame === this.frame) return;
+    this.frame = frame;
+    this.softenAbs(frame === "fem");
+    this.splay.clear();
+    for (const side of ["Left", "Right"] as const) {
+      const bone = this.bones.get(`${side}Arm`);
+      const bind = bone && this.bindPos.get(bone);
+      const rest = bone && this.rest.get(bone);
+      if (!bone || !bind || !rest) continue;
+      const s = Math.sign(bind.x || (side === "Left" ? 1 : -1));
+      const p = bind.clone();
+      const q = rest.q.clone();
+      if (frame === "fem") {
+        p.x -= s * FEM_ARM_IN;
+        p.y -= FEM_ARM_DOWN;
+        const turn = new THREE.Quaternion().setFromAxisAngle(_splayAxis, s * FEM_ARM_SPLAY);
+        this.splay.set(bone, turn);
+      }
+      // Rest rotation: the bind rotation, turned out on the feminine frame.
+      const bindQ = this.bindQ.get(bone)!;
+      q.copy(bindQ);
+      const turn = this.splay.get(bone);
+      if (turn) q.multiply(turn);
+      rest.p.copy(p);
+      rest.q.copy(q);
+      bone.position.copy(p);
+      bone.quaternion.copy(q);
+    }
+    this.danceClips.clear();
+    this.reactionClips = undefined;
+  }
+
+  /**
+   * The six-pack is carved into the body's shared normal map and baked
+   * shading, so the frameFem blendshape alone can't take it out. On the
+   * feminine frame the chest, abdomen and waist get their own copy of the skin
+   * material with the normal map turned down, and of their geometry with the
+   * baked shading over the abs smoothed out. Copies, because every avatar on
+   * screen shares the asset's geometry.
+   */
+  private softenAbs(on: boolean) {
+    for (const m of this.baseMeshes) {
+      if (m.name !== "Body_abdomen" && m.name !== "Body_chest" && m.name !== "Body_waist") continue;
+      let s = this.absSoft.get(m);
+      if (!s) {
+        if (!on) continue;
+        // Positions are quantized (KHR_mesh_quantization); for a skinned mesh the skin carries the
+        // dequantization, so a vertex's place on the body is where skinning puts it, relative to the model.
+        this.model.updateWorldMatrix(true, true);
+        const skinned = m as THREE.SkinnedMesh;
+        const fromWorld = new THREE.Matrix4().copy(this.model.matrixWorld).invert();
+        const posAttr = m.geometry.getAttribute("position") as THREE.BufferAttribute;
+        const place = (i: number, out: THREE.Vector3) => {
+          out.fromBufferAttribute(posAttr, i);
+          // Skinned: bone transforms (world) applied, then the bind matrix's inverse (identity for these meshes).
+          if (skinned.isSkinnedMesh) skinned.applyBoneTransform(i, out).applyMatrix4(skinned.bindMatrix);
+          else out.applyMatrix4(m.matrixWorld);
+          return out.applyMatrix4(fromWorld);
+        };
+        s = { geo: m.geometry, mat: m.material as THREE.Material, softGeo: smoothAbsShading(m.geometry, place), softMat: (m.material as THREE.MeshStandardMaterial).clone() };
+        // The copy's vertex alpha (set by smoothAbsShading) scales the normal map per vertex.
+        s.softMat.onBeforeCompile = (shader) => {
+          shader.fragmentShader = shader.fragmentShader.replace(
+            "#include <normal_fragment_maps>",
+            "#include <normal_fragment_maps>\n#if defined( USE_COLOR_ALPHA ) && defined( USE_NORMALMAP_TANGENTSPACE )\n  normal = normalize( mix( nonPerturbedNormal, normal, vColor.a ) );\n#endif"
+          );
+        };
+        s.softMat.customProgramCacheKey = () => "softAbs";
+        // Registered with the instance's materials so skin-tone changes reach it.
+        this.mats.set(s.softMat, s.softMat);
+        this.absSoft.set(m, s);
+      }
+      m.geometry = on ? s.softGeo : s.geo;
+      m.material = on ? s.softMat : s.mat;
+    }
   }
 
   /** Swaps a hair / facial-hair part: its meshes ride the Head bone like the face does. */
@@ -495,6 +673,8 @@ export class AvatarRig {
       show.add("Underwear");
       hidden.add("hips");
     }
+    // The feminine frame keeps a sports top on until a garment covers the chest.
+    if (a.bodyFrame === "fem" && !hidden.has("chest")) show.add("Bra");
     for (const r of BODY_REGIONS) if (!hidden.has(r)) show.add(`Body_${r}`);
     if (a.eyebrows && a.eyebrows !== "none") show.add(`Brows_${a.eyebrows}`);
     let headShown = false;
@@ -855,6 +1035,8 @@ export class AvatarRig {
       ["LeftUpLeg", 0, 0, -0.022 * weight],
       ["RightUpLeg", 0, 0, -0.022 * weight],
     ];
+    // Clips set absolute rotations, so the feminine arms' turn-out (already in the rest pose) goes back on while one plays.
+    const animating = !!(this.idle?.isRunning() || this.current?.isRunning());
     for (const [name, x, y, z] of touched) {
       const b = this.bones.get(name);
       if (!b) continue;
@@ -863,6 +1045,8 @@ export class AvatarRig {
       q.copy(b.quaternion);
       _lifeEuler.set(x * a, y * a, z * a);
       b.quaternion.multiply(_lifeQuat.setFromEuler(_lifeEuler));
+      const turn = animating ? this.splay.get(b) : undefined;
+      if (turn) b.quaternion.multiply(turn);
     }
     const hips = this.bones.get("Hips");
     if (hips) {
@@ -886,6 +1070,11 @@ export class AvatarRig {
     this.bindPart(this.hair, null);
     this.bindPart(this.facialHair, null);
     for (const m of [...this.mats.values(), ...this.strandMats.values()]) m.dispose();
+    for (const [mesh, soft] of this.absSoft) {
+      mesh.geometry = soft.geo;
+      soft.softGeo.dispose();
+    }
+    this.absSoft.clear();
     this.root.removeFromParent();
   }
 }

@@ -24,11 +24,11 @@ test("repair lapses if the second action isn't the same day", () => {
   assert.equal(next.repairPending, null);
 });
 
-test("a freeze still covers the missed day without needing a repair", () => {
+test("freezes are retired: an old banked freeze no longer covers a miss", () => {
   const s = advanceStreak({ count: 8, longest: 8, lastDay: "2026-10-10", freezes: 1 }, at("2026-10-12"));
-  assert.equal(s.count, 9);
+  assert.equal(s.count, 1);
   assert.equal(s.freezes, 0);
-  assert.equal(s.repairPending, null);
+  assert.equal(s.repairPending?.from, 8);
 });
 
 test("no-game days are neutral", () => {

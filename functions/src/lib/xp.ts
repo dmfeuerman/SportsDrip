@@ -2,7 +2,6 @@ import { db, FieldValue, type Tx } from "./economy";
 import { writeNotification } from "./notify";
 import { simpleNotification } from "./notifyModel";
 import { levelFromXp, levelUpCredits, playerLevel, scaledXp } from "./progression";
-import { dealLevelSet } from "./levelChallenges";
 import { activeSeason, SEASON_XP_REASONS } from "./seasonPass";
 
 /**
@@ -84,7 +83,7 @@ export interface XpResult {
  * Adds `amount` XP once per `key` (users/{uid}/xpEvents/{key}). Safe to call
  * from retried triggers. Returns what happened, for tests and callers.
  */
-export async function grantXp(uid: string, amount: number, key: string, reason: string): Promise<XpResult> {
+export async function grantXp(uid: string, amount: number, key: string, reason: string, note?: string): Promise<XpResult> {
   const userRef = db.collection("users").doc(uid);
   const eventRef = userRef.collection("xpEvents").doc(key);
   const none = (xp = 0): XpResult => ({ applied: false, xp, level: levelFromXp(xp), levelsGained: 0, credits: 0, unlocks: [] });
@@ -102,13 +101,10 @@ export async function grantXp(uid: string, amount: number, key: string, reason: 
     const oldLevel = playerLevel(user);
     amount = scaledXp(Math.floor(amount), oldLevel);
     const after = before + amount;
-    // Levels follow XP directly; challenges are optional bonus XP (lib/levelChallenges.ts).
-    const claimed = (state.get("claimed") as Record<string, boolean> | undefined) ?? {};
-    const setLevel = state.get("setLevel") as number | undefined;
-    const hasSet = setLevel === oldLevel;
+    // Levels follow XP directly; challenges are optional bonus XP. The new level's
+    // set (and its baseline) is dealt by getLevelChallenges the next time it loads.
+    void state;
     const newLevel = Math.max(oldLevel, levelFromXp(after));
-    // No set for this level yet (new profile, or one from before sets): deal it now.
-    const dealt = newLevel > oldLevel ? dealLevelSet(claimed, newLevel) : !hasSet ? dealLevelSet(claimed, oldLevel) : null;
 
     // ── reads (all before the first write) ──
     const crossed: number[] = [];
@@ -136,13 +132,12 @@ export async function grantXp(uid: string, amount: number, key: string, reason: 
       });
     });
     pending?.write();
-    if (dealt) tx.set(stateRef, { setLevel: newLevel, active: dealt }, { merge: true });
 
     tx.set(eventRef, { amount: Math.floor(amount), reason, xpAfter: after, createdAt: FieldValue.serverTimestamp() });
     tx.update(userRef, {
       xp: after,
       level: newLevel,
-      xpLast: { amount: Math.floor(amount), reason, key, at: Date.now() },
+      xpLast: { amount: Math.floor(amount), reason, key, at: Date.now(), ...(note ? { note } : {}) },
       ...(season ? { [`seasonXp.${season.id}`]: FieldValue.increment(Math.floor(amount)) } : {}),
       ...(credits > 0 ? { balance } : {}),
       updatedAt: FieldValue.serverTimestamp(),

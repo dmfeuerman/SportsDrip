@@ -1,6 +1,7 @@
 import type { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { Href } from "expo-router";
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { getMutedToastKinds } from "@/lib/settings";
 import type { Currency } from "@/components/ui";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
@@ -16,6 +17,14 @@ type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
  *  - info    everything else
  */
 export type ToastKind = "win" | "live" | "league" | "social" | "loan" | "warning" | "info";
+
+/** An inline button on the banner (Accept / Decline, Undo). At most two. */
+export interface ToastAction {
+  label: string;
+  onPress: () => void;
+  /** Tinted red instead of the banner's accent. */
+  destructive?: boolean;
+}
 
 export interface ToastInput {
   /** Same id twice is shown once (the second call is dropped while the first is queued or showing). */
@@ -33,11 +42,16 @@ export interface ToastInput {
   /** Where a tap goes. */
   href?: Href;
   onPress?: () => void;
+  /** Inline buttons rendered on the banner itself. */
+  actions?: ToastAction[];
   /** Auto-dismiss after this long; the progress bar shows it running out. Default 5.5 s. */
   durationMs?: number;
 }
 
-export interface Toast extends Required<Pick<ToastInput, "id" | "kind" | "title" | "durationMs">>, Omit<ToastInput, "id" | "kind" | "title" | "durationMs"> {}
+export interface Toast extends Required<Pick<ToastInput, "id" | "kind" | "title" | "durationMs">>, Omit<ToastInput, "id" | "kind" | "title" | "durationMs"> {
+  /** How many banners this one stands in for (grouped same-kind waiters). */
+  groupCount?: number;
+}
 
 export interface BetLockedInput {
   /** Tutorial practice bet: stamped TEST LOCKED IN. */
@@ -60,8 +74,7 @@ export interface BetLockedInput {
 }
 
 interface ToastContextType {
-  /** Queue a banner. Returns its id. */
-  /** Returns the id, or null when dropped (duplicate, or within 5 min of the last one shown). */
+  /** Queue a banner. Returns the id, or null when dropped (duplicate, or the kind is muted). */
   show: (t: ToastInput) => string | null;
   dismiss: (id?: string) => void;
   /** The "Bet locked in" stamp + burst, over everything. */
@@ -78,33 +91,89 @@ const Ctx = createContext<ToastContextType | null>(null);
 const MAX_QUEUE = 6;
 let seq = 0;
 
+/** Never two notifications within this gap; one that lands inside it waits in the queue (warnings skip the wait). */
+export const TOAST_MIN_GAP_MS = 5 * 60_000;
+
+/** Plain-language noun per kind, for grouped banners ("3 friend updates"). */
+const KIND_NOUN: Record<ToastKind, string> = {
+  win: "payout",
+  live: "live game",
+  league: "league",
+  social: "friend",
+  loan: "bank",
+  warning: "alert",
+  info: "new",
+};
+
 /**
  * Floating banners for live events — one on screen at a time, the rest
  * queued oldest-first. Anything in the app can call `useToast().show(...)`;
  * ToastHost (mounted once, above the navigator) draws them.
  */
-/** Never two notifications within this gap; one that lands inside it is dropped. */
-export const TOAST_MIN_GAP_MS = 5 * 60_000;
-
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<Toast[]>([]);
+  // True while the head of the queue is waiting out the minimum gap.
+  const [gated, setGated] = useState(false);
   const [locked, setLocked] = useState<(BetLockedInput & { key: number }) | null>(null);
   const recent = useRef(new Map<string, number>());
   const lastShownAt = useRef(0);
 
   const show = useCallback((t: ToastInput) => {
+    const kind = t.kind ?? "info";
+    // Muted kinds never surface as banners (warnings always do — they report failures).
+    if (kind !== "warning" && getMutedToastKinds().includes(kind)) return null;
     const id = t.id ?? `t${Date.now()}_${seq++}`;
     // The same event can be reported twice (a listener replay, a poll); show it once a minute at most.
     const last = recent.current.get(id);
     if (last && Date.now() - last < 60_000) return null;
-    if (Date.now() - lastShownAt.current < TOAST_MIN_GAP_MS) return null;
-    lastShownAt.current = Date.now();
     recent.current.set(id, Date.now());
     if (recent.current.size > 200) recent.current = new Map([...recent.current].slice(-100));
-    const toast: Toast = { ...t, id, kind: t.kind ?? "info", durationMs: t.durationMs ?? 5500 };
-    setQueue((q) => (q.some((x) => x.id === id) ? q : [...q, toast].slice(-MAX_QUEUE)));
+    const toast: Toast = { ...t, id, kind, durationMs: t.durationMs ?? 5500 };
+    setQueue((q) => {
+      if (q.some((x) => x.id === id)) return q;
+      const next = [...q, toast];
+      // Two or more of the same kind waiting behind the current banner collapse
+      // into one "N <kind> updates" banner that opens the Activity feed.
+      const waiting = next.slice(1);
+      const same = waiting.filter((x) => x.kind === kind);
+      if (same.length >= 2) {
+        const count = same.reduce((n, x) => n + (x.groupCount ?? 1), 0);
+        const group: Toast = {
+          id: `group_${kind}_${seq++}`,
+          kind,
+          title: `${count} ${KIND_NOUN[kind]} updates`,
+          body: "Tap to catch up in Activity.",
+          cta: "See all",
+          href: "/activity" as Href,
+          durationMs: 5500,
+          groupCount: count,
+        };
+        return [next[0]!, ...waiting.filter((x) => x.kind !== kind), group].slice(-MAX_QUEUE);
+      }
+      return next.slice(-MAX_QUEUE);
+    });
     return id;
   }, []);
+
+  // A banner landing inside the gap waits in the queue instead of being
+  // dropped; warnings (sync failures, bet trouble) show straight away.
+  const headId = queue[0]?.id;
+  const headKind = queue[0]?.kind;
+  useEffect(() => {
+    if (!headId) return;
+    const wait = headKind === "warning" ? 0 : lastShownAt.current + TOAST_MIN_GAP_MS - Date.now();
+    if (wait <= 0) {
+      lastShownAt.current = Date.now();
+      setGated(false);
+      return;
+    }
+    setGated(true);
+    const timer = setTimeout(() => {
+      lastShownAt.current = Date.now();
+      setGated(false);
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [headId, headKind]);
 
   const dismiss = useCallback((id?: string) => {
     setQueue((q) => (id ? q.filter((x) => x.id !== id) : q.slice(1)));
@@ -114,8 +183,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const clearLocked = useCallback(() => setLocked(null), []);
 
   const value = useMemo<ToastContextType>(
-    () => ({ show, dismiss, betLocked, current: queue[0] ?? null, queued: Math.max(0, queue.length - 1), locked, clearLocked }),
-    [show, dismiss, betLocked, queue, locked, clearLocked]
+    () => ({
+      show,
+      dismiss,
+      betLocked,
+      current: gated ? null : queue[0] ?? null,
+      queued: Math.max(0, queue.length - (gated ? 0 : 1)),
+      locked,
+      clearLocked,
+    }),
+    [show, dismiss, betLocked, queue, gated, locked, clearLocked]
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

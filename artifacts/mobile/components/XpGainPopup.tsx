@@ -74,7 +74,7 @@ export function describeXpReasonCode(code: string | undefined | null, note?: str
     case "daily_pick":
       return { label: "Locked in Today's Daily Free Bet", icon: "calendar-check-outline" };
     case "quest":
-      return { label: "Completed a Weekly Quest", icon: "flag-checkered" };
+      return { label: note ? `Challenge Complete · ${note}` : "Level Challenge Complete", icon: "flag-checkered" };
     case "referral":
       return { label: "Friend Joined With Your Invite Code", icon: "account-heart-outline" };
     case "joined_with_code":

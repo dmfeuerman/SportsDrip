@@ -12,14 +12,18 @@ import { useOddsFormat } from "@/lib/settings";
 const LEG_ICON = { pending: "circle-outline", won: "check-circle", lost: "close-circle", push: "minus-circle", void: "minus-circle-outline" } as const;
 
 /** A bet-slip parlay in My Bets: every leg with its result, the price and the payout. */
-export default function ParlayTicket({ p, onCancel, busy }: { p: ParlayDoc; onCancel?: () => void; busy?: boolean }) {
+export default function ParlayTicket({ p, onCancel, onOpen, busy }: { p: ParlayDoc; onCancel?: () => void; /** Tap anywhere on the card: opens the breakdown. */ onOpen?: () => void; busy?: boolean }) {
   const c = useColors();
   const fmt = useOddsFormat();
   const tone = p.status === "won" ? c.positive : p.status === "lost" ? c.negative : p.status === "pending" ? c.primary : c.push;
   const label = p.status === "pending" ? (p.legs.some((l) => l.status !== "pending") ? "Live" : "Open") : p.status === "won" ? "Won" : p.status === "lost" ? "Lost" : p.status === "push" ? "Push" : "Cancelled";
   const canCancel = p.status === "pending" && p.firstStartsAt > Date.now() && !!onCancel;
   return (
-    <View style={[styles.card, { backgroundColor: c.card, borderColor: c.alpha(tone, 0.45) }]}>
+    <Pressable
+      accessibilityRole={onOpen ? "button" : undefined}
+      accessibilityHint={onOpen ? "Opens parlay details" : undefined}
+      onPress={onOpen}
+      style={({ pressed }) => [styles.card, { backgroundColor: c.card, borderColor: c.alpha(tone, 0.45), opacity: onOpen && pressed ? 0.85 : 1 }]}>
       <View style={styles.head}>
         <MaterialCommunityIcons name="link-variant" size={18} color={tone} />
         <Text style={[styles.title, { color: c.foreground, flex: 1 }]}>{p.legs.length}-Leg Parlay</Text>
@@ -49,7 +53,7 @@ export default function ParlayTicket({ p, onCancel, busy }: { p: ParlayDoc; onCa
           <Text style={[styles.sub, { color: c.foreground }]}>Cancel and get the stake back</Text>
         </Pressable>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 

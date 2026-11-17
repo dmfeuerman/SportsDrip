@@ -1,7 +1,10 @@
 import { router } from "expo-router";
 import { useEffect } from "react";
+import * as api from "@/lib/api";
+import { haptic } from "@/lib/motion";
+import { useChallenges } from "@/context/ChallengeContext";
 import { useNotifications, type AppNotification } from "@/context/NotificationContext";
-import { useToast, type ToastInput } from "@/context/ToastContext";
+import { useToast, type ToastAction, type ToastInput } from "@/context/ToastContext";
 
 /** Where tapping a social notification goes. Shared with the Activity feed. */
 export function openSocialNotification(n: AppNotification) {
@@ -71,7 +74,8 @@ function toToast(n: AppNotification): ToastInput {
     case "challenge_expired":
     case "challenge_push":
     case "challenge_refunded":
-      return { ...base, kind: "info", icon: "cash-refund", cta: "View", amount: n.delta ? { value: n.delta, currency: "credits" } : undefined };
+      // Only show the refund icon when credits actually came back.
+      return { ...base, kind: "info", icon: n.delta ? "cash-refund" : "sword-cross", cta: "View", amount: n.delta ? { value: n.delta, currency: "credits" } : undefined };
     case "challenge_cancelled":
       return { ...base, kind: "info", icon: "sword-cross" };
     case "bet_refunded":
@@ -97,11 +101,59 @@ function toToast(n: AppNotification): ToastInput {
 export default function InviteToastHost() {
   const { toast, dismissToast, markRead } = useNotifications();
   const { show } = useToast();
+  const { respond } = useChallenges();
   useEffect(() => {
     if (!toast) return;
     const n = toast;
+
+    // Friend requests and challenges can be answered right on the banner.
+    let actions: ToastAction[] | undefined;
+    if (n.type === "friend_request" && n.data?.fromUid) {
+      const fromUid = n.data.fromUid;
+      const answer = (accept: boolean) => {
+        markRead([n.id]);
+        api
+          .respondFriendRequest({ fromUid, accept })
+          .then(() => {
+            if (accept) haptic.success();
+            show(
+              accept
+                ? { id: `fr_ok_${n.id}`, kind: "social", icon: "account-check", title: "Friend added", body: "Find them under Leagues → Friends." }
+                : { id: `fr_no_${n.id}`, kind: "info", icon: "account-off-outline", title: "Request declined", durationMs: 3500 }
+            );
+          })
+          .catch(() => {
+            show({ id: `fr_err_${n.id}`, kind: "warning", title: "Couldn't respond", body: "Try again from the Friends tab.", cta: "Open", onPress: () => openSocialNotification(n) });
+          });
+      };
+      actions = [
+        { label: "Accept", onPress: () => answer(true) },
+        { label: "Decline", destructive: true, onPress: () => answer(false) },
+      ];
+    } else if (n.type === "challenge_received" && n.data?.challengeId) {
+      const challengeId = n.data.challengeId;
+      const answer = (accept: boolean) => {
+        markRead([n.id]);
+        void respond(challengeId, accept).then(({ error }) => {
+          if (error) {
+            show({ id: `ch_err_${n.id}`, kind: "warning", title: "Couldn't answer the challenge", body: error, cta: "Open", onPress: () => openSocialNotification(n) });
+          } else if (accept) {
+            haptic.success();
+            show({ id: `ch_ok_${n.id}`, kind: "social", icon: "lock", title: "Challenge accepted", body: "Your stake is in escrow. Good luck.", cta: "View", href: { pathname: "/challenges", params: { tab: "live" } } });
+          }
+        });
+      };
+      actions = [
+        { label: "Accept", onPress: () => answer(true) },
+        { label: "Decline", destructive: true, onPress: () => answer(false) },
+      ];
+    }
+
     show({
       ...toToast(n),
+      actions,
+      // Answerable banners stick around longer.
+      ...(actions ? { durationMs: 12_000 } : null),
       onPress: () => {
         markRead([n.id]);
         openSocialNotification(n);

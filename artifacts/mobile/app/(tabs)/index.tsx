@@ -17,7 +17,6 @@ import { betNet } from "@/components/BetRecordPanel";
 import FirstWeekChecklist from "@/components/FirstWeekChecklist";
 import LadderPromotionHost from "@/components/LadderPromotionHost";
 import LevelChallengesCard from "@/components/LevelChallengesCard";
-import StreakWagerCard from "@/components/StreakWagerCard";
 import RewardsCard from "@/components/RewardsCard";
 import WinBackCard from "@/components/WinBackCard";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
@@ -128,8 +127,18 @@ export default function HomeScreen() {
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const tourScroll = useTourScroll(scrollRef);
   const sectionY = useRef<{ prizes: number; daily: number }>({ prizes: 0, daily: 0 });
-  const scrollTo = (section: "prizes" | "daily") =>
-    scrollRef.current?.scrollTo({ y: Math.max(0, sectionY.current[section] - 12), animated: true });
+  const sectionRef = { prizes: useRef<React.ComponentRef<typeof View>>(null), daily: useRef<React.ComponentRef<typeof View>>(null) };
+  // Measured at tap time against the scroll content: the onLayout y can be stale
+  // (cards above it — live sweats, the featured game — load in after it's measured).
+  const scrollTo = (section: "prizes" | "daily") => {
+    const scroll = scrollRef.current;
+    const target = sectionRef[section].current;
+    const inner = (scroll as unknown as { getInnerViewRef?: () => unknown } | null)?.getInnerViewRef?.();
+    const go = (y: number) => scroll?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+    if (target && inner) {
+      target.measureLayout(inner as never, (_x: number, y: number) => go(y), () => go(sectionY.current[section]));
+    } else go(sectionY.current[section]);
+  };
   const openGameIds = useMemo(
     () => new Set([...openCredit.map((b) => b.gameId), ...openLeague.map(({ b }) => b.gameId)]),
     [openCredit, openLeague]
@@ -258,10 +267,10 @@ export default function HomeScreen() {
         ) : (
           <>
             {openCredit.slice(0, 3).map((b) => (
-              <BetTicket key={b.id} bet={b} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
+              <BetTicket key={b.id} spacing={0} bet={b} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
             ))}
             {openLeague.slice(0, Math.max(0, 3 - openCredit.length)).map(({ b, league }) => (
-              <BetTicket key={b.id} bet={b} walletLabel={league} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
+              <BetTicket key={b.id} spacing={0} bet={b} walletLabel={league} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
             ))}
             {openTotal > 3 ? (
               <Button
@@ -282,22 +291,20 @@ export default function HomeScreen() {
 
         <Zone title="Claim" sub="Free bet, boxes and quests" />
         {/* Daily reasons to open the app: free bet, then prize boxes */}
-        <View onLayout={(e) => (sectionY.current.daily = e.nativeEvent.layout.y)}>
+        <View ref={sectionRef.daily} collapsable={false} onLayout={(e) => (sectionY.current.daily = e.nativeEvent.layout.y)}>
           <TourTarget id="home.daily">
             <DailyPickCard />
           </TourTarget>
         </View>
 
         {/* Prize boxes: start, open and reset right here */}
-        <View onLayout={(e) => (sectionY.current.prizes = e.nativeEvent.layout.y)} style={{ gap: 12 }}>
+        <View ref={sectionRef.prizes} collapsable={false} onLayout={(e) => (sectionY.current.prizes = e.nativeEvent.layout.y)} style={{ gap: 12 }}>
           <TourTarget id="home.prizes" style={{ gap: 12 }}>
             <SectionHeader title="Prizes" icon="gift-outline" />
             <WinBackCard />
             <RewardsCard />
           </TourTarget>
         </View>
-
-        {hasPlayed ? <StreakWagerCard /> : null}
 
         {/* First-week checklist: compact row, full list opens over the screen */}
         <FirstWeekChecklist />

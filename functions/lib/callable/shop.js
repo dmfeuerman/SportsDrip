@@ -21,10 +21,10 @@ exports.SLOTS = [
 ];
 /**
  * Shared sale checks for purchase and gifting: time window, level rules, price.
- * `xp` is the level-gated party's xp (the buyer; for gifts, the recipient).
+ * `user` is the level-gated party (the buyer; for gifts, the recipient).
  * Returns the server price.
  */
-function assertSellable(item, xp, now, rotationArm = experiments_1.CONTROL) {
+function assertSellable(item, user, now, rotationArm = experiments_1.CONTROL) {
     const data = item.data() ?? {};
     // shop_rotation_v1: control / holdout keep the static shop (rotating items always
     // on sale, windows ignored) so the rotation's retention lift is measured.
@@ -38,7 +38,7 @@ function assertSellable(item, xp, now, rotationArm = experiments_1.CONTROL) {
         throw new https_1.HttpsError("failed-precondition", `Not for sale — unlocked by reaching level ${reward}.`);
     }
     const required = item.get("levelRequired") ?? 0;
-    if (required > (0, progression_1.levelFromXp)(xp)) {
+    if (required > (0, progression_1.playerLevel)(user)) {
         throw new https_1.HttpsError("failed-precondition", `Reach level ${required} to buy this.`);
     }
     const price = item.get("price");
@@ -77,7 +77,7 @@ exports.purchaseItem = (0, https_1.onCall)({ region: "us-central1" }, async (req
             throw new https_1.HttpsError("not-found", "That item isn't in the store.");
         if (owned.exists)
             throw new https_1.HttpsError("already-exists", "You already own this.");
-        const price = assertSellable(item, user.get("xp"), Date.now(), await rotationArmFor(tx, uid));
+        const price = assertSellable(item, user, Date.now(), await rotationArmFor(tx, uid));
         const balance = await (0, economy_1.applyCredits)(tx, uid, {
             delta: -price,
             type: "purchase",

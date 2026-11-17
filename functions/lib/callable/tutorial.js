@@ -4,9 +4,9 @@ exports.claimTutorialGift = exports.TUTORIAL_GIFT = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const economy_1 = require("../lib/economy");
 /** The first-bet tutorial's prize box. */
-exports.TUTORIAL_GIFT = 10;
+exports.TUTORIAL_GIFT = 100;
 /**
- * Pays the first-bet tutorial's prize box: 10 credits, once per account, and
+ * Pays the first-bet tutorial's prize box: 100 credits, once per account, and
  * only to a player who has never placed a bet (single, parlay or daily pick).
  * The ledger id is fixed per user, so replays, retries or a modified client
  * can't claim it twice (applyCredits returns null when it's already paid).

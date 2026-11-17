@@ -10,7 +10,7 @@ const streak_1 = require("./streak");
  * One at a time, small fixed stakes, so it can't become a way to print credits.
  */
 exports.WAGER_DAYS = 7;
-exports.WAGER_STAKES = [50, 100, 250];
+exports.WAGER_STAKES = [500, 1000, 2500];
 exports.WAGER_MULTIPLIER = 2;
 /** Grades a wager against the player's streak at `now`. */
 function evaluateWager(w, streak, now) {

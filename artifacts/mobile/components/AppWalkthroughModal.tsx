@@ -56,9 +56,9 @@ const SLIDES: Slide[] = [
     subtitle: "Make at least one pick each day (ET) to grow your streak and boost your Prize Box payouts.",
     bullets: [
       {
-        icon: "snowflake",
-        title: "Freezes & Repairs",
-        desc: "Every 7 streak days banks a freeze that covers one missed day. No freeze? Make 2 picks the next day to repair it.",
+        icon: "wrench-outline",
+        title: "Streak Repairs",
+        desc: "Missed a day? Make 2 picks the next day to repair your streak.",
       },
       {
         icon: "account-multiple-check",
@@ -67,8 +67,8 @@ const SLIDES: Slide[] = [
       },
       {
         icon: "flag-checkered",
-        title: "Weekly Quests",
-        desc: "A fresh mix of effort, social and skill quests every week. Complete them for XP toward your next level.",
+        title: "Level Challenges",
+        desc: "Every level has its own XP challenges, like \"Place 5 bets\" or \"Buy 2 items\". Each pays once per level. Do the ones you like."
       },
     ],
   },
@@ -78,7 +78,7 @@ const SLIDES: Slide[] = [
     icon: "star-circle",
     tone: "positive",
     title: "Level Up & Climb",
-    subtitle: "Everything you do earns XP. Levels unlock exclusive gear, and your weekly results move you up the ladder.",
+    subtitle: "Complete level challenges to earn XP. Levels unlock exclusive gear, and your weekly results move you up the ladder.",
     bullets: [
       {
         icon: "stairs-up",

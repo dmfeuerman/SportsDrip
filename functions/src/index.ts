@@ -76,7 +76,7 @@ export { tuesdayLeagueReport, mondayLeagueJobs, leagueMatchupJobs } from "./sche
 // Side effects of committed writes (never inside a money transaction)
 export { pushOnNotification } from "./triggers/push";
 export { pushOnDirectMessage, pushOnLeagueMessage, notifyOnDmReaction, moderateBetComment } from "./triggers/chatPush";
-export { xpOnLedger, xpOnLeagueBet, xpOnFriendship } from "./triggers/xp";
+export { xpOnLedger, xpOnLeagueBet, xpOnFriendship, challengesOnBet, challengesOnParlay } from "./triggers/xp";
 export { friendStreakOnPick } from "./triggers/friendStreak";
 export { bundleCatalog, bundleMoves, bundleBackgrounds } from "./triggers/bundles";
 

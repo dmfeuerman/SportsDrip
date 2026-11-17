@@ -1,12 +1,16 @@
-import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from "firebase-functions/v2/firestore";
+import { autoClaimSoon } from "../callable/levelChallenges";
 import { logger } from "firebase-functions";
 import { db } from "../lib/economy";
-import { XP, xpForLedger } from "../lib/progression";
-import { grantXp } from "../lib/xp";
+import { xpForLedger } from "../lib/progression";
 import { checkAchievements } from "../lib/achievements";
 
 /**
- * XP is a side effect of things that already committed — a ledger row, a
+ * XP comes only from level challenges (callable/levelChallenges.ts), each
+ * claimable once per level. These triggers no longer grant XP; they keep
+ * checking achievements after the events that can earn one.
+ *
+ * (Previously: XP as a side effect of things that already committed — a ledger row, a
  * settled league bet, a new friendship — never part of their transaction.
  * Every grant is keyed on the source document, so a redelivered event is a
  * no-op.
@@ -24,10 +28,11 @@ export const xpOnLedger = onDocumentCreated(
       const bet = await db.collection("bets").doc(row.ref).get();
       stake = bet.exists ? (bet.get("stake") as number | undefined) : undefined;
     }
-    const amount = xpForLedger(row.type, row.delta, stake);
-    if (amount <= 0) return;
-    const res = await grantXp(uid, amount, `ledger_${entryId}`, String(row.type));
-    if (res.levelsGained) logger.info("level up", { uid, level: res.level, credits: res.credits, unlocks: res.unlocks.length });
+    // Boxes, purchases, videos and payouts can finish a level challenge.
+    await autoClaimSoon(uid);
+    // Only rows that used to earn XP are achievement-relevant (wins, buys, boxes…).
+    if (xpForLedger(row.type, row.delta, stake) <= 0) return;
+    void entryId;
     await checkAchievements(uid).catch((err) => logger.warn("achievements", { uid, error: String(err) }));
   }
 );
@@ -41,7 +46,7 @@ export const xpOnLeagueBet = onDocumentUpdated(
     if (!before || !after || before.status === after.status || after.status !== "won") return;
     const uid = after.uid as string | undefined;
     if (!uid) return;
-    await grantXp(uid, XP.leagueBetWin, `lbet_${event.params.betId}`, "league_bet_won");
+    await autoClaimSoon(uid);
     await checkAchievements(uid).catch(() => []);
   }
 );
@@ -52,7 +57,26 @@ export const xpOnFriendship = onDocumentCreated(
   async (event) => {
     const users = event.data?.get("users") as string[] | undefined;
     if (!Array.isArray(users)) return;
-    await Promise.all(users.map((u) => grantXp(u, XP.newFriend, `friend_${event.params.pairId}`, "new_friend")));
+    await Promise.all(users.map((u) => autoClaimSoon(u)));
     await Promise.all(users.map((u) => checkAchievements(u).catch(() => [])));
   }
+);
+
+/** A bet placed (bets, free bets) or won (wins) can finish a level challenge. */
+export const challengesOnBet = onDocumentWritten(
+  { document: "bets/{betId}", region: "us-central1", timeoutSeconds: 30 },
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!after) return;
+    const placed = !before;
+    const won = before?.status !== "won" && after.status === "won";
+    if (placed || won) await autoClaimSoon(after.uid as string | undefined);
+  }
+);
+
+/** Parlays live in their own collection. */
+export const challengesOnParlay = onDocumentCreated(
+  { document: "slipParlays/{id}", region: "us-central1", timeoutSeconds: 30 },
+  async (event) => autoClaimSoon(event.data?.get("uid") as string | undefined)
 );

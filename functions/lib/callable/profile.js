@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.searchUsers = exports.updateAvatar = exports.checkUsername = exports.createProfile = void 0;
+const levelChallenges_1 = require("./levelChallenges");
 const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
@@ -9,7 +10,6 @@ const avatar_1 = require("./avatar");
 const notify_1 = require("../lib/notify");
 const notifyModel_1 = require("../lib/notifyModel");
 const progression_1 = require("../lib/progression");
-const xp_1 = require("../lib/xp");
 const referrals_1 = require("./referrals");
 const legal_1 = require("../lib/legal");
 const birthdays_1 = require("../scheduled/birthdays");
@@ -158,8 +158,8 @@ exports.createProfile = (0, https_1.onCall)({ region: "us-central1" }, async (re
             type: "referral_bonus",
             title: `${input.displayName} joined with your invite code`,
             body: referrerPaid
-                ? `+${progression_1.REFERRAL.referrerCredits.toLocaleString("en-US")} credits and ${progression_1.XP.referrer} XP. You're friends now.`
-                : `+${progression_1.XP.referrer} XP. You're friends now.`,
+                ? `+${progression_1.REFERRAL.referrerCredits.toLocaleString("en-US")} credits. You're friends now.`
+                : `You're friends now.`,
             now: Date.now(),
             delta: referrerPaid ? progression_1.REFERRAL.referrerCredits : 0,
             balanceAfter: referrerPaid ? referrerBalance : null,
@@ -168,13 +168,9 @@ exports.createProfile = (0, https_1.onCall)({ region: "us-central1" }, async (re
         }));
         return { referrerUid };
     });
-    // XP after the account exists; separate transactions, idempotent by key.
-    if (referral) {
-        await Promise.all([
-            (0, xp_1.grantXp)(referral.referrerUid, progression_1.XP.referrer, `referral_${uid}`, "referral"),
-            (0, xp_1.grantXp)(uid, progression_1.XP.referred, "referred", "joined_with_code"),
-        ]).catch(() => undefined);
-    }
+    // No referral XP: an invite can finish the referrer's "Invite a friend" challenge.
+    if (referral)
+        await (0, levelChallenges_1.autoClaimSoon)(referral.referrerUid);
     return { ok: true, username: input.username, referred: !!referral };
 });
 /** Availability check for the signup form. Cheap, read-only. */

@@ -10,7 +10,7 @@ import { Pressable } from "@/components/fx/Tap";
 import LevelBar, { LevelBadge, levelTier } from "@/components/LevelBar";
 import { replayLevelUp } from "@/components/LevelUpHost";
 import { Card, ScreenHeader, SectionHeader, useBottomPad } from "@/components/ui";
-import { levelUpCredits, REFERRAL, scaledXp, totalXpForLevel, XP } from "@/constants/progression";
+import { levelUpCredits, totalXpForLevel } from "@/constants/progression";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { useLevelRewards, type LevelUnlock } from "@/hooks/useLevelRewards";
@@ -19,18 +19,6 @@ import * as api from "@/lib/api";
 import LevelChallengesCard from "@/components/LevelChallengesCard";
 
 type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
-
-const EARN: Array<{ icon: Icon; label: string; xp: (level: number) => string; to?: string }> = [
-  { icon: "trophy-outline", label: "Win a Bet", xp: (l) => `${scaledXp(XP.betWin, l)}+ XP`, to: "/(tabs)/games" },
-  { icon: "sword-cross", label: "Win a Friend Challenge", xp: (l) => `${scaledXp(XP.challengeWin, l)} XP`, to: "/challenges" },
-  { icon: "shield-star-outline", label: "Win a League Bet", xp: (l) => `${scaledXp(XP.leagueBetWin, l)} XP`, to: "/(tabs)/leagues" },
-  { icon: "podium-gold", label: "Finish in the Money in a League", xp: (l) => `${scaledXp(XP.leaguePayout, l)} XP` },
-  { icon: "shopping-outline", label: "Buy From the Drip Shop", xp: () => `1 XP / ${XP.purchasePer} credits`, to: "/customize" },
-  { icon: "gift-outline", label: "Open a Prize Box", xp: (l) => `${scaledXp(XP.prizeBox, l)} XP`, to: "/(tabs)" },
-  { icon: "account-plus-outline", label: "Add a Friend", xp: (l) => `${scaledXp(XP.newFriend, l)} XP`, to: "/(tabs)/leagues?seg=friends" },
-  { icon: "account-heart-outline", label: "Invite a Friend With Your Code", xp: (l) => `${scaledXp(XP.referrer, l)} XP`, to: "/(tabs)/leagues?seg=friends" },
-  { icon: "palette-outline", label: "Change the App Color in Settings", xp: (l) => `${scaledXp(XP.themeChange, l)} XP once`, to: "/settings" },
-];
 
 /**
  * Levels: where you are, how XP is earned, and the road ahead — what every
@@ -92,36 +80,8 @@ export default function LevelsScreen() {
           <LevelBar progress={progress} nextReward={next} style={{ alignSelf: "stretch", marginTop: 6 }} />
         </View>
 
-        <SectionHeader title="This Level's Challenges" />
+        <SectionHeader title="Earn XP: This Level's Challenges" />
         <LevelChallengesCard />
-
-        <SectionHeader title="Earn XP" />
-        <Card style={{ padding: 0, overflow: "hidden" }}>
-          {EARN.map((e, i) => (
-            <Pressable
-              key={e.label}
-              accessibilityRole={e.to ? "button" : undefined}
-              disabled={!e.to}
-              onPress={() => e.to && router.push({ pathname: e.to, params: { from: "levels" } } as never)}
-              style={({ pressed }) => [
-                styles.earnRow,
-                i < EARN.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border },
-                pressed && { backgroundColor: c.secondary },
-              ]}
-            >
-              <View style={[styles.earnIcon, { backgroundColor: c.alpha(c.primary, 0.13) }]}>
-                <MaterialCommunityIcons name={e.icon} size={18} color={c.primary} />
-              </View>
-              <Text style={[styles.earnLabel, { color: c.foreground }]}>{e.label}</Text>
-              <Text style={[styles.earnXp, { color: c.primary }]}>{e.xp(progress.level)}</Text>
-              {e.to ? <MaterialCommunityIcons name="chevron-right" size={18} color={c.mutedForeground} /> : null}
-            </Pressable>
-          ))}
-        </Card>
-        <Text style={[styles.note, { color: c.subtleForeground }]}>
-          Every level pays a credit bonus. Friends who join with your invite code get {REFERRAL.newUserCredits.toLocaleString()} credits, and you get{" "}
-          {REFERRAL.referrerCredits.toLocaleString()}.
-        </Text>
 
         <SectionHeader title="Level Road" />
         {rows.map((r) => {

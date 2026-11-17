@@ -93,7 +93,7 @@ export const LAYER_OFFSET = {
   base: 0.004,
   bottom: 0.006,
   top: 0.015,
-  outer: 0.03,
+  outer: 0.024,
   shoes: 0.012,
   trim: 0.0035,
   waist: 0.006,
@@ -124,5 +124,5 @@ export const NOSE_SHAPES = ["button", "straight", "broad"];
 export const MOUTH_SHAPES = ["neutral", "full", "wide"];
 /** Face expression blendshapes (ARKit names) every head, lid and lash mesh carries. */
 export const EXPRESSIONS = ["eyeBlinkLeft", "eyeBlinkRight", "mouthSmileLeft", "mouthSmileRight", "jawOpen"];
-/** Body build blendshapes on the body, the head's neck and every skinned garment. */
-export const BUILD_MORPHS = ["buildSlim", "buildBroad"];
+/** Body shape blendshapes on the body, the head's neck and every skinned garment: build, plus the feminine frame. */
+export const BUILD_MORPHS = ["buildSlim", "buildBroad", "frameFem"];

@@ -11,6 +11,7 @@ import CartButton from "@/components/CartButton";
 import FavoriteTeamsSheet from "@/components/FavoriteTeamsSheet";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
 import TeamChips from "@/components/TeamChips";
+import ThemePicker from "@/components/ThemePicker";
 import ItemIcon from "@/components/avatar/ItemIcon";
 import TokenBalance from "@/components/TokenBalance";
 import { Button, Card, ErrorBanner } from "@/components/ui";
@@ -263,6 +264,7 @@ export default function LockerScreen() {
         </Card>
 
         </TourTarget>
+        <ThemePicker />
         <Card style={{ gap: 10 }}>
           <View style={styles.teamsHead}>
             <MaterialCommunityIcons name="heart-outline" size={18} color={c.primary} />

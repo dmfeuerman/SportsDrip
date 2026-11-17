@@ -1,3 +1,4 @@
+import { autoClaimSoon } from "./levelChallenges";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import {
@@ -11,8 +12,7 @@ import { DEFAULT_AVATAR } from "../lib/avatarRules";
 import { AvatarSchema } from "./avatar";
 import { writeNotification } from "../lib/notify";
 import { simpleNotification } from "../lib/notifyModel";
-import { normalizeReferralCode, REFERRAL, XP } from "../lib/progression";
-import { grantXp } from "../lib/xp";
+import { normalizeReferralCode, REFERRAL } from "../lib/progression";
 import { pickFreeCode, ReferralInput, referralCodeRef } from "./referrals";
 import { TERMS_VERSION } from "../lib/legal";
 import { birthdayRef } from "../scheduled/birthdays";
@@ -180,8 +180,8 @@ export const createProfile = onCall({ region: "us-central1" }, async (req) => {
         type: "referral_bonus",
         title: `${input.displayName} joined with your invite code`,
         body: referrerPaid
-          ? `+${REFERRAL.referrerCredits.toLocaleString("en-US")} credits and ${XP.referrer} XP. You're friends now.`
-          : `+${XP.referrer} XP. You're friends now.`,
+          ? `+${REFERRAL.referrerCredits.toLocaleString("en-US")} credits. You're friends now.`
+          : `You're friends now.`,
         now: Date.now(),
         delta: referrerPaid ? REFERRAL.referrerCredits : 0,
         balanceAfter: referrerPaid ? referrerBalance : null,
@@ -192,13 +192,8 @@ export const createProfile = onCall({ region: "us-central1" }, async (req) => {
     return { referrerUid };
   });
 
-  // XP after the account exists; separate transactions, idempotent by key.
-  if (referral) {
-    await Promise.all([
-      grantXp(referral.referrerUid, XP.referrer, `referral_${uid}`, "referral"),
-      grantXp(uid, XP.referred, "referred", "joined_with_code"),
-    ]).catch(() => undefined);
-  }
+  // No referral XP: an invite can finish the referrer's "Invite a friend" challenge.
+  if (referral) await autoClaimSoon(referral.referrerUid);
 
   return { ok: true, username: input.username, referred: !!referral };
 });

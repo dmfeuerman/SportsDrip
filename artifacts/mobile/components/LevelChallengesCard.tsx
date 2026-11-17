@@ -16,6 +16,8 @@ import { haptic } from "@/lib/motion";
  * This level's XP challenges — optional bonus XP, never a gate. A claimed one
  * stays, greyed out, until the next level deals a new set.
  */
+const rank = (q: api.LevelChallenge) => (q.claimed ? 2 : q.progress >= q.target ? 0 : 1);
+
 export default function LevelChallengesCard() {
   const c = useColors();
   const focused = useIsFocused();
@@ -43,13 +45,14 @@ export default function LevelChallengesCard() {
     loadedAt.current = Date.now();
     load();
   }, [focused, load]);
-  // A new level deals a new set.
-  const seenLevel = useRef(lvl.level);
+  // XP lands on its own when a challenge finishes (server auto-claims): refresh to mark it completed,
+  // and a new level deals a new set.
+  const seenXp = useRef(lvl.xp);
   useEffect(() => {
-    if (seenLevel.current === lvl.level) return;
-    seenLevel.current = lvl.level;
+    if (seenXp.current === lvl.xp) return;
+    seenXp.current = lvl.xp;
     load();
-  }, [lvl.level, load]);
+  }, [lvl.xp, load]);
 
   if (!list?.length) {
     if (DEMO) return null;
@@ -82,14 +85,24 @@ export default function LevelChallengesCard() {
       <Text style={[styles.sub, { color: c.mutedForeground }]}>
         {lvl.maxed ? "Max level." : `Bonus XP toward level ${lvl.level + 1} — knock out any you like.`}
       </Text>
-      {list.map((q) => {
+      {[...list]
+        // Ready to claim, then in progress (closest first), then completed.
+        .sort((a, b) => rank(a) - rank(b) || b.progress / b.target - a.progress / a.target)
+        .map((q) => {
         const complete = q.progress >= q.target;
         if (q.claimed) {
           return (
-            <View key={q.id} accessibilityLabel={`${q.title}, done`} style={[styles.row, { opacity: 0.4 }]}>
-              <MaterialCommunityIcons name="check-circle" size={18} color={c.mutedForeground} />
-              <Text style={[styles.qt, { color: c.mutedForeground, flex: 1, textDecorationLine: "line-through" }]}>{q.title}</Text>
-              <Text style={[styles.sub, { color: c.mutedForeground }]}>Done</Text>
+            <View key={q.id} accessibilityLabel={`${q.title}, completed`} style={[styles.row, { opacity: 0.8 }]}>
+              <MaterialCommunityIcons name="check-circle" size={18} color={c.positive} />
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={[styles.qt, { color: c.foreground }]}>{q.title}</Text>
+                <View style={[styles.track, { backgroundColor: c.secondary }]}>
+                  <View style={[styles.fill, { width: "100%", backgroundColor: c.positive }]} />
+                </View>
+              </View>
+              <View style={[styles.doneBadge, { backgroundColor: c.positiveSoft, borderColor: c.alpha(c.positive, 0.4) }]}>
+                <Text style={[styles.doneBadgeText, { color: c.positive }]}>COMPLETED · +{q.xp} XP</Text>
+              </View>
             </View>
           );
         }
@@ -114,29 +127,7 @@ export default function LevelChallengesCard() {
               </View>
             </View>
             {complete ? (
-              <ActionChip
-                label={`Claim +${q.xp} XP`}
-                chevron={false}
-                disabled={busy === q.id}
-                onPress={async () => {
-                  // Instant: the claimed challenge greys out now; the server grants the XP behind it (undone if refused).
-                  const before = list;
-                  setBusy(q.id);
-                  setList((cur) => cur?.map((x) => (x.id === q.id ? { ...x, claimed: true } : x)) ?? cur);
-                  haptic.success();
-                  try {
-                    recordXpReason(`Challenge: ${q.title}`, "flag-checkered");
-                    await api.claimLevelChallenge({ id: q.id });
-                    trackEvent("quest_claimed", { quest_id: q.id });
-                    load();
-                  } catch {
-                    setList(before);
-                    haptic.error();
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-              />
+              <Text style={[styles.sub, { color: c.positive }]}>Paying +{q.xp} XP…</Text>
             ) : (
               <Text style={[styles.sub, { color: c.mutedForeground }]}>
                 {q.progress}/{q.target} · +{q.xp} XP
@@ -157,4 +148,6 @@ const styles = StyleSheet.create({
   qt: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   track: { height: 5, borderRadius: 3, overflow: "hidden" },
   fill: { height: 5, borderRadius: 3 },
+  doneBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+  doneBadgeText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.5 },
 });

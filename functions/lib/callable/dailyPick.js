@@ -11,7 +11,6 @@ const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const streak_1 = require("../lib/streak");
 const streakDays_1 = require("../lib/streakDays");
-const xp_1 = require("../lib/xp");
 const achievements_1 = require("../lib/achievements");
 const pricing_1 = require("../lib/pricing");
 const playLimits_1 = require("../lib/playLimits");
@@ -110,8 +109,6 @@ exports.makeDailyPick = (0, https_1.onCall)({ region: "us-central1" }, async (re
         const milestone = !existing.exists && (prev?.count ?? 0) !== streak.count && streak_1.STREAK_MILESTONES.includes(streak.count) ? streak.count : null;
         return { first: !existing.exists, streak, milestone };
     });
-    if (out.first)
-        await (0, xp_1.grantXp)(uid, exports.DAILY_PICK_XP, `daily_${day}`, "daily_pick").catch(() => { });
     await (0, achievements_1.checkAchievements)(uid).catch(() => []);
     return { ok: true, day, streak: out.streak.count, freezes: out.streak.freezes ?? 0, milestone: out.milestone };
 });
@@ -142,19 +139,19 @@ async function settleDailyPicksForGame(gameId) {
     return n;
 }
 /* ── Daily free bet ──────────────────────────────────────────────────────────
- * Every America/New_York day each player gets one free 100-credit bet: a
+ * Every America/New_York day each player gets one free 1,000-credit bet: a
  * moneyline pick on any upcoming game (today's Daily Pick game is the
  * suggestion). Nothing is debited. A win pays the winnings (100 × odds − 100),
  * the free stake itself is never returned, like a sportsbook free bet.
  *
  * It's a normal bets/{id} document with stake 0, so settlement, voids,
  * notifications and stats need nothing special:
- *   stake 0, potentialPayout = winnings, freeBet true, freeStake 100, freeDay.
+ *   stake 0, potentialPayout = winnings, freeBet true, freeStake 1000, freeDay.
  *   users/{uid}/freeBets/{YYYY-MM-DD}   the day's token (exists = used)
  * Cancelling it before kickoff (cancelBet) deletes the token, so it can be
  * placed again.
  */
-exports.FREE_BET_STAKE = 100;
+exports.FREE_BET_STAKE = 1000;
 const FreeBetInput = zod_1.z.object({
     gameId: zod_1.z.string().min(1),
     side: zod_1.z.enum(["home", "away"]).optional(),
@@ -199,7 +196,9 @@ exports.placeFreeBet = (0, https_1.onCall)({ region: "us-central1" }, async (req
         }
         const limitUpdate = (0, playLimits_1.checkPlayLimits)(user, now);
         const priced = (0, pricing_1.requirePricedMarket)(game, { market: input.market ?? "ml", side: input.side, selection: input.selection });
-        const winnings = Math.max(1, Math.round(exports.FREE_BET_STAKE * priced.odds) - exports.FREE_BET_STAKE);
+        // Streak bonus: every consecutive betting day adds to today's free stake (lib/streak.ts).
+        const freeStake = exports.FREE_BET_STAKE + (0, streak_1.freeBetStreakBonus)((0, streak_1.activeStreakCount)(user.get("streak"), now));
+        const winnings = Math.max(1, Math.round(freeStake * priced.odds) - freeStake);
         tx.set(betRef, {
             id: betId,
             uid,
@@ -216,7 +215,7 @@ exports.placeFreeBet = (0, https_1.onCall)({ region: "us-central1" }, async (req
             opponentAbbr: priced.opponentAbbr,
             stake: 0,
             freeBet: true,
-            freeStake: exports.FREE_BET_STAKE,
+            freeStake,
             freeDay: day,
             odds: priced.odds,
             potentialPayout: winnings,
@@ -237,8 +236,6 @@ exports.placeFreeBet = (0, https_1.onCall)({ region: "us-central1" }, async (req
         const milestone = (prev?.count ?? 0) !== streak.count && streak_1.STREAK_MILESTONES.includes(streak.count) ? streak.count : null;
         return { duplicate: false, first: true, winnings, streak, milestone };
     });
-    if (out.first)
-        await (0, xp_1.grantXp)(uid, exports.DAILY_PICK_XP, `daily_${day}`, "daily_pick").catch(() => { });
     if (out.first)
         await (0, achievements_1.checkAchievements)(uid).catch(() => []);
     return { ok: true, betId, day, winnings: out.winnings, duplicate: out.duplicate, streak: out.streak?.count ?? null, milestone: out.milestone };

@@ -850,7 +850,7 @@ const LeagueBetInput = zod_1.z
     side: zod_1.z.enum(["home", "away"]).optional(),
     market: zod_1.z.enum(["ml", "spread", "total"]).optional(),
     selection: zod_1.z.enum(["home", "away", "over", "under"]).optional(),
-    stake: Money(leagueConfig_1.MIN_LEAGUE_STAKE, 10_000_000),
+    stake: Money(leagueConfig_1.MIN_LEAGUE_STAKE, 100_000_000),
     idempotencyKey: Key,
     expectedOdds: zod_1.z.number().positive().max(100).optional(),
     expectedLine: zod_1.z.number().finite().optional(),
@@ -1167,7 +1167,7 @@ function requireNoLossCooldown(league, uid, now) {
 exports.takeBankLoan = (0, https_1.onCall)({ region: "us-central1" }, async (req) => {
     const uid = (0, economy_1.requireAuth)(req.auth);
     const input = zod_1.z
-        .object({ leagueId: zod_1.z.string().min(1), amount: Money(10, 10_000_000), idempotencyKey: Key })
+        .object({ leagueId: zod_1.z.string().min(1), amount: Money(10, 100_000_000), idempotencyKey: Key })
         .parse(req.data);
     const ref = leagueRef(input.leagueId);
     const loanRef = ref.collection("loans").doc(`bank_${uid}_${input.idempotencyKey}`);
@@ -1227,7 +1227,7 @@ exports.repayLoan = (0, https_1.onCall)({ region: "us-central1" }, async (req) =
         .object({
         leagueId: zod_1.z.string().min(1),
         loanId: zod_1.z.string().min(1),
-        amount: Money(1, 100_000_000),
+        amount: Money(1, 1_000_000_000),
         idempotencyKey: Key,
     })
         .parse(req.data);
@@ -1318,7 +1318,7 @@ exports.requestPeerLoan = (0, https_1.onCall)({ region: "us-central1" }, async (
     const input = zod_1.z
         .object({
         leagueId: zod_1.z.string().min(1),
-        amount: Money(10, 10_000_000),
+        amount: Money(10, 100_000_000),
         rate: zod_1.z.number().gt(0).max(leagueConfig_1.PEER_RATE_MAX),
         message: zod_1.z.string().trim().max(80).optional(),
         idempotencyKey: Key,
@@ -1414,7 +1414,7 @@ exports.peerLoanAction = (0, https_1.onCall)({ region: "us-central1" }, async (r
         loanId: zod_1.z.string().min(1),
         action: zod_1.z.enum(["fund", "counter", "decline", "cancel", "accept_counter", "reject_counter", "edit"]),
         rate: zod_1.z.number().gt(0).max(leagueConfig_1.PEER_RATE_MAX).optional(),
-        amount: Money(10, 10_000_000).optional(),
+        amount: Money(10, 100_000_000).optional(),
         message: zod_1.z.string().trim().max(80).optional(),
     })
         .parse(req.data);
@@ -1444,7 +1444,7 @@ exports.peerLoanAction = (0, https_1.onCall)({ region: "us-central1" }, async (r
             if (lender.leagueTokens < fundAmount) {
                 throw new https_1.HttpsError("failed-precondition", `${lenderId === uid ? "You don't" : `${lender.displayName} doesn't`} have ${fundAmount.toLocaleString("en-US")} league tokens to lend.`);
             }
-            const isBailout = borrower.leagueTokens < 100;
+            const isBailout = borrower.leagueTokens < 1000;
             tx.update(loanRef, {
                 status: "active",
                 lenderId,

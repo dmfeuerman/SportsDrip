@@ -35,6 +35,7 @@ import {
   EYE_COLORS,
   EYE_SHAPES,
   EYEBROWS,
+  BODY_FRAMES,
   FACE_SHAPES,
   FACIAL_HAIR,
   HAIR_COLORS,
@@ -47,7 +48,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import * as api from "@/lib/api";
 import { useCart } from "@/context/CartContext";
-import { useCartItems } from "@/hooks/useCartItems";
+import { backgroundCartId, moveCartId, useCartItems } from "@/hooks/useCartItems";
 import { storeOrder, useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
 import { applyEquip } from "@/lib/avatar3d/avatarRules";
@@ -100,12 +101,10 @@ export default function CustomizeScreen() {
     clearError,
     ownedMoves,
     loadout,
-    purchaseMove,
     setLoadout,
     progress,
     ownedBackgrounds,
     background,
-    purchaseBackground,
     setBackground,
   } = useApp();
   const { moves } = useMoves();
@@ -397,11 +396,10 @@ export default function CustomizeScreen() {
     setDemoBg(b.id);
     setDemoLabel(ownedBackgrounds.has(b.id) ? (b.name ?? null) : `Preview · ${b.name ?? "Scene"}`);
   };
-  const buyMove = async (m: StoreMove) => {
-    setBusyId(m.id);
-    const ok = await purchaseMove(m.id);
-    setBusyId(null);
-    if (ok) buzz.success();
+  // Moves and scenes go in the cart like clothing; nothing is bought until checkout.
+  const buyMove = (m: StoreMove) => {
+    buzz.tick();
+    cart.toggle(moveCartId(m.id));
   };
   const toggleMove = async (m: StoreMove) => {
     buzz.tick();
@@ -418,11 +416,9 @@ export default function CustomizeScreen() {
     }
     setBusyId(null);
   };
-  const buyBackground = async (b: StoreBackground) => {
-    setBusyId(b.id);
-    const ok = await purchaseBackground(b.id);
-    setBusyId(null);
-    if (ok) buzz.success();
+  const buyBackground = (b: StoreBackground) => {
+    buzz.tick();
+    cart.toggle(backgroundCartId(b.id));
   };
   const applyBackground = async (b: StoreBackground) => {
     buzz.light();
@@ -570,6 +566,7 @@ export default function CustomizeScreen() {
       <ScrollView style={styles.fill} contentContainerStyle={[styles.panel, { paddingBottom: insets.bottom + (unowned.length ? 96 : 28) }]} showsVerticalScrollIndicator={false}>
         {cat === "body" && (
           <>
+            <Chips label="Body" options={BODY_FRAMES} value={avatar.bodyFrame ?? "masc"} onChange={(bodyFrame) => edit({ bodyFrame })} />
             <Swatches label="Skin Tone" options={SKIN_TONES} value={avatar.skinTone} onChange={(skinTone) => edit({ skinTone })} />
             <Stops label="Height" value={avatar.height} onChange={(height) => edit({ height })} ends={["Shorter", "Taller"]} />
             <Stops label="Build" value={avatar.bodyType} onChange={(bodyType) => edit({ bodyType })} ends={["Slim", "Broad"]} />
@@ -616,8 +613,9 @@ export default function CustomizeScreen() {
                 owned={ownedMoves.has(m.id)}
                 equipped={loadout.includes(m.id)}
                 canAfford={balance >= m.price}
+                inCart={cart.has(moveCartId(m.id))}
                 busy={busyId === m.id}
-                onBuy={() => void buyMove(m)}
+                onBuy={() => buyMove(m)}
                 onToggleEquip={() => void toggleMove(m)}
                 onPreview={() => previewMove(m)}
               />
@@ -639,8 +637,9 @@ export default function CustomizeScreen() {
                     inUse={background === b.id}
                     level={progress.level}
                     canAfford={balance >= b.price}
+                    inCart={cart.has(backgroundCartId(b.id))}
                     busy={busyId === b.id}
-                    onBuy={() => void buyBackground(b)}
+                    onBuy={() => buyBackground(b)}
                     onUse={() => void applyBackground(b)}
                     onPreview={() => previewBackground(b)}
                   />
@@ -658,7 +657,12 @@ export default function CustomizeScreen() {
             equipped={equipped}
             owned={owned}
             cols={cols}
+            level={progress.level}
             onWear={wear}
+            onLocked={(item) => {
+              buzz.warning();
+              showToast(`${item.name} unlocks at level ${item.levelRequired}. You're level ${progress.level}.`);
+            }}
           />
         )}
 
@@ -744,7 +748,9 @@ function SlotGrid({
   equipped,
   owned,
   cols,
+  level,
   onWear,
+  onLocked,
 }: {
   slot: Slot;
   items: CatalogItem[];
@@ -752,7 +758,11 @@ function SlotGrid({
   equipped: Equipped;
   owned: Set<string>;
   cols: number;
+  /** The player's level: items with a higher levelRequired can't be bought yet. */
+  level: number;
   onWear: (slot: Slot, id: string | null) => void;
+  /** Tapped an item that needs a higher level. */
+  onLocked: (item: CatalogItem) => void;
 }) {
   const c = useColors();
   // Owned first, then the store by price; anything owned but retired from the
@@ -787,13 +797,15 @@ function SlotGrid({
         {list.map((item) => {
           const on = current === item.id;
           const mine = owned.has(item.id);
+          // Needs a higher level before it can be bought (level rewards are handled separately).
+          const needs = !mine && !item.levelReward && item.levelRequired && item.levelRequired > level ? item.levelRequired : null;
           return (
             <View key={item.id} style={{ width: w, padding: 4 }}>
               <Pressable
                 accessibilityRole="radio"
                 accessibilityState={{ selected: on }}
-                accessibilityLabel={`${item.name}${mine ? "" : `, not owned, ${item.price} credits`}`}
-                onPress={() => onWear(slot, on ? null : item.id)}
+                accessibilityLabel={`${item.name}${mine ? "" : needs ? `, locked, unlocks at level ${needs}` : `, not owned, ${item.price} credits`}`}
+                onPress={() => (needs ? onLocked(item) : onWear(slot, on ? null : item.id))}
                 style={({ pressed }) => [
                   styles.tile,
                   {
@@ -805,18 +817,36 @@ function SlotGrid({
                 ]}
               >
                 <View style={[styles.rarity, { backgroundColor: RARITY_COLORS[item.rarity] }]} />
-                <View style={[styles.tileArt, !mine && { opacity: 0.75 }]}>
-                  <ItemIcon item={item} size={64} />
+                <View style={styles.tileArt}>
+                  {/* Only the garment dims, so the lock on top stays crisp. */}
+                  <View style={!mine && { opacity: needs ? 0.35 : 0.75 }}>
+                    <ItemIcon item={item} size={64} />
+                  </View>
+                  {needs ? (
+                    <View style={styles.lockOverlay}>
+                      <MaterialCommunityIcons name="lock" size={22} color={c.foreground} />
+                    </View>
+                  ) : null}
                 </View>
-                <Text style={[styles.tileName, { color: c.foreground }]} numberOfLines={1}>
+                <Text style={[styles.tileName, { color: needs ? c.mutedForeground : c.foreground }]} numberOfLines={1}>
                   {item.name}
                 </Text>
+                {needs ? (
+                  <Text style={[styles.tileNeeds, { color: c.warning }]} numberOfLines={1}>
+                    Reach level {needs}
+                  </Text>
+                ) : null}
                 {mine ? (
                   on ? (
                     <View style={[styles.badge, { backgroundColor: c.primary }]}>
                       <MaterialCommunityIcons name="check" size={12} color={c.primaryForeground} />
                     </View>
                   ) : null
+                ) : needs ? (
+                  <View style={[styles.price, { backgroundColor: c.alpha(c.warning, 0.2), borderWidth: 1, borderColor: c.warning }]}>
+                    <MaterialCommunityIcons name="lock" size={10} color={c.warning} />
+                    <Text style={[styles.priceText, { color: c.warning }]}>{`LV ${needs}`}</Text>
+                  </View>
                 ) : item.levelReward ? (
                   <View style={[styles.price, { backgroundColor: c.league }]}>
                     <Text style={[styles.priceText, { color: "#FFFFFF" }]}>{`LV ${item.levelReward}`}</Text>
@@ -875,6 +905,8 @@ const styles = StyleSheet.create({
   tile: { borderRadius: 14, padding: 8, alignItems: "center", gap: 4, overflow: "hidden" },
   tileArt: { width: 64, height: 64, alignItems: "center", justifyContent: "center" },
   tileName: { fontSize: 11, fontFamily: "Inter_600SemiBold", alignSelf: "stretch", textAlign: "center" },
+  tileNeeds: { fontSize: 10, fontFamily: "Inter_700Bold", alignSelf: "stretch", textAlign: "center", marginTop: -2 },
+  lockOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
   rarity: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
   badge: { position: "absolute", top: 7, right: 7, width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   price: { position: "absolute", top: 7, right: 6, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },

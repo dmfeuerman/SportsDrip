@@ -5,7 +5,6 @@ const https_1 = require("firebase-functions/v2/https");
 const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const weekly_1 = require("../lib/weekly");
-const xp_1 = require("../lib/xp");
 const streak_1 = require("../lib/streak");
 const questPool_1 = require("../lib/questPool");
 /** The default pool (kept as QUESTS for existing callers/tests). */
@@ -99,7 +98,7 @@ exports.claimQuest = (0, https_1.onCall)({ region: "us-central1" }, async (req) 
     if ((metrics[q.metric] ?? 0) < q.target)
         throw new https_1.HttpsError("failed-precondition", "Not done yet.");
     await questRef.set({ claimed: { [q.id]: true } }, { merge: true });
-    const res = await (0, xp_1.grantXp)(uid, q.xp, `quest_${week}_${q.id}`, "quest");
-    return { ok: true, xp: res.applied ? q.xp : 0, level: res.level };
+    // XP comes only from level challenges; weekly quests no longer pay XP.
+    return { ok: true, xp: 0 };
 });
 //# sourceMappingURL=quests.js.map

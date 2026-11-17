@@ -16,6 +16,7 @@ function BackgroundCard({
   inUse,
   level,
   canAfford,
+  inCart,
   busy,
   onBuy,
   onUse,
@@ -26,7 +27,10 @@ function BackgroundCard({
   inUse: boolean;
   level: number;
   canAfford: boolean;
+  /** In the cart, waiting for checkout. */
+  inCart?: boolean;
   busy: boolean;
+  /** Adds it to (or takes it out of) the cart. Nothing is bought until checkout. */
   onBuy: () => void;
   onUse: () => void;
   onPreview: () => void;
@@ -37,7 +41,7 @@ function BackgroundCard({
   const lock = owned ? null : bg.levelRequired && bg.levelRequired > level ? bg.levelRequired : null;
   const reward = owned || !bg.levelReward ? null : bg.levelReward;
   const buyable = !owned && !lock && bg.price > 0;
-  const label = inUse ? "In Use" : owned ? "Use" : lock ? `Lv ${lock}` : buyable ? `Buy ${bg.price.toLocaleString()}` : reward ? `Lv ${reward}` : "Locked";
+  const label = inUse ? "In Use" : owned ? "Use" : lock ? `Lv ${lock}` : buyable ? (inCart ? "In cart ✓" : `Add · ${bg.price.toLocaleString()}`) : reward ? `Lv ${reward}` : "Locked";
 
   return (
     <Pressable
@@ -74,8 +78,8 @@ function BackgroundCard({
         </Text>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={inUse ? "In use" : owned ? `Use ${bg.name}` : lock ? `Locked until level ${lock}` : `Buy ${bg.name} for ${bg.price} credits`}
-          disabled={busy || inUse || !!lock || (!owned && (!buyable || !canAfford))}
+          accessibilityLabel={inUse ? "In use" : owned ? `Use ${bg.name}` : lock ? `Locked until level ${lock}` : inCart ? `Remove ${bg.name} from cart` : `Add ${bg.name} to cart, ${bg.price} credits`}
+          disabled={busy || inUse || !!lock || (!owned && !buyable)}
           onPress={owned ? onUse : onBuy}
           hitSlop={4}
           style={({ pressed }) => [
@@ -85,19 +89,20 @@ function BackgroundCard({
               : inUse || lock
                 ? { backgroundColor: c.secondary, borderColor: c.border }
                 : { backgroundColor: c.alpha(c.primary, 0.13), borderColor: c.primary },
-            { opacity: busy ? 0.5 : !owned && !lock && !canAfford ? 0.55 : pressed ? 0.8 : 1 },
+            inCart && !owned ? { backgroundColor: c.primary, borderColor: c.primary } : null,
+            { opacity: busy ? 0.5 : !owned && !lock && !canAfford && !inCart ? 0.55 : pressed ? 0.8 : 1 },
           ]}
         >
           {busy ? (
             <ActivityIndicator size="small" color={c.primary} />
           ) : (
             <View style={styles.actionRow}>
-              {buyable ? <MaterialCommunityIcons name="lightning-bolt" size={13} color={c.primary} /> : null}
+              {buyable && !inCart ? <MaterialCommunityIcons name="lightning-bolt" size={13} color={c.primary} /> : null}
               {lock ? <MaterialCommunityIcons name="lock" size={12} color={c.mutedForeground} /> : null}
               <Text
                 style={[
                   styles.actionText,
-                  { color: owned && !inUse ? c.primaryForeground : inUse || lock ? c.mutedForeground : c.primary },
+                  { color: (owned && !inUse) || (inCart && !owned) ? c.primaryForeground : inUse || lock ? c.mutedForeground : c.primary },
                 ]}
               >
                 {label}

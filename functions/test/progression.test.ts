@@ -73,16 +73,12 @@ async function levelUp(uid: string, level: number) {
   await grantXp(uid, totalXpForLevel(level), `lvl_${uid}_0`, "test");
 }
 
-test("XP levels you up on its own; each new level deals a fresh challenge set", async () => {
+test("XP levels you up on its own", async () => {
   seedUser("zed", 1000);
   const r = await grantXp("zed", totalXpForLevel(5), "z1", "test");
   assert.equal(r.applied, true);
   assert.equal(r.level, 5, "challenges never gate levelling");
   assert.equal(r.levelsGained, 4);
-  const state = db.read("users/zed/levelChallenges/state")!;
-  assert.equal(state.setLevel, 5);
-  assert.ok((state.active as string[]).length > 0, "level 5's set is dealt");
-  assert.ok((state.active as string[]).every((id) => !((state.claimed as Record<string, boolean> | undefined) ?? {})[id]), "a fresh, unclaimed set");
 });
 
 test("grantXp is idempotent per key, pays level credits once, and grants level rewards", async () => {
@@ -148,14 +144,12 @@ test("invite codes: both players get credits, become friends, and a code can't b
   const res = await call<{ referred: boolean }>(createProfile, "newbie", { username: "newbie_1", displayName: "Newbie", age: 25, birthMonth: 3, acceptedTerms: true, referralCode: code });
   assert.equal(res.referred, true);
   assert.equal(balance("newbie"), 10_000 + REFERRAL.newUserCredits);
-  // The referrer's XP (300) crosses level 2, which pays its credit bonus too.
-  assert.equal(balance("ref"), 10_000 + REFERRAL.referrerCredits + levelUpCredits(2));
+  assert.equal(balance("ref"), 10_000 + REFERRAL.referrerCredits);
   assert.equal(db.read("users/newbie")!.referredBy, "ref");
   assert.equal(db.read("users/ref")!.referralCount, 1);
   assert.ok(db.read("friendships/newbie_ref"));
   assert.ok(notifications("ref").some((n) => n.type === "referral_bonus"));
-  assert.equal(db.read("users/ref")!.xp, XP.referrer);
-  assert.equal(db.read("users/newbie")!.xp, XP.referred);
+  assert.ok(!db.read("users/ref")!.xp, "XP comes only from level challenges");
   assert.ok(db.read("users/newbie")!.referralCode, "new players get a code of their own");
 });
 
@@ -185,4 +179,17 @@ test("app copies of the level curve and background list match the server and see
     listed.map((b) => [b.id, b.price, b.rarity, b.levelRequired, b.levelReward]),
     BACKGROUNDS.map((b: any) => [b.id, b.price, b.rarity, b.levelRequired, b.levelReward])
   );
+});
+
+test("finished level challenges pay out on their own, once", async () => {
+  const { autoClaimChallenges } = await import("../src/callable/levelChallenges");
+  seedUser("auto", 1000);
+  db.seed("users/auto", { ...db.read("users/auto")!, favoriteTeams: [{ abbr: "KC" }] });
+  const paid = await autoClaimChallenges("auto");
+  assert.ok(paid >= 1, "x_teams paid");
+  const xp = db.read("users/auto")!.xp as number;
+  assert.ok(xp > 0);
+  assert.equal((db.read("users/auto/levelChallenges/state")!.claimed as Record<string, boolean>).x_teams, true);
+  assert.equal(await autoClaimChallenges("auto"), 0, "never twice");
+  assert.equal(db.read("users/auto")!.xp, xp);
 });

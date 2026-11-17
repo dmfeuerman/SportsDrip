@@ -13,7 +13,7 @@ import { FlatList, StyleSheet, Text, View } from "react-native";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import GameQuickView from "@/components/GameQuickView";
-import { ActionChip, Amount, EmptyState, FilterPills, LoadingState, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
+import { ActionChip, Amount, ConfirmDialog, EmptyState, FilterPills, LoadingState, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useChallenges, viewOf } from "@/context/ChallengeContext";
 import { useLeague } from "@/context/LeagueContext";
@@ -43,7 +43,21 @@ export default function MyBetsScreen() {
   // Parlays cancelled on this screen: gone from Open at once, before the listener reports it.
   const [cancelledParlays, setCancelledParlays] = useState<Record<string, boolean>>({});
   const [quickGame, setQuickGame] = useState<string | null>(null);
+  // Which wallet the slip should default to when a game is opened from here:
+  // the bet's own league, else the league pill that's filtering the list.
+  const [quickWallet, setQuickWallet] = useState<string | undefined>(undefined);
+  const leagueFilter = wallet !== "all" && wallet !== "credits" ? wallet : undefined;
+  const openGame = (gameId: string, walletId?: string) => {
+    setQuickWallet(walletId ?? leagueFilter);
+    setQuickGame(gameId);
+  };
   const [breakdown, setBreakdown] = useState<BetBreakdownItem | null>(null);
+  // "Are you sure?" before a cancel: the bet (or parlay) waiting on confirmation.
+  const [confirmCancel, setConfirmCancel] = useState<
+    | { kind: "bet"; key: string; betId: string; pick: string; stake: number; free: boolean }
+    | { kind: "parlay"; id: string; legs: number; stake: number }
+    | null
+  >(null);
   const { uid: chUid, incoming: chIn, outgoing: chOut, live: chLive, history: chHistory, escrowed, respond: respondChallenge, cancel: cancelChallenge } = useChallenges();
   const now = useNow(30_000);
   // Friend challenges are credit bets too: open ones (waiting on you, waiting on them, locked in) under Open, the rest under Settled.
@@ -112,7 +126,13 @@ export default function MyBetsScreen() {
             value={wallet}
             onChange={setWallet}
             inset={0}
-            options={wallets.map((w) => ({ value: w.id, label: w.label, icon: (w.id === "credits" ? "lightning-bolt" : "shield-star") as never }))}
+            options={wallets.map((w) => ({
+              value: w.id,
+              label: w.label,
+              // All = every wallet, Credits = your own balance, anything else is a league.
+              icon: (w.id === "all" ? "layers-triple-outline" : w.id === "credits" ? "lightning-bolt" : "trophy-outline") as never,
+              color: w.id === "all" ? undefined : w.id === "credits" ? c.primary : c.league,
+            }))}
           />
         )}
         <TabStrip
@@ -139,44 +159,45 @@ export default function MyBetsScreen() {
             walletLabel={item.wallet ?? undefined}
             game={gameById.get(item.bet.gameId) ?? null}
             busy={busy === item.key}
-            onOpen={() => {
-              if (item.bet.status !== "pending") {
-                setBreakdown({
-                  id: item.bet.id,
-                  gameId: item.bet.gameId,
-                  sport: item.bet.sport,
-                  teamName: item.bet.teamName,
-                  teamAbbr: item.bet.teamAbbr,
-                  teamColor: item.bet.teamColor,
-                  opponentAbbr: item.bet.opponentAbbr,
-                  side: item.bet.side,
-                  market: item.bet.market ?? "ml",
-                  selection: item.bet.selection ?? null,
-                  line: item.bet.line ?? null,
-                  label: item.bet.label ?? null,
-                  lock: Boolean(item.bet.lockWeek),
-                  odds: item.bet.odds,
-                  stake: item.bet.stake,
-                  payout: item.bet.potentialPayout,
-                  status: item.bet.status,
-                  finalHomeScore: item.bet.finalHomeScore ?? null,
-                  finalAwayScore: item.bet.finalAwayScore ?? null,
-                  wallet: item.wallet ? "league" : "credits",
-                  leagueId: item.leagueId ?? null,
-                  leagueName: item.wallet,
-                  placedAtMs: item.placed || null,
-                });
-              } else {
-                setQuickGame(item.bet.gameId);
-              }
-            }}
+            onOpen={() =>
+              // Every bet, open or settled, opens its details; "Matchup Details" in there goes to the game.
+              setBreakdown({
+                id: item.bet.id,
+                gameId: item.bet.gameId,
+                sport: item.bet.sport,
+                teamName: item.bet.teamName,
+                teamAbbr: item.bet.teamAbbr,
+                teamColor: item.bet.teamColor,
+                opponentAbbr: item.bet.opponentAbbr,
+                side: item.bet.side,
+                market: item.bet.market ?? "ml",
+                selection: item.bet.selection ?? null,
+                line: item.bet.line ?? null,
+                label: item.bet.label ?? null,
+                lock: Boolean(item.bet.lockWeek),
+                odds: item.bet.odds,
+                stake: item.bet.stake,
+                payout: item.bet.potentialPayout,
+                status: item.bet.status,
+                finalHomeScore: item.bet.finalHomeScore ?? null,
+                finalAwayScore: item.bet.finalAwayScore ?? null,
+                wallet: item.wallet ? "league" : "credits",
+                leagueId: item.leagueId ?? null,
+                leagueName: item.wallet,
+                placedAtMs: item.placed || null,
+              })
+            }
             onCancel={
               item.cancellable
-                ? async () => {
-                    setBusy(item.key);
-                    await cancelBet(item.bet.id);
-                    setBusy(null);
-                  }
+                ? () =>
+                    setConfirmCancel({
+                      kind: "bet",
+                      key: item.key,
+                      betId: item.bet.id,
+                      pick: item.bet.label ?? item.bet.teamName,
+                      stake: item.bet.stake,
+                      free: Boolean(item.bet.freeBet),
+                    })
                 : undefined
             }
           />
@@ -192,7 +213,7 @@ export default function MyBetsScreen() {
                   view={v}
                   game={gameById.get(v.ch.gameId) ?? null}
                   now={now}
-                  onOpen={() => setQuickGame(v.ch.gameId)}
+                  onOpen={() => { setQuickWallet(undefined); setQuickGame(v.ch.gameId); }}
                   // Accepting locks credits in a pot: confirm it on the Challenges screen.
                   onAccept={() => router.push({ pathname: "/challenges", params: { tab: "inbox" } })}
                   onDecline={() => void respondChallenge(v.ch.id, false)}
@@ -206,16 +227,32 @@ export default function MyBetsScreen() {
                     key={p.id}
                     p={p}
                     busy={busy === p.id}
-                    onCancel={async () => {
-                      // Instant: it leaves Open now; it comes back, with the reason, if the server refuses.
-                      setCancelledParlays((m) => ({ ...m, [p.id]: true }));
-                      try {
-                        await api.cancelParlay({ parlayId: p.id });
-                      } catch (e) {
-                        setCancelledParlays((m) => ({ ...m, [p.id]: false }));
-                        show({ kind: "warning", title: "Couldn't cancel", body: api.friendlyError(e) });
-                      }
-                    }}
+                    onOpen={() =>
+                      setBreakdown({
+                        id: p.id,
+                        gameId: null,
+                        sport: null,
+                        teamName: `${p.legs.length}-Leg Parlay`,
+                        teamAbbr: p.legs[0]?.teamAbbr ?? "",
+                        opponentAbbr: p.legs[0]?.opponentAbbr ?? "",
+                        side: null,
+                        market: "parlay",
+                        odds: p.odds,
+                        stake: p.stake,
+                        payout: p.potentialPayout,
+                        status: p.status,
+                        wallet: "credits",
+                        placedAtMs: (p.placedAt?.seconds ?? 0) * 1000 || null,
+                        legs: p.legs.map((l) => ({
+                          label: l.label,
+                          matchup: `${l.teamAbbr} vs ${l.opponentAbbr}`,
+                          sport: l.sport,
+                          odds: l.odds,
+                          status: l.status,
+                        })),
+                      })
+                    }
+                    onCancel={() => setConfirmCancel({ kind: "parlay", id: p.id, legs: p.legs.length, stake: p.stake })}
                   />
                 ))}
             </View>
@@ -239,12 +276,46 @@ export default function MyBetsScreen() {
           )
         }
       />
+      <ConfirmDialog
+        visible={!!confirmCancel}
+        title={confirmCancel?.kind === "parlay" ? "Cancel this parlay?" : "Cancel this bet?"}
+        body={
+          !confirmCancel
+            ? ""
+            : confirmCancel.kind === "parlay"
+              ? `Your ${confirmCancel.legs}-leg parlay will be voided and your ${confirmCancel.stake.toLocaleString()}-credit stake goes back to your balance.`
+              : confirmCancel.free
+                ? `Your pick on ${confirmCancel.pick} will be removed and you'll get your free bet back.`
+                : `Your pick on ${confirmCancel.pick} will be removed and your ${confirmCancel.stake.toLocaleString()}-credit stake goes back to your balance.`
+        }
+        confirmLabel={confirmCancel?.kind === "parlay" ? "Cancel parlay" : "Cancel bet"}
+        cancelLabel="Keep it"
+        destructive
+        onCancel={() => setConfirmCancel(null)}
+        onConfirm={() => {
+          const target = confirmCancel;
+          setConfirmCancel(null);
+          if (!target) return;
+          if (target.kind === "bet") {
+            setBusy(target.key);
+            void cancelBet(target.betId).finally(() => setBusy(null));
+          } else {
+            // Instant: it leaves Open now; it comes back, with the reason, if the server refuses.
+            setCancelledParlays((m) => ({ ...m, [target.id]: true }));
+            api.cancelParlay({ parlayId: target.id }).catch((e) => {
+              setCancelledParlays((m) => ({ ...m, [target.id]: false }));
+              show({ kind: "warning", title: "Couldn't cancel", body: api.friendlyError(e) });
+            });
+          }
+        }}
+      />
       <BetBreakdownModal
         item={breakdown}
+        game={breakdown?.gameId ? gameById.get(breakdown.gameId) ?? null : null}
         onClose={() => setBreakdown(null)}
-        onOpenGame={(gId) => setQuickGame(gId)}
+        onOpenGame={(gId) => openGame(gId, breakdown?.leagueId ?? undefined)}
       />
-      <GameQuickView gameId={quickGame} onClose={() => setQuickGame(null)} />
+      <GameQuickView gameId={quickGame} defaultWallet={quickWallet} onClose={() => setQuickGame(null)} />
     </View>
   );
 }

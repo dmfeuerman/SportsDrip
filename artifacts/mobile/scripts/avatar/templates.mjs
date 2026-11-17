@@ -164,7 +164,7 @@ const jerseyRegion = (x, y, z) => Math.max(0.915 - y, neckOpening(JERSEY_NECK, x
 const sidePanel = (x, y, z) => Math.abs(z - 0.0) - 0.035 - 0.012 * sstep(1.2, 0.95, y);
 
 /* Hoodie: hood behind the neck, kangaroo pocket, drawstrings, ribbed cuffs and hem. */
-const HOOD_NECK = { r: 0.094, front: 1.42, back: 1.465 };
+const HOOD_NECK = { r: 0.09, front: 1.42, back: 1.465 };
 function hoodD(x, y, z) {
   // A soft fold of fabric lying around the back and sides of the neck.
   const c = [0, 1.475, -0.07];
@@ -371,18 +371,18 @@ export const TEMPLATES = {
   /* ── tops ── */
   top_tee: {
     slot: "top",
-    hides: ["chest", "abdomen"],
+    hides: ["shoulders", "chest", "abdomen", "upperArms"],
     look: "cotton",
     texture: TEXTURE.cotton,
     parts: [
-      cloth("primary", inflate(overWaist(L.top), torsoAndSleeves({ hem: 0.925, sleeve: 0.33, neck: CREW }), { detail: folds }), TOP_BOX),
+      cloth("primary", inflate(overWaist(L.top), torsoAndSleeves({ hem: 0.925, sleeve: 0.36, neck: CREW }), { detail: folds }), TOP_BOX),
       cloth("secondary", inflate(L.top + L.trim, (x, y, z) => Math.max(collarBand(CREW, x, y, z, 0.0075), -neckOpening(CREW, x, y, z))), TOP_BOX, { h: 0.0018 }),
-      cloth("secondary", inflate(L.top + L.trim, (x, y, z) => sleeveBand(0.305, 0.33, x, y, z)), TOP_BOX, { h: 0.002 }),
+      cloth("secondary", inflate(L.top + L.trim, (x, y, z) => sleeveBand(0.335, 0.36, x, y, z)), TOP_BOX, { h: 0.002 }),
     ],
   },
   top_longsleeve: {
     slot: "top",
-    hides: ["chest", "abdomen"],
+    hides: ["shoulders", "chest", "abdomen", "upperArms", "elbows"],
     look: "cotton",
     texture: TEXTURE.cotton,
     parts: [
@@ -411,7 +411,7 @@ export const TEMPLATES = {
   },
   top_hoodie: {
     slot: "top",
-    hides: ["chest", "abdomen", "waist"],
+    hides: ["shoulders", "chest", "abdomen", "waist", "upperArms", "elbows"],
     look: "fleece",
     texture: TEXTURE.fleece,
     parts: [
@@ -435,7 +435,7 @@ export const TEMPLATES = {
   /* ── outerwear ── */
   outerwear_bomber: {
     slot: "outerwear",
-    hides: ["chest"],
+    hides: ["shoulders", "chest", "abdomen", "elbows"],
     look: "nylon",
     texture: TEXTURE.nylon,
     parts: [
@@ -476,14 +476,22 @@ export const TEMPLATES = {
   },
   outerwear_puffer: {
     slot: "outerwear",
-    hides: ["chest"],
+    hides: ["neck", "shoulders", "chest", "abdomen", "upperArms", "elbows"],
     look: "nylon",
     texture: TEXTURE.nylon,
     parts: [
-      cloth("primary", inflate((x, y, z) => L.outer + 0.012 + 0.006 * sstep(1.0, 1.3, y), torsoAndSleeves({ hem: 0.94, sleeve: 0.9, neck: { r: 0.11, front: 1.43, back: 1.46 } }), {
+      cloth("primary", inflate((x, y, z) => L.outer + 0.01 + 0.005 * sstep(1.0, 1.3, y), torsoAndSleeves({ hem: 0.94, sleeve: 0.9, neck: { r: 0.095, front: 1.43, back: 1.46 } }), {
         detail: (x, y, z) => {
-          const t = armT(x, y, z);
-          return t >= 0 ? -quilt(t * ARM_LEN, 0.07, 0.007) : -quilt(y);
+          // Continuous everywhere: the sleeve quilt rings are measured as
+          // distance from the shoulder joint (not the arm parameter, whose
+          // inside/outside test flickers at the shoulder and inner sleeve and
+          // tore the surface open there), and the torso and sleeve patterns
+          // cross-fade over the deltoid instead of switching on a hard line.
+          const side = x >= 0 ? "L" : "R";
+          const U = REST[B("Arm", side)];
+          const ad = Math.hypot(x - U[0], y - U[1], z - U[2]);
+          const s = sstep(0.13, 0.24, Math.abs(x));
+          return -lerp(quilt(y), quilt(ad, 0.07, 0.006), s);
         },
         k: 0.008,
       }), TOP_BOX, { h: 0.0032 }),
@@ -494,15 +502,15 @@ export const TEMPLATES = {
         d = smax(d, -(bodyD(x, y, z) - 0.006), 0.006);
         return d - quilt(y, 0.045, 0.004);
       }, [[-0.14, 1.38, -0.14], [0.14, 1.55, 0.14]], { h: 0.0022 }),
-      cloth("primary_dark", inflate(L.outer + 0.012 + L.trim, (x, y, z) => sleeveBand(0.88, 0.925, x, y, z), { detail: (x, y, z) => -rib(x - 0.3 * Math.sign(x), z, 50, 0.0008) }), TOP_BOX, { h: 0.0022 }),
-      cloth("metal", inflate(L.outer + 0.0215, (x, y, z) => Math.max(zipLine(x, y, z), 0.945 - y, y - 1.5)), [[-0.02, 0.92, 0.05], [0.02, 1.52, 0.22]], { h: 0.0012 }),
+      cloth("primary_dark", inflate(L.outer + 0.01 + L.trim, (x, y, z) => sleeveBand(0.88, 0.925, x, y, z), { detail: (x, y, z) => -rib(x - 0.3 * Math.sign(x), z, 50, 0.0008) }), TOP_BOX, { h: 0.0022 }),
+      cloth("metal", inflate(L.outer + 0.0195, (x, y, z) => Math.max(zipLine(x, y, z), 0.945 - y, y - 1.5)), [[-0.02, 0.92, 0.05], [0.02, 1.52, 0.22]], { h: 0.0012 }),
     ],
   },
 
   /* ── bottoms ── */
   bottom_shorts: {
     slot: "bottom",
-    hides: ["hips"],
+    hides: ["hips", "thighs"],
     look: "mesh",
     texture: TEXTURE.mesh,
     parts: [
@@ -772,6 +780,31 @@ export const TEMPLATES = {
       rigid("lens", (x, y, z) => watchFaceD(x, y, z), [[0.29, 0.86, -0.05], [0.42, 0.98, 0.07]], { h: 0.0005, ao: false }),
     ],
   },
+  hat_headband: {
+    slot: "hat",
+    look: "knit",
+    texture: TEXTURE.knit,
+    hairMode: "banded",
+    socket: "HeadTop",
+    parts: [
+      rigid("primary", (x, y, z) => {
+        const { u, v } = coverage("banded", x, y, z);
+        const inner = scalpD(x, y, z) - HAT_FIT.banded.hatGap(v);
+        let d = Math.max(inner - 0.0085, -inner + 0.002, u - 0.034, -u);
+        const { phi } = polar(x, y, z);
+        d += 0.0008 * Math.abs(Math.sin(phi * 36)); // knit ribs
+        return d;
+      }, [[-0.14, 1.56, -0.15], [0.14, 1.78, 0.14]], { h: 0.0012, error: 0.0004, tris: 6000 }),
+    ],
+  },
+  acc_bracelet: {
+    slot: "accessory",
+    look: "rubber",
+    socket: "Wrist_L",
+    parts: [
+      rigid("primary", (x, y, z) => watchStrapD(x, y, z), [[0.29, 0.86, -0.05], [0.42, 0.98, 0.07]], { h: 0.0008 }),
+    ],
+  },
   acc_headphones: {
     slot: "accessory",
     look: "plastic",
@@ -812,6 +845,7 @@ function openFront(t, { hem, neck, off = L.outer, facing = "primary_dark", hides
 }
 TEMPLATES.outerwear_bomber_open = openFront(TEMPLATES.outerwear_bomber, { hem: 0.93, neck: JACKET_NECK });
 TEMPLATES.outerwear_varsity_open = openFront(TEMPLATES.outerwear_varsity, { hem: 0.93, neck: JACKET_NECK, hides: ["elbows"] });
+TEMPLATES.outerwear_puffer_open = openFront(TEMPLATES.outerwear_puffer, { hem: 0.945, neck: { r: 0.095, front: 1.43, back: 1.46 }, off: L.outer + 0.01, hides: ["elbows"] });
 
 /* ── crown ───────────────────────────────────────────────────────────────── */
 

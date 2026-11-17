@@ -14,7 +14,7 @@
  *  - what equipping an item takes off
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.isHexColor = exports.HAIR_MODE_PRIORITY = exports.TEMPLATE_INFO = exports.DEFAULT_AVATAR = exports.FACE_STYLE_IDS = exports.MOUTH_SHAPE_IDS = exports.NOSE_SHAPE_IDS = exports.FACIAL_HAIR_IDS = exports.EYEBROW_IDS = exports.EYE_SHAPE_IDS = exports.FACE_SHAPE_IDS = exports.HAIR_STYLE_IDS = exports.EYE_COLORS = exports.HAIR_COLORS = exports.SKIN_TONES = exports.LEGACY_BASE = exports.DEFAULT_BASE = exports.BASE_MODELS = exports.SLOT_LAYER = exports.BODY_REGIONS = exports.HAIR_MODES = exports.SLOTS = void 0;
+exports.isHexColor = exports.HAIR_MODE_PRIORITY = exports.TEMPLATE_INFO = exports.DEFAULT_AVATAR = exports.FACE_STYLE_IDS = exports.MOUTH_SHAPE_IDS = exports.NOSE_SHAPE_IDS = exports.FACIAL_HAIR_IDS = exports.EYEBROW_IDS = exports.EYE_SHAPE_IDS = exports.FACE_SHAPE_IDS = exports.HAIR_STYLE_IDS = exports.EYE_COLORS = exports.HAIR_COLORS = exports.SKIN_TONES = exports.LEGACY_BASE = exports.DEFAULT_BASE = exports.BASE_MODELS = exports.SLOT_LAYER = exports.BODY_REGIONS = exports.HAIR_MODES = exports.BODY_FRAME_IDS = exports.SLOTS = void 0;
 exports.templateFor = templateFor;
 exports.hairModeOf = hairModeOf;
 exports.hidesOf = hidesOf;
@@ -26,6 +26,7 @@ exports.outfitConflicts = outfitConflicts;
 exports.appearanceErrors = appearanceErrors;
 exports.sanitizeAppearance = sanitizeAppearance;
 exports.SLOTS = ["hat", "eyewear", "top", "outerwear", "bottom", "shoes", "accessory"];
+exports.BODY_FRAME_IDS = ["masc", "fem"];
 exports.HAIR_MODES = ["capped", "covered", "helmet", "banded"];
 exports.BODY_REGIONS = [
     "neck", "shoulders", "chest", "abdomen", "waist", "hips", "upperArms", "elbows",
@@ -64,8 +65,9 @@ exports.FACE_STYLE_IDS = ["mannequin", "features"];
 exports.DEFAULT_AVATAR = {
     height: 0.5,
     bodyType: 0.5,
+    bodyFrame: "masc",
     skinTone: "#E5B18C",
-    hairStyle: "short_crop",
+    hairStyle: "bald",
     hairColor: "#2B1B12",
     faceShape: "oval",
     eyeColor: "#3B2415",
@@ -88,17 +90,19 @@ exports.TEMPLATE_INFO = {
     hat_bucket: { slot: "hat", hairMode: "covered", excludes: [], hides: [] },
     hat_helmet: { slot: "hat", hairMode: "helmet", excludes: [], hides: [] },
     hat_crown: { slot: "hat", hairMode: null, excludes: [], hides: [] },
+    hat_headband: { slot: "hat", hairMode: "banded", excludes: [], hides: [] },
     eyewear_shades: { slot: "eyewear", hairMode: null, excludes: [], hides: [] },
-    top_tee: { slot: "top", hairMode: null, excludes: [], hides: ["chest", "abdomen"] },
-    top_longsleeve: { slot: "top", hairMode: null, excludes: [], hides: ["chest", "abdomen"] },
+    top_tee: { slot: "top", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "upperArms"] },
+    top_longsleeve: { slot: "top", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "upperArms", "elbows"] },
     top_jersey: { slot: "top", hairMode: null, excludes: [], hides: [] },
-    top_hoodie: { slot: "top", hairMode: null, excludes: [], hides: ["chest", "abdomen", "waist"] },
-    outerwear_bomber: { slot: "outerwear", hairMode: null, excludes: [], hides: ["chest"] },
+    top_hoodie: { slot: "top", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "waist", "upperArms", "elbows"] },
+    outerwear_bomber: { slot: "outerwear", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "elbows"] },
     outerwear_varsity: { slot: "outerwear", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "elbows"] },
-    outerwear_puffer: { slot: "outerwear", hairMode: null, excludes: [], hides: ["chest"] },
+    outerwear_puffer: { slot: "outerwear", hairMode: null, excludes: [], hides: ["neck", "shoulders", "chest", "abdomen", "upperArms", "elbows"] },
     outerwear_bomber_open: { slot: "outerwear", hairMode: null, excludes: [], hides: [] },
+    outerwear_puffer_open: { slot: "outerwear", hairMode: null, excludes: [], hides: ["elbows"] },
     outerwear_varsity_open: { slot: "outerwear", hairMode: null, excludes: [], hides: ["elbows"] },
-    bottom_shorts: { slot: "bottom", hairMode: null, excludes: [], hides: ["hips"] },
+    bottom_shorts: { slot: "bottom", hairMode: null, excludes: [], hides: ["hips", "thighs"] },
     bottom_pants: { slot: "bottom", hairMode: null, excludes: [], hides: ["hips", "thighs", "knees"] },
     bottom_joggers: { slot: "bottom", hairMode: null, excludes: [], hides: ["hips", "thighs", "knees"] },
     shoes_sneaker: { slot: "shoes", hairMode: null, excludes: [], hides: [] },
@@ -116,6 +120,7 @@ exports.TEMPLATE_INFO = {
     acc_chain_dogtag: { slot: "accessory", hairMode: null, excludes: [], hides: [] },
     acc_chain_cuban: { slot: "accessory", hairMode: null, excludes: [], hides: [] },
     acc_watch: { slot: "accessory", hairMode: null, excludes: [], hides: [] },
+    acc_bracelet: { slot: "accessory", hairMode: null, excludes: [], hides: [] },
     acc_headphones: { slot: "accessory", hairMode: "banded", excludes: ["hat"], hides: [] },
 };
 /** When two worn items both press the hair, the one that covers more wins. */
@@ -124,6 +129,7 @@ exports.HAIR_MODE_PRIORITY = { banded: 1, capped: 2, covered: 3, helmet: 4 };
 const INFER = [
     ["hat", /helmet/, "hat_helmet"],
     ["hat", /crown|tiara/, "hat_crown"],
+    ["hat", /headband|sweatband/, "hat_headband"],
     ["hat", /beanie/, "hat_beanie"],
     ["hat", /bucket/, "hat_bucket"],
     ["hat", /./, "hat_cap"],
@@ -132,6 +138,7 @@ const INFER = [
     ["top", /long/, "top_longsleeve"],
     ["top", /./, "top_tee"],
     ["outerwear", /open.*(varsity|letterman)|(varsity|letterman).*open/, "outerwear_varsity_open"],
+    ["outerwear", /open.*puffer|puffer.*open/, "outerwear_puffer_open"],
     ["outerwear", /open/, "outerwear_bomber_open"],
     ["outerwear", /varsity|letterman/, "outerwear_varsity"],
     ["outerwear", /puffer|parka/, "outerwear_puffer"],
@@ -143,6 +150,7 @@ const INFER = [
     ["shoes", /./, "shoes_sneaker"],
     ["eyewear", /./, "eyewear_shades"],
     ["accessory", /watch/, "acc_watch"],
+    ["accessory", /bracelet|wristband/, "acc_bracelet"],
     ["accessory", /headphone/, "acc_headphones"],
     ["accessory", /./, "acc_chain"],
 ];
@@ -262,6 +270,8 @@ function appearanceErrors(a) {
         errs.push("height");
     if (unit(x.bodyType) === undefined || x.bodyType !== unit(x.bodyType))
         errs.push("bodyType");
+    if (x.bodyFrame !== undefined && !inList(x.bodyFrame, exports.BODY_FRAME_IDS))
+        errs.push("bodyFrame");
     if (!colorIn(x.skinTone, exports.SKIN_TONES))
         errs.push("skinTone");
     if (!inList(x.hairStyle, exports.HAIR_STYLE_IDS))
@@ -286,7 +296,7 @@ function appearanceErrors(a) {
         errs.push("faceStyle");
     if (x.base !== undefined && !inList(x.base, exports.BASE_MODELS))
         errs.push("base");
-    const known = ["height", "bodyType", "skinTone", "hairStyle", "hairColor", "faceShape", "eyeColor", "eyeShape", "eyebrows", "facialHair", "noseShape", "mouthShape", "faceStyle", "base"];
+    const known = ["height", "bodyType", "bodyFrame", "skinTone", "hairStyle", "hairColor", "faceShape", "eyeColor", "eyeShape", "eyebrows", "facialHair", "noseShape", "mouthShape", "faceStyle", "base"];
     for (const k of Object.keys(x))
         if (!known.includes(k))
             errs.push(k);
@@ -303,6 +313,7 @@ function sanitizeAppearance(a) {
     return {
         height: unit(x.height) ?? d.height,
         bodyType: unit(x.bodyType) ?? d.bodyType,
+        bodyFrame: inList(x.bodyFrame, exports.BODY_FRAME_IDS) ?? d.bodyFrame,
         skinTone: colorIn(x.skinTone, exports.SKIN_TONES) ?? d.skinTone,
         hairStyle: inList(x.hairStyle, exports.HAIR_STYLE_IDS) ?? d.hairStyle,
         hairColor: colorIn(x.hairColor, exports.HAIR_COLORS) ?? d.hairColor,

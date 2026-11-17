@@ -133,15 +133,17 @@ test("the base GLB: Mixamo rig, every body region, face variant and blendshape t
   for (const f of FACE_SHAPE_IDS) {
     assert.ok(names.has(`Head_${f}`), f);
     const t = targetNames(json, `Head_${f}`);
-    for (const m of ["buildSlim", "buildBroad", "lipsFull", "mouthWide", "mouthSmileLeft", "mouthSmileRight", "jawOpen"]) assert.ok(t.includes(m), `${f} ${m}`);
+    for (const m of ["buildSlim", "buildBroad", "frameFem", "lipsFull", "mouthWide", "mouthSmileLeft", "mouthSmileRight", "jawOpen"]) assert.ok(t.includes(m), `${f} ${m}`);
     // Each nose shape is its own head mesh (no nose blendshapes on the heads).
     for (const n of ["straight", "broad"]) assert.ok(names.has(`Head_${f}_${n}`), `${f} ${n}`);
   }
   for (const e of EYE_SHAPE_IDS) {
-    for (const p of [`Lids_${e}`, `Lashes_${e}`]) assert.deepEqual(targetNames(json, p), ["eyeBlinkLeft", "eyeBlinkRight"], p);
+    // frameFem: the feminine frame's eyes are a little larger (scaled about each eye's centre).
+    for (const p of [`Lids_${e}`, `Lashes_${e}`]) assert.deepEqual(targetNames(json, p), ["eyeBlinkLeft", "eyeBlinkRight", "frameFem"], p);
   }
+  for (const p of ["Eyes", "Iris", "Pupils"]) assert.deepEqual(targetNames(json, p), ["frameFem"], p);
   for (const b of EYEBROW_IDS) if (b !== "none") assert.ok(names.has(`Brows_${b}`), b);
-  for (const r of BODY_REGIONS) assert.deepEqual(targetNames(json, `Body_${r}`), ["buildSlim", "buildBroad"], r);
+  for (const r of BODY_REGIONS) assert.deepEqual(targetNames(json, `Body_${r}`), ["buildSlim", "buildBroad", "frameFem"], r);
   assert.deepEqual(json.animations.map((a: { name: string }) => a.name).sort(), ["cheer", "idle"]);
   assert.ok(json.materials.some((m: any) => m.normalTexture), "baked normal maps");
 });
@@ -247,7 +249,7 @@ test("appearance validation rejects bad values and sanitising fills defaults", (
   assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, noseShape: "hooked" }), ["noseShape"]);
   assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, mouthShape: "wide", eyeShape: "almond", facialHair: "goatee" }), []);
   assert.deepEqual(appearanceErrors({ ...DEFAULT_AVATAR, base: "sd_base_v1", faceStyle: "mannequin" }), [], "v1 looks still validate");
-  assert.equal(sanitizeAppearance({ hairStyle: "mohawk", height: "tall" }).hairStyle, "short_crop");
+  assert.equal(sanitizeAppearance({ hairStyle: "mohawk", height: "tall" }).hairStyle, "bald");
   assert.equal(sanitizeAppearance(null).height, 0.5);
 });
 

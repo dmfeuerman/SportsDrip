@@ -36,7 +36,7 @@ function prizeBoxYieldCeiling() {
         const w = segs.reduce((n, s) => n + s.weight, 0);
         return segs.reduce((n, s) => n + s.credits * s.weight, 0) / w;
     };
-    return Math.ceil(Math.max(ev("bronze"), ev("silver"), ev("gold")) + 7 * 15);
+    return Math.ceil(Math.max(ev("bronze"), ev("silver"), ev("gold")) + 7 * 150);
 }
 const rank = (seed, id) => (0, experiments_1.fnv1a)(`${seed}:${id}`);
 /**

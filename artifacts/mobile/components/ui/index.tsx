@@ -869,6 +869,7 @@ export function ConfirmDialog({
   title,
   body,
   confirmLabel,
+  cancelLabel = "Cancel",
   destructive,
   busy,
   error,
@@ -879,6 +880,8 @@ export function ConfirmDialog({
   title: string;
   body: string;
   confirmLabel: string;
+  /** Label for the dismiss button. Default "Cancel". */
+  cancelLabel?: string;
   destructive?: boolean;
   busy?: boolean;
   error?: string | null;
@@ -901,7 +904,7 @@ export function ConfirmDialog({
             </Text>
           ) : null}
           <View style={styles.dialogActions}>
-            <Button label="Cancel" variant="secondary" style={{ flex: 1 }} onPress={onCancel} disabled={busy} />
+            <Button label={cancelLabel} variant="secondary" style={{ flex: 1 }} onPress={onCancel} disabled={busy} />
             <Button label={confirmLabel} variant={destructive ? "destructive" : "primary"} style={{ flex: 1 }} onPress={onConfirm} loading={busy} />
           </View>
         </View>

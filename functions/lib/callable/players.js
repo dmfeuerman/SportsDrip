@@ -169,7 +169,7 @@ exports.getPlayerProfile = (0, https_1.onCall)({ region: "us-central1" }, async 
             // Only moves they own (or the free ones) — never trust the stored loadout alone.
             moves: (0, moves_1.loadoutOf)((0, moves_1.loadoutOf)(user.get("moves")).filter((id) => (0, moves_1.isFreeMove)(id) || ownedMovesSnap.docs.some((d) => d.id === id))),
             favoriteTeams: user.get("favoriteTeams") ?? [],
-            level: (0, progression_1.levelFromXp)(user.get("xp")),
+            level: (0, progression_1.playerLevel)(user),
             background: user.get("background") ?? null,
             stats: user.get("stats") ?? null,
             streak: user.get("streak") ?? null,

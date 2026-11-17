@@ -25,7 +25,7 @@ const gifts_1 = require("./gifts");
  */
 exports.FRIEND_SEND_MIN = 10;
 exports.FRIEND_SEND_MAX = 5_000;
-exports.FRIEND_DAILY_SEND_CAP = 10_000;
+exports.FRIEND_DAILY_SEND_CAP = 100_000;
 exports.FRIEND_LOAN_RATES = [0, 5, 10, 20];
 /** Sending credits (transfers, offering or funding a loan) unlocks at this level. */
 exports.FRIEND_SEND_LEVEL = 5;
@@ -69,7 +69,7 @@ async function friendPair(tx, me, other) {
     return { meSnap, otherSnap };
 }
 function assertSenderLevel(sender) {
-    if ((0, progression_1.levelFromXp)(sender.get("xp")) < exports.FRIEND_SEND_LEVEL) {
+    if ((0, progression_1.playerLevel)(sender) < exports.FRIEND_SEND_LEVEL) {
         throw new https_1.HttpsError("failed-precondition", `Sending credits unlocks at level ${exports.FRIEND_SEND_LEVEL}.`);
     }
 }

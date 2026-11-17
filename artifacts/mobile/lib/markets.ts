@@ -168,3 +168,51 @@ export function weekKey(ms = Date.now()): string {
   dt.setUTCDate(dt.getUTCDate() + diffToMon);
   return dt.toISOString().slice(0, 10);
 }
+
+/** Plain-language description of a placed bet: what kind it is and what has to happen for it to win. */
+export interface BetDescription {
+  /** "Moneyline", "Point Spread", "Game Total". */
+  type: string;
+  /** One-word tag for tight spaces: "ML", "SPREAD", "TOTAL". */
+  tag: string;
+  icon: "trophy-outline" | "plus-minus-variant" | "sigma";
+  /** The pick, short: "KC to win", "KC -3.5", "Over 47.5". */
+  pick: string;
+  /** What has to happen: "Kansas City Chiefs must win the game." */
+  needs: string;
+}
+
+export function describeBet(bet: {
+  market?: Market | string | null;
+  selection?: Selection | string | null;
+  side?: Side | null;
+  line?: number | null;
+  teamName: string;
+  teamAbbr: string;
+  opponentAbbr: string;
+}): BetDescription {
+  const line = typeof bet.line === "number" && Number.isFinite(bet.line) ? bet.line : null;
+  if (bet.market === "spread") {
+    const pick = `${bet.teamAbbr} ${formatSpread(line)}`;
+    let needs: string;
+    if (line === null) needs = `${bet.teamName} must cover the spread against ${bet.opponentAbbr}.`;
+    else if (line < 0) {
+      const by = Math.floor(-line) + 1;
+      needs = `${bet.teamName} must win by ${by}+ points${Number.isInteger(line) ? ` (by exactly ${-line} is a push)` : ""}.`;
+    } else if (line > 0) {
+      const within = Math.ceil(line) - 1;
+      needs = `${bet.teamName} must win, or lose by ${within} or fewer${Number.isInteger(line) ? ` (lose by exactly ${line} is a push)` : ""}.`;
+    } else needs = `${bet.teamName} must win (a tie is a push).`;
+    return { type: "Point Spread", tag: "SPREAD", icon: "plus-minus-variant", pick, needs };
+  }
+  if (bet.market === "total") {
+    const over = bet.selection === "over";
+    const pick = `${over ? "Over" : "Under"} ${line ?? "—"}`;
+    const needs =
+      line === null
+        ? `Combined score must go ${over ? "over" : "under"} the line.`
+        : `${bet.teamAbbr} + ${bet.opponentAbbr} must score ${over ? `${Math.floor(line) + 1}+` : `${Math.ceil(line) - 1} or fewer`} points combined${Number.isInteger(line) ? ` (exactly ${line} is a push)` : ""}.`;
+    return { type: "Game Total", tag: "TOTAL", icon: "sigma", pick, needs };
+  }
+  return { type: "Moneyline", tag: "ML", icon: "trophy-outline", pick: `${bet.teamAbbr} to win`, needs: `${bet.teamName} must win the game outright.` };
+}

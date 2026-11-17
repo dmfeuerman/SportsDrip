@@ -55,7 +55,9 @@ export default function NextActionCard({
   const c = useColors();
   const { profile, prizeBoxes } = useApp();
   const { incoming } = useChallenges();
-  const daily = useDailyPickOpen(profile?.uid ?? null, now);
+  const { open: daily, freeLocked } = useDailyPickOpen(profile?.uid ?? null, now);
+  // Today's free bet is locked in: the Up Next box goes away entirely.
+  if (freeLocked) return null;
 
   const actions: Action[] = [];
   const ch = incoming[0];
@@ -183,11 +185,15 @@ export default function NextActionCard({
   );
 }
 
-/** Today's featured Daily Pick, when it's still open and you haven't picked. */
+/** Today's featured Daily Pick, when it's still open and you haven't picked — or locked in today's free bet. */
 function useDailyPickOpen(uid: string | null, now: number) {
   const day = nyDay(now);
+  const { bets } = useApp();
   const [featured, setFeatured] = useState<{ startsAt: number; home: string; away: string } | null>(null);
   const [picked, setPicked] = useState(true);
+  const [freeLocked, setFreeLocked] = useState(false);
+  // The app's own copy shows the moment it's placed, before the server's token lands.
+  const freePlaced = bets.some((b) => b.freeBet && b.freeDay === day && b.status !== "cancelled");
   useEffect(() => {
     if (DEMO || !uid) return;
     const db = getDb();
@@ -201,12 +207,15 @@ function useDailyPickOpen(uid: string | null, now: number) {
       () => {}
     );
     const b = onSnapshot(doc(db, "users", uid, "dailyPicks", day), (s) => setPicked(s.exists()), () => {});
+    const t = onSnapshot(doc(db, "users", uid, "freeBets", day), (s) => setFreeLocked(s.exists()), () => {});
     return () => {
       a();
       b();
+      t();
     };
   }, [uid, day]);
-  return featured && !picked && featured.startsAt > now ? featured : null;
+  const locked = freeLocked || freePlaced;
+  return { open: featured && !picked && !locked && featured.startsAt > now ? featured : null, freeLocked: locked };
 }
 
 const styles = StyleSheet.create({

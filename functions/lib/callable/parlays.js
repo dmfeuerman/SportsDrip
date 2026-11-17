@@ -36,7 +36,7 @@ const LegSpecSchema = zod_1.z.object({
 const CreateParlayInput = zod_1.z.object({
     leagueId: zod_1.z.string().min(1),
     idempotencyKey: Key,
-    stake: zod_1.z.number().int().min(leagueConfig_1.MIN_LEAGUE_STAKE).max(10_000_000).optional(),
+    stake: zod_1.z.number().int().min(leagueConfig_1.MIN_LEAGUE_STAKE).max(100_000_000).optional(),
     leg: LegSpecSchema.optional(),
 });
 function buildLegFromGame(uid, name, game, spec, league, now) {
@@ -154,7 +154,7 @@ exports.addParlayLeg = (0, https_1.onCall)({ region: "us-central1" }, async (req
         selection: zod_1.z.enum(["home", "away", "over", "under"]).optional(),
         expectedOdds: zod_1.z.number().positive().max(100).optional(),
         expectedLine: zod_1.z.number().finite().optional(),
-        stake: zod_1.z.number().int().min(leagueConfig_1.MIN_LEAGUE_STAKE).max(10_000_000).optional(),
+        stake: zod_1.z.number().int().min(leagueConfig_1.MIN_LEAGUE_STAKE).max(100_000_000).optional(),
     })
         .parse(req.data);
     const leagueRef = economy_1.db.collection("leagues").doc(input.leagueId);
@@ -217,7 +217,7 @@ exports.rideParlay = (0, https_1.onCall)({ region: "us-central1" }, async (req) 
         .object({
         leagueId: zod_1.z.string().min(1),
         parlayId: zod_1.z.string().min(1),
-        stake: zod_1.z.number().int().min(leagueConfig_1.MIN_LEAGUE_STAKE).max(10_000_000),
+        stake: zod_1.z.number().int().min(leagueConfig_1.MIN_LEAGUE_STAKE).max(100_000_000),
     })
         .parse(req.data);
     const leagueRef = economy_1.db.collection("leagues").doc(input.leagueId);

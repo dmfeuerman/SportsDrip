@@ -87,38 +87,37 @@ export const demoPrizeBoxes: Record<BoxTier, PrizeBoxState> = {
 };
 
 // Mirrors scripts/catalog-data.mjs (a functions test checks ids and models match).
-/** Every listed price is x10 since the coin upgrade (2026-11); the numbers below are the old ones, same as catalog-data.mjs. */
-const PRICE_SCALE = 10;
+/** Prices are the real listed credit prices (already include the 2026-11 coin upgrade). */
 const item = (id: string, name: string, slot: CatalogItem["slot"], model: string, price: number, rarity: CatalogItem["rarity"], color: string, secondaryColor: string | null = null): CatalogItem => ({
-  id, name, slot, model, price: price * PRICE_SCALE, rarity, color, secondaryColor, description: "", thumbnailUrl: null, assetUrl: null, excludes: null, available: true, releaseAt: null,
+  id, name, slot, model, price, rarity, color, secondaryColor, description: "", thumbnailUrl: null, assetUrl: null, excludes: null, available: true, releaseAt: null,
 });
 export const demoCatalog: CatalogItem[] = [
   item("tee_basic_white", "Basic Tee", "top", "top_tee", 0, "common", "#F5F5F5", "#D9D9D9"),
   item("shorts_basic_navy", "Basic Shorts", "bottom", "bottom_shorts", 0, "common", "#1A237E", "#FFFFFF"),
   item("shoes_basic_white", "Basic Trainers", "shoes", "shoes_sneaker", 0, "common", "#FAFAFA", "#BDBDBD"),
-  item("hat_champion_snapback", "Champion Snapback", "hat", "hat_cap", 1500, "common", "#CC0000", "#FFFFFF"),
-  item("hat_courtside_beanie", "Courtside Beanie", "hat", "hat_beanie", 1400, "common", "#C62828", "#FFFFFF"),
-  item("hat_sand_bucket", "Sand Bucket Hat", "hat", "hat_bucket", 2900, "uncommon", "#C8B68E", "#8D7B55"),
-  item("hat_game_helmet", "Game Helmet", "hat", "hat_helmet", 7500, "rare", "#0D47A1", "#FFFFFF"),
-  item("hat_gold_crown", "Champion's Crown", "hat", "hat_crown", 50000, "legendary", "#FFD54F", "#D32F2F"),
-  item("top_mvp_jersey", "MVP Jersey", "top", "top_jersey", 3800, "uncommon", "#1565C0", "#FFFFFF"),
-  item("top_stealth_hoodie", "Stealth Hoodie", "top", "top_hoodie", 7000, "rare", "#212121", "#424242"),
-  item("top_warmup_longsleeve", "Warm-up Long Sleeve", "top", "top_longsleeve", 1800, "common", "#37474F", "#FF6F00"),
-  item("bottom_court_shorts", "Court Shorts", "bottom", "bottom_shorts", 1600, "common", "#1A237E", "#FFFFFF"),
-  item("bottom_track_joggers", "Track Joggers", "bottom", "bottom_joggers", 3500, "uncommon", "#263238", "#FFFFFF"),
-  item("bottom_cargo_pants", "Cargo Pants", "bottom", "bottom_pants", 3800, "uncommon", "#5D4037", "#3E2723"),
-  item("shoes_fresh_kicks", "Fresh Kicks", "shoes", "shoes_sneaker", 8000, "rare", "#00E676", "#FFFFFF"),
-  item("shoes_fire_reds", "Fire Reds", "shoes", "shoes_hightop", 9000, "rare", "#D50000", "#FFFFFF"),
-  item("outerwear_bomber", "Bomber Jacket", "outerwear", "outerwear_bomber", 8500, "rare", "#558B2F", "#33691E"),
-  item("outerwear_letterman", "Letterman Jacket", "outerwear", "outerwear_varsity", 16000, "epic", "#4A148C", "#FFD700"),
-  item("outerwear_ice_puffer", "Ice Puffer", "outerwear", "outerwear_puffer", 18000, "epic", "#E3F2FD", "#90CAF9"),
-  item("eyewear_shades_black", "Blackout Shades", "eyewear", "eyewear_shades", 3000, "uncommon", "#0A0A0A"),
-  { ...item("accessory_gold_chain", "Gold Cuban Link", "accessory", "acc_chain_cuban", 40000, "legendary", "#FFD700", "#FFC107"), metalColor: "#E2B43F" },
-  item("accessory_sport_watch", "Sport Watch", "accessory", "acc_watch", 3800, "uncommon", "#212121", "#9E9E9E"),
-  item("accessory_studio_headphones", "Studio Headphones", "accessory", "acc_headphones", 9000, "rare", "#FAFAFA", "#212121"),
+  item("hat_champion_snapback", "Champion Snapback", "hat", "hat_cap", 15000, "common", "#CC0000", "#FFFFFF"),
+  item("hat_courtside_beanie", "Courtside Beanie", "hat", "hat_beanie", 14000, "common", "#C62828", "#FFFFFF"),
+  item("hat_sand_bucket", "Sand Bucket Hat", "hat", "hat_bucket", 29000, "uncommon", "#C8B68E", "#8D7B55"),
+  item("hat_game_helmet", "Game Helmet", "hat", "hat_helmet", 75000, "rare", "#0D47A1", "#FFFFFF"),
+  item("hat_gold_crown", "Champion's Crown", "hat", "hat_crown", 500000, "legendary", "#FFD54F", "#D32F2F"),
+  item("top_mvp_jersey", "MVP Jersey", "top", "top_jersey", 38000, "uncommon", "#1565C0", "#FFFFFF"),
+  item("top_stealth_hoodie", "Stealth Hoodie", "top", "top_hoodie", 70000, "rare", "#212121", "#424242"),
+  item("top_warmup_longsleeve", "Warm-up Long Sleeve", "top", "top_longsleeve", 18000, "common", "#37474F", "#FF6F00"),
+  item("bottom_court_shorts", "Court Shorts", "bottom", "bottom_shorts", 16000, "common", "#1A237E", "#FFFFFF"),
+  item("bottom_track_joggers", "Track Joggers", "bottom", "bottom_joggers", 35000, "uncommon", "#263238", "#FFFFFF"),
+  item("bottom_cargo_pants", "Cargo Pants", "bottom", "bottom_pants", 38000, "uncommon", "#5D4037", "#3E2723"),
+  item("shoes_fresh_kicks", "Fresh Kicks", "shoes", "shoes_sneaker", 80000, "rare", "#00E676", "#FFFFFF"),
+  item("shoes_fire_reds", "Fire Reds", "shoes", "shoes_hightop", 90000, "rare", "#D50000", "#FFFFFF"),
+  item("outerwear_bomber", "Bomber Jacket", "outerwear", "outerwear_bomber", 85000, "rare", "#558B2F", "#33691E"),
+  item("outerwear_letterman", "Letterman Jacket", "outerwear", "outerwear_varsity", 160000, "epic", "#4A148C", "#FFD700"),
+  item("outerwear_ice_puffer", "Ice Puffer", "outerwear", "outerwear_puffer", 180000, "epic", "#E3F2FD", "#90CAF9"),
+  item("eyewear_shades_black", "Blackout Shades", "eyewear", "eyewear_shades", 30000, "uncommon", "#0A0A0A"),
+  { ...item("accessory_gold_chain", "Gold Cuban Link", "accessory", "acc_chain_cuban", 400000, "legendary", "#FFD700", "#FFC107"), metalColor: "#E2B43F" },
+  item("accessory_sport_watch", "Sport Watch", "accessory", "acc_watch", 38000, "uncommon", "#212121", "#9E9E9E"),
+  item("accessory_studio_headphones", "Studio Headphones", "accessory", "acc_headphones", 90000, "rare", "#FAFAFA", "#212121"),
   { ...item("hat_rookie_cap", "Rookie Cap", "hat", "hat_cap", 0, "uncommon", "#2FE38A", "#0E0F11"), description: "Earned, not bought. Reach level 3.", levelReward: 3 },
   { ...item("top_level_up_tee", "Level Up Tee", "top", "top_tee", 0, "rare", "#4C9BFF", "#FFFFFF"), description: "Proof you put in the reps. Reach level 7.", levelReward: 7 },
-  { ...item("shoes_pro_highs", "Pro Hightops", "shoes", "shoes_hightop", 7800, "rare", "#111111", "#2FE38A"), description: "Pro-tier hightops. Level 5 and up.", levelRequired: 5 },
+  { ...item("shoes_pro_highs", "Pro Hightops", "shoes", "shoes_hightop", 78000, "rare", "#111111", "#2FE38A"), description: "Pro-tier hightops. Level 5 and up.", levelRequired: 5 },
 ];
 
 export const demoFriends: PublicUser[] = [

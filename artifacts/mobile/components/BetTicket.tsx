@@ -2,10 +2,13 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { memo, useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
+import { Pill } from "@/components/ui";
+import { SPORT_ICONS } from "@/constants/leagueTypes";
 import type { Bet } from "@/context/AppContext";
 import { useNow } from "@/hooks/useNow";
-import { useColors, type Colors } from "@/hooks/useColors";
-import { formatOdds, formatPercent, impliedProbability, livePosition, untilKickoff } from "@/lib/odds";
+import { useColors } from "@/hooks/useColors";
+import { describeBet } from "@/lib/markets";
+import { formatOdds, livePosition, untilKickoff } from "@/lib/odds";
 import { useOddsFormat } from "@/lib/settings";
 import { shareViewOrText } from "@/lib/shareCard";
 import type { Game } from "@/types/game";
@@ -48,22 +51,16 @@ interface Props {
   onOpenGame?: (game: Game) => void;
   /** Tap anywhere on the ticket. Works even when the game has left the board. */
   onOpen?: () => void;
+  /** Space under the card. 10 for plain lists; 0 inside a parent that already spaces its children (Home). */
+  spacing?: number;
 }
 
 /**
- * A bet, as a ticket.
- *
- * The old card showed stake, odds and a status word. An open bet therefore
- * looked identical whether the user's team was up three scores or getting
- * blown out, which is the one thing they open the tab to find out. Joining the
- * bet to the live game document fixes that without a single extra read — the
- * board is already subscribed.
- *
- * Also added: the price as a probability (2.40x means "the market gave this a
- * 42% chance"), profit split out from total return, and the settled score so a
- * lost bet explains itself.
+ * A bet, as a ticket — same minimalist card language as ParlayTicket:
+ * head (what you picked + status), one matchup line, a live/final line when
+ * there is one, and a foot with the money. Tapping it opens the breakdown.
  */
-function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen }: Props) {
+function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen, spacing = 10 }: Props) {
   const c = useColors();
   const fmt = useOddsFormat();
   const cardRef = useRef<React.ComponentRef<typeof View> | null>(null);
@@ -80,16 +77,9 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen 
           ? c.primary
           : c.push;
 
-  const position = game ? livePosition(game, bet) : null;
-  const returned =
-    bet.status === "won"
-      ? bet.potentialPayout
-      : bet.status === "push" || bet.status === "cancelled"
-        ? bet.stake
-        : 0;
-
+  const desc = describeBet(bet);
+  const position = game && bet.status === "pending" ? livePosition(game, bet) : null;
   const posTone = position === "ahead" ? c.positive : position === "behind" ? c.negative : c.warning;
-  const cover = bet.status === "pending" && game?.status === "live" ? coverProgress(game, bet) : null;
 
   const myScore = game ? (bet.side === "home" ? game.homeScore : game.awayScore) : null;
   const theirScore = game ? (bet.side === "home" ? game.awayScore : game.homeScore) : null;
@@ -99,6 +89,8 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen 
         ? `${bet.finalHomeScore}–${bet.finalAwayScore}`
         : `${bet.finalAwayScore}–${bet.finalHomeScore}`
       : null;
+  const liveScore = game?.status === "live" && myScore !== null && theirScore !== null ? `${myScore}–${theirScore}` : null;
+  const cover = bet.status === "pending" && game?.status === "live" ? coverProgress(game, bet) : null;
 
   // Only before kickoff: the game must be known, still upcoming, and its start time not yet
   // passed (status can lag the real start by a sync or two). The server enforces the same.
@@ -106,6 +98,15 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen 
   const canCancel = bet.status === "pending" && beforeStart;
   const walletTint = walletLabel ? c.league : c.primary;
   const press = onOpen ?? (game && onOpenGame ? () => onOpenGame(game) : undefined);
+
+  const pay =
+    bet.status === "won"
+      ? `+${(bet.potentialPayout - bet.stake).toLocaleString()}`
+      : bet.status === "lost"
+        ? `−${bet.stake.toLocaleString()}`
+        : bet.status === "push" || bet.status === "cancelled"
+          ? "Stake back"
+          : `Pays ${bet.potentialPayout.toLocaleString()}`;
 
   const shareTicket = () => {
     const pickLabel = bet.label ?? bet.teamName;
@@ -118,135 +119,100 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen 
   };
 
   return (
-    <View ref={cardRef} collapsable={false}>
+    <View ref={cardRef} collapsable={false} style={{ marginBottom: spacing }}>
       <Pressable
         accessibilityRole={press ? "button" : undefined}
-        accessibilityHint={press ? (game?.status === "live" ? "Opens live scoring" : "Opens game details") : undefined}
-        style={({ pressed }) => [
-          styles.card,
-          { backgroundColor: c.card, borderColor: c.border, borderLeftColor: tone, opacity: press && pressed ? 0.85 : 1 },
-        ]}
+        accessibilityHint={press ? "Opens bet details" : undefined}
+        accessibilityLabel={`${desc.type}: ${desc.pick}, ${meta.label}. ${desc.needs}`}
         onPress={press}
+        style={({ pressed }) => [styles.card, { backgroundColor: c.card, borderColor: c.alpha(tone, 0.45), opacity: press && pressed ? 0.85 : 1 }]}
       >
-        <View style={styles.top}>
-          <View style={[styles.teamDot, { backgroundColor: bet.teamColor }]} />
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text style={[styles.team, { color: c.foreground, flexShrink: 1 }]} numberOfLines={1}>
-                {bet.label ?? bet.teamName}
-              </Text>
-              {bet.lockWeek ? (
-                <View style={[styles.lockBadge, { backgroundColor: c.alpha(c.accent, 0.16), borderColor: c.alpha(c.accent, 0.5) }]}>
-                  <MaterialCommunityIcons name="lock" size={10} color={c.accent} />
-                  <Text style={[styles.lockText, { color: c.accent }]}>LOCK 1.5x</Text>
-                </View>
-              ) : null}
+        <View style={styles.head}>
+          <MaterialCommunityIcons name={desc.icon} size={18} color={tone} />
+          <Text style={[styles.title, { color: c.foreground, flexShrink: 1 }]} numberOfLines={1}>
+            {desc.pick}
+          </Text>
+          {bet.lockWeek ? (
+            <View style={[styles.lockBadge, { backgroundColor: c.alpha(c.accent, 0.16), borderColor: c.alpha(c.accent, 0.5) }]}>
+              <MaterialCommunityIcons name="lock" size={10} color={c.accent} />
+              <Text style={[styles.lockText, { color: c.accent }]}>1.5x</Text>
             </View>
-            <Text style={[styles.matchup, { color: c.subtleForeground }]} numberOfLines={1}>
-              {bet.sport}   {bet.teamAbbr} v {bet.opponentAbbr}
-              {game?.status === "upcoming" ? `   ${untilKickoff(game.startsAt)}` : ""}
-            </Text>
-            <View
-              accessible
-              accessibilityLabel={walletLabel ? `Wagered in league ${walletLabel}, league tokens` : "Wagered with credits"}
-              style={[styles.wallet, { backgroundColor: c.alpha(walletTint, 0.12), borderColor: c.alpha(walletTint, 0.45) }]}
-            >
-              <MaterialCommunityIcons name={walletLabel ? "shield-star" : "lightning-bolt"} size={12} color={walletTint} />
-              <Text style={[styles.walletText, { color: walletTint }]} numberOfLines={1}>
-                {walletLabel ? `${walletLabel} · league tokens` : "Credits"}
-              </Text>
-            </View>
-          </View>
-
-          {position && bet.status === "pending" ? (
+          ) : null}
+          <View style={{ flex: 1 }} />
+          {position ? (
             <View
               accessible
               accessibilityLabel={`Live: ${POSITION_LABEL[position]}`}
-              style={[styles.pill, styles.posPill, { backgroundColor: c.alpha(posTone, 0.14), borderColor: c.alpha(posTone, 0.6) }]}
+              style={[styles.posPill, { backgroundColor: c.alpha(posTone, 0.14), borderColor: c.alpha(posTone, 0.6) }]}
             >
               <MaterialCommunityIcons name={POSITION_ICON[position]} size={11} color={posTone} />
-              <Text style={[styles.pillText, { color: posTone }]}>{POSITION_LABEL[position]}</Text>
+              <Text style={[styles.posText, { color: posTone }]}>{POSITION_LABEL[position]}</Text>
             </View>
           ) : (
-            <View style={[styles.pill, { backgroundColor: c.alpha(tone, 0.14), borderColor: c.alpha(tone, 0.6) }]}>
-              <Text style={[styles.pillText, { color: tone }]}>{meta.label}</Text>
-            </View>
+            <Pill label={meta.label} tone={meta.tone === "positive" ? "positive" : meta.tone === "negative" ? "negative" : meta.tone === "open" ? "accent" : "neutral"} />
           )}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Share bet ticket"
-            hitSlop={8}
-            onPress={shareTicket}
-            style={styles.shareBtn}
-          >
-            <MaterialCommunityIcons name="share-variant" size={15} color={c.mutedForeground} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Share bet ticket" hitSlop={8} onPress={shareTicket} style={styles.shareBtn}>
+            <MaterialCommunityIcons name="share-variant" size={14} color={c.mutedForeground} />
           </Pressable>
-          {press ? <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} /> : null}
         </View>
 
-        {/* Live or final scoreline, from the wearer's point of view: their team
-            first, so "21–14" always means "you're up seven". */}
-        {(myScore !== null && theirScore !== null) || finalScore ? (
-          <View style={[styles.scoreRow, { backgroundColor: game?.status === "live" ? c.alpha(c.live, 0.1) : c.secondary }]}>
-            <Text style={[styles.scoreLabel, { color: game?.status === "live" ? c.live : c.mutedForeground }]}>
-              {game?.status === "live" ? `● ${game.clock ?? "Live"}` : "Final"}
-            </Text>
-            <Text style={[styles.score, { color: c.foreground }]}>
-              {finalScore ?? `${myScore}–${theirScore}`}
+        {/* What has to happen for it to cash — the bet type in one muted line. */}
+        <View style={styles.leg}>
+          <Text style={[styles.typeTag, { color: tone, backgroundColor: c.alpha(tone, 0.12) }]}>{desc.tag}</Text>
+          <Text style={[styles.legText, { color: c.mutedForeground, flex: 1 }]} numberOfLines={1}>
+            {desc.needs}
+          </Text>
+        </View>
+
+        {/* Matchup, wallet and where the game stands. */}
+        <View style={styles.leg}>
+          <MaterialCommunityIcons name={(SPORT_ICONS[bet.sport as keyof typeof SPORT_ICONS] ?? "trophy") as never} size={13} color={c.subtleForeground} />
+          <Text style={[styles.legText, { color: c.foreground }]} numberOfLines={1}>
+            {bet.teamAbbr} <Text style={{ color: c.mutedForeground }}>vs {bet.opponentAbbr}</Text>
+          </Text>
+          <Text style={[styles.legText, { color: c.mutedForeground, flex: 1 }]} numberOfLines={1}>
+            {game?.status === "upcoming" ? ` · ${untilKickoff(game.startsAt)}` : liveScore ? ` · ● ${game?.clock ?? "Live"}  ${liveScore}` : finalScore ? ` · Final ${finalScore}` : ""}
+          </Text>
+          <View
+            accessible
+            accessibilityLabel={walletLabel ? `Wagered in league ${walletLabel}, league tokens` : "Wagered with credits"}
+            style={[styles.wallet, { backgroundColor: c.alpha(walletTint, 0.12), borderColor: c.alpha(walletTint, 0.45) }]}
+          >
+            <MaterialCommunityIcons name={walletLabel ? "trophy-outline" : "lightning-bolt"} size={11} color={walletTint} />
+            <Text style={[styles.walletText, { color: walletTint }]} numberOfLines={1}>
+              {walletLabel ?? "Credits"}
             </Text>
           </View>
-        ) : null}
+        </View>
 
         {cover ? (
-          <View style={{ gap: 4 }} accessible accessibilityLabel={cover.text}>
+          <View style={{ gap: 3 }} accessible accessibilityLabel={cover.text}>
             <View style={[styles.coverTrack, { backgroundColor: c.secondary }]}>
               <View style={[styles.coverFill, { width: `${Math.round(cover.pct * 100)}%`, backgroundColor: cover.covering ? c.positive : c.warning }]} />
             </View>
-            <Text style={[styles.cellHint, { color: cover.covering ? c.positive : c.mutedForeground }]}>{cover.text}</Text>
+            <Text style={[styles.coverText, { color: cover.covering ? c.positive : c.mutedForeground }]}>{cover.text}</Text>
           </View>
         ) : null}
 
-        <View style={[styles.divider, { backgroundColor: c.border }]} />
-
-        <View style={styles.cells}>
-          {bet.freeBet ? (
-            <Cell label="Stake" value="FREE" hint={`${(bet.freeStake ?? 100).toLocaleString()} free bet`} accent={c.primary} c={c} />
-          ) : (
-            <Cell label="Stake" value={bet.stake.toLocaleString()} hint={walletLabel ? "league tokens" : "credits"} c={c} />
-          )}
-          <Cell
-            label="Price"
-            value={formatOdds(bet.odds, fmt)}
-            hint={formatPercent(impliedProbability(bet.odds))}
-            c={c}
-          />
-          <Cell
-            label={bet.status === "pending" ? "Returns" : "Returned"}
-            value={(bet.status === "pending" ? bet.potentialPayout : returned).toLocaleString()}
-            hint={
-              bet.status === "pending"
-                ? `+${(bet.potentialPayout - bet.stake).toLocaleString()} profit`
-                : returned > 0
-                  ? `+${(returned - bet.stake).toLocaleString()}`
-                  : `−${bet.stake.toLocaleString()}`
-            }
-            accent={bet.status === "pending" ? c.primary : returned > bet.stake ? c.positive : undefined}
-            c={c}
-          />
+        <View style={[styles.foot, { borderTopColor: c.border }]}>
+          <Text style={[styles.sub, { color: c.mutedForeground }]}>
+            {bet.freeBet ? `Free bet (${(bet.freeStake ?? 100).toLocaleString()})` : `Stake ${bet.stake.toLocaleString()}`} · {formatOdds(bet.odds, fmt)}
+          </Text>
+          <Text style={[styles.pay, { color: tone }]}>{pay}</Text>
         </View>
 
-        {canCancel && onCancel && (
+        {canCancel && onCancel ? (
           <Pressable
-            style={({ pressed }) => [styles.cancel, { borderColor: c.alpha(c.foreground, 0.25), backgroundColor: c.secondary, opacity: busy ? 0.5 : pressed ? 0.8 : 1 }]}
             onPress={onCancel}
             disabled={busy}
+            style={[styles.cancel, { borderColor: c.alpha(c.foreground, 0.25), opacity: busy ? 0.5 : 1 }]}
           >
-            <MaterialCommunityIcons name="undo-variant" size={16} color={c.foreground} />
-            <Text style={[styles.cancelText, { color: c.foreground }]}>
+            <MaterialCommunityIcons name="undo-variant" size={15} color={c.foreground} />
+            <Text style={[styles.sub, { color: c.foreground }]}>
               {bet.freeBet ? "Cancel and get your free bet back" : "Cancel and get the stake back"}
             </Text>
           </Pressable>
-        )}
+        ) : null}
       </Pressable>
     </View>
   );
@@ -298,52 +264,25 @@ function coverProgress(game: Game, bet: TicketBet): { pct: number; text: string;
 }
 const fmtPts = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
-function Cell({
-  label,
-  value,
-  hint,
-  accent,
-  c,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  accent?: string;
-  c: Colors;
-}) {
-  return (
-    <View style={{ flex: 1, gap: 1 }}>
-      <Text style={[styles.cellLabel, { color: c.subtleForeground }]}>{label}</Text>
-      <Text style={[styles.cellValue, { color: accent ?? c.foreground }]}>{value}</Text>
-      {hint ? <Text style={[styles.cellHint, { color: c.mutedForeground }]}>{hint}</Text> : null}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  card: { borderRadius: 14, borderWidth: 1, borderLeftWidth: 4, padding: 14, marginBottom: 10, gap: 10 },
-  top: { flexDirection: "row", alignItems: "center", gap: 10 },
-  teamDot: { width: 10, height: 10, borderRadius: 5 },
-  team: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  lockBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
-  lockText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.4 },
-  shareBtn: { padding: 4 },
-  matchup: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
-  pill: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
-  pillText: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  posPill: { flexDirection: "row", alignItems: "center", gap: 3 },
-  coverTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
-  coverFill: { height: 6, borderRadius: 3 },
-  scoreRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
-  scoreLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  score: { fontSize: 16, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
-  divider: { height: 1 },
-  cells: { flexDirection: "row" },
-  cellLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  cellValue: { fontSize: 15, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
-  cellHint: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  wallet: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", maxWidth: "100%", gap: 4, marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
-  walletText: { flexShrink: 1, fontSize: 11, fontFamily: "Inter_700Bold" },
-  cancel: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1.5, borderRadius: 10, paddingVertical: 10, minHeight: 40 },
-  cancelText: { fontSize: 13, fontFamily: "Inter_800ExtraBold" },
+  card: { borderWidth: 1.5, borderRadius: 16, padding: 12, gap: 8 },
+  head: { flexDirection: "row", alignItems: "center", gap: 8 },
+  title: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
+  lockBadge: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
+  lockText: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.3 },
+  posPill: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
+  posText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  shareBtn: { padding: 3 },
+  leg: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  typeTag: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.5, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, overflow: "hidden" },
+  wallet: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, borderWidth: 1, maxWidth: 140 },
+  walletText: { flexShrink: 1, fontSize: 10, fontFamily: "Inter_700Bold" },
+  coverTrack: { height: 5, borderRadius: 3, overflow: "hidden" },
+  coverFill: { height: 5, borderRadius: 3 },
+  coverText: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  foot: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 8 },
+  sub: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  pay: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
+  cancel: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1, borderRadius: 10, paddingVertical: 8 },
 });

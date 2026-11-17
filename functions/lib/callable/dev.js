@@ -7,6 +7,8 @@ const zod_1 = require("zod");
 const economy_1 = require("../lib/economy");
 const avatarRules_1 = require("../lib/avatarRules");
 const leagueConfig_1 = require("../lib/leagueConfig");
+const notify_1 = require("../lib/notify");
+const notifyModel_1 = require("../lib/notifyModel");
 const settleBets_1 = require("../scheduled/settleBets");
 /**
  * Test-data tools behind the mobile app's dev launch flags
@@ -65,17 +67,17 @@ async function ensureBot(me, kind, i) {
     const ref = economy_1.db.collection("users").doc(uid);
     const snap = await ref.get();
     const name = `${NAMES[i % NAMES.length]} ${kind === "r" ? "(req)" : "Bot"}`;
+    const defaultUsername = `bot${kind}${i}_${me.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toLowerCase()}`;
     if (!snap.exists) {
-        const username = `bot${kind}${i}_${me.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toLowerCase()}`;
         const batch = economy_1.db.batch();
-        batch.set(economy_1.db.collection("usernames").doc(username), { uid, dev: true, createdAt: economy_1.FieldValue.serverTimestamp() });
+        batch.set(economy_1.db.collection("usernames").doc(defaultUsername), { uid, dev: true, createdAt: economy_1.FieldValue.serverTimestamp() });
         const won = 5 + ((i * 7) % 20);
         const lost = 4 + ((i * 5) % 15);
         batch.set(ref, {
             uid,
-            username,
+            username: defaultUsername,
             displayName: name,
-            balance: 1000 + i * 1750,
+            balance: 10_000 + i * 17_500,
             avatar: {
                 ...avatarRules_1.DEFAULT_AVATAR,
                 skinTone: SKINS[i % SKINS.length],
@@ -85,7 +87,7 @@ async function ensureBot(me, kind, i) {
                 bodyType: 0.3 + ((i * 17) % 50) / 100,
             },
             equipped: OUTFITS[i % OUTFITS.length],
-            stats: { betsPlaced: won + lost, betsWon: won, betsLost: lost, betsPush: 0, creditsWon: won * 120, creditsStaked: (won + lost) * 150 },
+            stats: { betsPlaced: won + lost, betsWon: won, betsLost: lost, betsPush: 0, creditsWon: won * 1200, creditsStaked: (won + lost) * 1500 },
             onboarded: true,
             dev: true,
             createdAt: economy_1.FieldValue.serverTimestamp(),
@@ -96,37 +98,72 @@ async function ensureBot(me, kind, i) {
         }
         await batch.commit();
     }
-    return { uid, name: snap.get("displayName") ?? name };
+    return {
+        uid,
+        name: snap.get("displayName") ?? name,
+        username: snap.get("username") ?? defaultUsername,
+    };
 }
 async function seedFriends(me, n) {
     const bots = [];
     for (let i = 0; i < n; i++) {
-        const bot = await ensureBot(me, "f", i);
-        await economy_1.db.collection("friendships").doc((0, economy_1.pairId)(me, bot.uid)).set({ users: [me, bot.uid].sort(), dev: true, createdAt: economy_1.FieldValue.serverTimestamp() }, { merge: true });
-        bots.push(bot);
+        bots.push(await ensureBot(me, "f", i));
+    }
+    if (bots.length) {
+        const batch = economy_1.db.batch();
+        for (const bot of bots) {
+            batch.set(economy_1.db.collection("friendships").doc((0, economy_1.pairId)(me, bot.uid)), { users: [me, bot.uid].sort(), dev: true, createdAt: economy_1.FieldValue.serverTimestamp() }, { merge: true });
+        }
+        await batch.commit();
     }
     return bots;
 }
 async function seedRequests(me, n) {
+    const now = Date.now();
+    const batch = economy_1.db.batch();
+    let writes = 0;
     for (let i = 0; i < n; i++) {
         const bot = await ensureBot(me, "r", i);
-        const ref = economy_1.db.collection("friendRequests").doc(`${bot.uid}_${me}`);
-        const snap = await ref.get();
-        if (snap.exists && snap.get("status") === "pending")
-            continue;
-        await ref.set({ from: bot.uid, to: me, status: "pending", dev: true, createdAt: economy_1.FieldValue.serverTimestamp() });
+        const reqRef = economy_1.db.collection("friendRequests").doc(`${bot.uid}_${me}`);
+        const friendshipRef = economy_1.db.collection("friendships").doc((0, economy_1.pairId)(me, bot.uid));
+        const [reqSnap, friendshipSnap] = await Promise.all([reqRef.get(), friendshipRef.get()]);
+        if (friendshipSnap.exists) {
+            batch.delete(friendshipRef);
+            writes++;
+        }
+        if (!reqSnap.exists || reqSnap.get("status") !== "pending" || friendshipSnap.exists) {
+            batch.set(reqRef, { from: bot.uid, to: me, status: "pending", dev: true, createdAt: economy_1.FieldValue.serverTimestamp() });
+            const notif = (0, notifyModel_1.simpleNotification)({
+                id: `freq_${bot.uid}_${me}`,
+                type: "friend_request",
+                title: `${bot.name} sent you a friend request`,
+                body: `@${bot.username} wants to compete with you. Tap to respond.`,
+                now: now + i,
+                popup: true,
+                data: { fromUid: bot.uid },
+            });
+            batch.set((0, notify_1.notificationRef)(me, notif.id), { ...notif, createdAt: economy_1.FieldValue.serverTimestamp() });
+            writes++;
+        }
     }
+    if (writes > 0)
+        await batch.commit();
 }
 async function seedLeagues(me, myName, n, bots) {
     const ids = [];
     const now = Date.now();
-    const tokens = 10_000;
+    const tokens = 100_000;
     for (let i = 0; i < n; i++) {
         const leagueId = `lg_dev_${me.slice(0, 8)}_${i}`;
         ids.push(leagueId);
         const ref = economy_1.db.collection("leagues").doc(leagueId);
-        if ((await ref.get()).exists)
+        const existing = await ref.get();
+        if (existing.exists &&
+            existing.get("status") === "active" &&
+            ((existing.get("endsAt") ?? 0) > now) &&
+            (existing.get("memberIds") ?? []).includes(me)) {
             continue;
+        }
         const mates = bots.slice(i, i + 4).length ? bots.slice(i, i + 4) : bots.slice(0, 4);
         const roster = [{ uid: me, name: myName }, ...mates];
         const members = {};
@@ -137,7 +174,7 @@ async function seedLeagues(me, myName, n, bots) {
                 uid: p.uid,
                 displayName: p.name,
                 avatarColor: leagueConfig_1.MEMBER_COLORS[j % leagueConfig_1.MEMBER_COLORS.length],
-                leagueTokens: j === 0 ? tokens : tokens + (won - lost) * 400,
+                leagueTokens: j === 0 ? tokens : tokens + (won - lost) * 4000,
                 startingLeagueTokens: tokens,
                 joinedAt: now - (roster.length - j) * 3_600_000,
                 betsWon: won,
@@ -155,7 +192,7 @@ async function seedLeagues(me, myName, n, bots) {
                 h2h: { w: 0, l: 0, t: 0 },
             };
         });
-        const code = (0, leagueConfig_1.randomCode)();
+        const code = existing.get("code") || (0, leagueConfig_1.randomCode)();
         const name = ["Dev League", "Sunday Sweats", "Group Chat FC", "Bad Beats", "Late Night Locks"][i % 5];
         const batch = economy_1.db.batch();
         batch.set(ref, {
@@ -213,7 +250,7 @@ async function setCash(me, cash) {
         await (0, economy_1.applyCredits)(tx, me, {
             delta: cash - current,
             type: "dev_grant",
-            idempotencyKey: `dev_cash_${Date.now()}`,
+            idempotencyKey: `dev_cash_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             note: `Dev tools: balance set to ${cash.toLocaleString("en-US")}`,
         });
     });
@@ -235,7 +272,7 @@ async function readyChests(me) {
     }
     await batch.commit();
 }
-/** Newest pending main-wallet bet, or a fresh 100-credit dev bet when there is none. */
+/** Newest pending main-wallet bet, or a fresh 1,000-credit dev bet when there is none. */
 async function betToSettle(me) {
     const pending = await economy_1.db.collection("bets").where("uid", "==", me).where("status", "==", "pending").get();
     const newest = pending.docs.sort((a, b) => (b.get("placedAt")?.toMillis?.() ?? 0) - (a.get("placedAt")?.toMillis?.() ?? 0))[0];
@@ -243,7 +280,18 @@ async function betToSettle(me) {
         return newest.ref;
     const ref = economy_1.db.collection("bets").doc(`${me}_dev_${Date.now()}`);
     await economy_1.db.runTransaction(async (tx) => {
-        await (0, economy_1.applyCredits)(tx, me, { delta: -100, type: "bet_stake", idempotencyKey: `bet_stake_dev_${ref.id}`, ref: ref.id, note: "Dev bet" });
+        const userSnap = await tx.get(economy_1.db.collection("users").doc(me));
+        const current = userSnap.get("balance") ?? 0;
+        if (current < 1000) {
+            await (0, economy_1.applyCredits)(tx, me, {
+                delta: 1000 - current,
+                type: "dev_grant",
+                idempotencyKey: `dev_stake_topup_${ref.id}`,
+                ref: ref.id,
+                note: "Dev bet stake top-up",
+            });
+        }
+        await (0, economy_1.applyCredits)(tx, me, { delta: -1000, type: "bet_stake", idempotencyKey: `bet_stake_dev_${ref.id}`, ref: ref.id, note: "Dev bet" });
         tx.set(ref, {
             id: ref.id,
             uid: me,
@@ -258,9 +306,9 @@ async function betToSettle(me) {
             teamAbbr: "BOS",
             teamColor: "#007A33",
             opponentAbbr: "NYK",
-            stake: 100,
+            stake: 1000,
             odds: 2.1,
-            potentialPayout: 210,
+            potentialPayout: 2100,
             status: "pending",
             startsAt: Date.now() - 3 * 3_600_000,
             opponentUid: null,
@@ -268,7 +316,7 @@ async function betToSettle(me) {
             settledAt: null,
             dev: true,
         });
-        tx.update(economy_1.db.collection("users").doc(me), { "stats.betsPlaced": economy_1.FieldValue.increment(1), "stats.creditsStaked": economy_1.FieldValue.increment(100) });
+        tx.update(economy_1.db.collection("users").doc(me), { "stats.betsPlaced": economy_1.FieldValue.increment(1), "stats.creditsStaked": economy_1.FieldValue.increment(1000) });
     });
     return ref;
 }
@@ -346,7 +394,6 @@ exports.devTools = (0, https_1.onCall)({ region: "us-central1", timeoutSeconds: 
         done.push(`${input.leagues} leagues`);
     if (input.cash !== undefined) {
         await setCash(me, input.cash);
-        done.push(`${input.cash.toLocaleString("en-US")} credits`);
     }
     if (input.chests) {
         await readyChests(me);
@@ -356,6 +403,10 @@ exports.devTools = (0, https_1.onCall)({ region: "us-central1", timeoutSeconds: 
         done.push(`bet ${await simulateResult(me, "won")} won`);
     if (input.loseBet)
         done.push(`bet ${await simulateResult(me, "lost")} lost`);
+    if (input.cash !== undefined) {
+        await setCash(me, input.cash);
+        done.push(`${input.cash.toLocaleString("en-US")} credits`);
+    }
     if (input.chat) {
         const ids = leagueIds.length
             ? leagueIds

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui";
 import {
   EYE_COLORS,
   EYE_SHAPES,
+  BODY_FRAMES,
   EYEBROWS,
   FACE_SHAPES,
   FACIAL_HAIR,
@@ -26,7 +27,7 @@ import { haptic as buzz } from "@/lib/motion";
 import type { AvatarConfig } from "@/types/avatar";
 import type { CatalogItem } from "@/types/catalog";
 
-type Key = "skinTone" | "height" | "bodyType" | "faceShape" | "eyeShape" | "eyeColor" | "eyebrows" | "noseShape" | "mouthShape" | "hairStyle" | "hairColor" | "facialHair";
+type Key = "bodyFrame" | "skinTone" | "height" | "bodyType" | "faceShape" | "eyeShape" | "eyeColor" | "eyebrows" | "noseShape" | "mouthShape" | "hairStyle" | "hairColor" | "facialHair";
 
 type StepDef = { key: Key; title: string; sub: string; label: string; focus: Focus } & (
   | { kind: "swatch"; options: string[]; fallback: string }
@@ -36,6 +37,7 @@ type StepDef = { key: Key; title: string; sub: string; label: string; focus: Foc
 
 /** One screen per trait, ordered so the camera works from full body in to the face. */
 const STEPS: StepDef[] = [
+  { key: "bodyFrame", title: "Body", sub: "Who are you playing as?", label: "Body", focus: "full", kind: "chips", options: BODY_FRAMES, fallback: "masc" },
   { key: "skinTone", title: "Skin Tone", sub: "Start with the base.", label: "Skin tone", focus: "full", kind: "swatch", options: SKIN_TONES, fallback: SKIN_TONES[0]! },
   { key: "height", title: "Height", sub: "How tall do you stand?", label: "Height", focus: "full", kind: "stops", ends: ["Shorter", "Taller"] },
   { key: "bodyType", title: "Build", sub: "Slim, broad or somewhere between.", label: "Build", focus: "full", kind: "stops", ends: ["Slim", "Broad"] },

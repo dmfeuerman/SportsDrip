@@ -16,7 +16,7 @@ import EarnCreditsButton from "@/components/ads/EarnCreditsButton";
 import { ActionChip, Button, ConfirmDialog, ErrorBanner } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useCart, type CartOrigin } from "@/context/CartContext";
-import { useCartItems } from "@/hooks/useCartItems";
+import { useCartItems, type CartExtra } from "@/hooks/useCartItems";
 import { useColors } from "@/hooks/useColors";
 import { RARITY_COLORS, SLOT_LABELS, type CatalogItem } from "@/types/catalog";
 
@@ -36,18 +36,18 @@ export default function CheckoutScreen() {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const cart = useCart();
-  const { balance, inventory, purchaseItem, saveLook, error, clearError, profile } = useApp();
+  const { balance, inventory, purchaseItem, purchaseMove, purchaseBackground, saveLook, error, clearError, profile } = useApp();
   const { byId } = useCatalog();
   const showcaseRef = useRef<React.ComponentRef<typeof View>>(null);
   const { from } = useLocalSearchParams<{ from?: CartOrigin }>();
   const [phase, setPhase] = useState<Phase>("review");
   const [failed, setFailed] = useState<string[]>([]);
-  const [bought, setBought] = useState<CatalogItem[]>([]);
+  const [bought, setBought] = useState<Array<{ id: string; name: string; price: number }>>([]);
   const [lookSaved, setLookSaved] = useState(true);
 
   const [clearAsk, setClearAsk] = useState(false);
   const owned = useMemo(() => new Set(inventory), [inventory]);
-  const { items, total } = useCartItems();
+  const { items, extras, count, total } = useCartItems();
   const after = balance - total;
   const short = after < 0;
 
@@ -66,11 +66,12 @@ export default function CheckoutScreen() {
   };
 
   const pay = async () => {
-    if (!items.length || short) return;
+    if (!count || short) return;
     clearError();
     setFailed([]);
     setPhase("paying");
     const ok: CatalogItem[] = [];
+    const okExtras: Array<{ id: string; name: string; price: number }> = [];
     const bad: string[] = [];
     // One at a time: each purchase is its own atomic, idempotent server call,
     // and the balance check for the next one depends on the last.
@@ -78,7 +79,15 @@ export default function CheckoutScreen() {
       if (await purchaseItem(item.id, item.price, true)) ok.push(item);
       else bad.push(item.id);
     }
-    setBought(ok);
+    // Dance moves and scenes, same rules.
+    for (const x of extras) {
+      const done = x.kind === "move" ? await purchaseMove(x.refId) : await purchaseBackground(x.refId);
+      if (done) {
+        okExtras.push({ id: x.cartId, name: x.name, price: x.price });
+        cart.remove(x.cartId);
+      } else bad.push(x.cartId);
+    }
+    setBought([...ok, ...okExtras]);
     if (bad.length) {
       setFailed(bad);
       setPhase("review");
@@ -128,7 +137,7 @@ export default function CheckoutScreen() {
           </Text>
           {phase !== "done" ? (
             <Text style={[styles.subtitle, { color: c.mutedForeground }]}>
-              {items.length} {items.length === 1 ? "item" : "items"} in your cart
+              {count} {count === 1 ? "item" : "items"} in your cart
             </Text>
           ) : null}
         </View>
@@ -191,7 +200,7 @@ export default function CheckoutScreen() {
           ) : null}
           <Button label={continueLabel} variant="secondary" onPress={continueShopping} style={styles.stretch} />
         </ScrollView>
-      ) : items.length === 0 ? (
+      ) : count === 0 ? (
         <View style={styles.empty}>
           <View style={[styles.emptyIcon, { backgroundColor: c.secondary }]}>
             <MaterialCommunityIcons name="cart-outline" size={34} color={c.mutedForeground} />
@@ -217,6 +226,18 @@ export default function CheckoutScreen() {
                 }}
               />
             ))}
+            {extras.map((x) => (
+              <ExtraItem
+                key={x.cartId}
+                item={x}
+                failed={failed.includes(x.cartId)}
+                disabled={phase === "paying"}
+                onRemove={() => {
+                  buzz.tick();
+                  cart.remove(x.cartId);
+                }}
+              />
+            ))}
 
             <View style={styles.cartActions}>
               <ActionChip label={continueLabel} icon="arrow-left" chevron={false} tone="money" onPress={continueShopping} />
@@ -236,7 +257,7 @@ export default function CheckoutScreen() {
             {/* order summary */}
             <View style={[styles.summary, { backgroundColor: c.card, borderColor: c.border }]}>
               <Text style={[styles.summaryTitle, { color: c.foreground }]}>Order Summary</Text>
-              <Line label={`Subtotal (${items.length} ${items.length === 1 ? "item" : "items"})`} value={credits(total)} />
+              <Line label={`Subtotal (${count} ${count === 1 ? "item" : "items"})`} value={credits(total)} />
               <Line label="Fees" value="Free" />
               <View style={[styles.divider, { backgroundColor: c.border }]} />
               <Line label="Total" value={total === 0 ? "FREE" : `${credits(total)} credits`} strong />
@@ -282,12 +303,59 @@ export default function CheckoutScreen() {
       <ConfirmDialog
         visible={clearAsk}
         title="Clear your cart?"
-        body={`Removes ${items.length === 1 ? "the 1 item" : `all ${items.length} items`} from your cart. Anything you were trying on in Customize comes off too.`}
+        body={`Removes ${count === 1 ? "the 1 item" : `all ${count} items`} from your cart. Anything you were trying on in Customize comes off too.`}
         confirmLabel="Clear Cart"
         destructive
         onConfirm={clearCart}
         onCancel={() => setClearAsk(false)}
       />
+    </View>
+  );
+}
+
+/** A dance move or scene in the cart: same card as clothing, with its icon instead of a garment. */
+function ExtraItem({ item, failed, disabled, onRemove }: { item: CartExtra; failed: boolean; disabled: boolean; onRemove: () => void }) {
+  const c = useColors();
+  const rarity = c.rarity(item.rarity as never);
+  return (
+    <View style={[styles.card, { backgroundColor: c.card, borderColor: failed ? c.negative : c.border }]}>
+      <View style={[styles.image, { backgroundColor: c.secondary, borderColor: c.alpha(rarity, 0.5), alignItems: "center", justifyContent: "center" }]}>
+        <MaterialCommunityIcons name={item.icon as never} size={40} color={rarity} />
+        <View style={[styles.rarityTag, { backgroundColor: rarity }]}>
+          <Text style={styles.rarityText}>{item.rarity.toUpperCase()}</Text>
+        </View>
+      </View>
+      <View style={styles.cardBody}>
+        <Text style={[styles.name, { color: c.foreground }]} numberOfLines={2}>
+          {item.name}
+        </Text>
+        <Text style={[styles.meta, { color: c.mutedForeground }]} numberOfLines={1}>
+          {item.kind === "move" ? "Dance move" : "Scene"} · {cap(item.rarity)} · Qty 1
+        </Text>
+        {item.description ? (
+          <Text style={[styles.desc, { color: c.subtleForeground }]} numberOfLines={2}>
+            {item.description}
+          </Text>
+        ) : null}
+        {failed ? <Text style={[styles.meta, { color: c.negative }]}>Couldn't buy this one. Try again.</Text> : null}
+        <View style={styles.cardFoot}>
+          <View style={styles.priceRow}>
+            <MaterialCommunityIcons name="lightning-bolt" size={15} color={c.primary} />
+            <Text style={[styles.price, { color: c.foreground }]}>{item.price === 0 ? "FREE" : credits(item.price)}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Remove ${item.name} from cart`}
+            hitSlop={8}
+            disabled={disabled}
+            onPress={onRemove}
+            style={({ pressed }) => [styles.remove, { borderColor: c.border, opacity: disabled ? 0.4 : pressed ? 0.6 : 1 }]}
+          >
+            <MaterialCommunityIcons name="trash-can-outline" size={15} color={c.negative} />
+            <Text style={[styles.removeText, { color: c.negative }]}>Remove</Text>
+          </Pressable>
+        </View>
+      </View>
     </View>
   );
 }

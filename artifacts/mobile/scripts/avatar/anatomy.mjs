@@ -64,13 +64,13 @@ const scaleKeys = (keys, k) => keys.map(([t, r]) => [t, r * k]);
  * Arm centre-line from the top of the shoulder to the wrist; t: 0 shoulder → 1 wrist.
  * `build` (-1 slim … +1 broad) thickens the limb for the body-build blendshapes.
  */
-export function arm(side, build = 0) {
-  const key = `${side}${build}`;
+export function arm(side, build = 0, frame = 0) {
+  const key = `${side}${build}f${frame}`;
   if (ARM_CACHE[key]) return ARM_CACHE[key];
   const s = sgn(side);
   const U = REST[B("Arm", side)], E = REST[B("ForeArm", side)], W = REST[B("Hand", side)];
   const pts = [[0.155 * s, 1.424, -0.012], U, [(U[0] + E[0]) / 2, (U[1] + E[1]) / 2, (U[2] + E[2]) / 2 + 0.002], E, W];
-  const k = (1 + 0.11 * build) * 0.93;
+  const k = (1 + 0.11 * build) * (1 - 0.14 * frame) * 0.93;
   return (ARM_CACHE[key] = limb(pts, E, (tE) => [
     scaleKeys([[0, 0.06], [0.06, 0.061], [0.28, 0.057], [tE - 0.03, 0.045], [tE + 0.06, 0.046], [0.75, 0.042], [0.93, 0.032], [1, 0.03]], k),
     scaleKeys([[0, 0.06], [0.06, 0.059], [0.28, 0.056], [tE - 0.03, 0.044], [tE + 0.06, 0.044], [0.75, 0.037], [0.93, 0.025], [1, 0.023]], k),
@@ -84,15 +84,18 @@ export function arm(side, build = 0) {
 }
 
 /** Leg centre-line from the top of the hip to the ankle; t: 0 hip → 1 ankle. */
-export function leg(side, build = 0) {
-  const key = `${side}${build}`;
+export function leg(side, build = 0, frame = 0) {
+  const key = `${side}${build}f${frame}`;
   if (LEG_CACHE[key]) return LEG_CACHE[key];
   const s = sgn(side);
   const H = REST[B("UpLeg", side)], K = REST[B("Leg", side)], A = REST[B("Foot", side)];
-  const pts = [[0.086 * s, 0.985, 0], H, [(H[0] + K[0]) / 2, (H[1] + K[1]) / 2, 0.016], K, [(K[0] + A[0]) / 2, (K[1] + A[1]) / 2, -0.004], A];
-  const k = (1 + 0.1 * build) * 0.95;
+  // The thigh's centre-line runs a little inside the hip joint, so the hips stay narrow and taper into the legs.
+  const Hc = [H[0] - 0.008 * (1 - frame) * s, H[1], H[2]];
+  const pts = [[(0.076 + 0.01 * frame) * s, 0.985, 0], Hc, [(Hc[0] + K[0]) / 2, (Hc[1] + K[1]) / 2, 0.016], K, [(K[0] + A[0]) / 2, (K[1] + A[1]) / 2, -0.004], A];
+  const k = (1 + 0.1 * build) * (1 - 0.07 * frame) * 0.95;
   return (LEG_CACHE[key] = limb(pts, K, (tK) => [
-    scaleKeys([[0, 0.084], [0.08, 0.088], [0.3, 0.079], [tK - 0.05, 0.06], [tK, 0.057], [tK + 0.07, 0.057], [0.7, 0.056], [0.88, 0.043], [1, 0.037]], k),
+    // Feminine frame: full, round thigh tops (narrowed with the hips by character.mjs hipIn).
+    scaleKeys([[0, 0.066 + 0.0216 * frame], [0.08, 0.07 + 0.0218 * frame], [0.3, 0.07 + 0.0124 * frame], [tK - 0.05, 0.06], [tK, 0.057], [tK + 0.07, 0.057], [0.7, 0.056], [0.88, 0.043], [1, 0.037]], k),
     scaleKeys([[0, 0.08], [0.08, 0.086], [0.3, 0.08], [tK - 0.05, 0.06], [tK, 0.058], [tK + 0.07, 0.059], [0.7, 0.06], [0.88, 0.042], [1, 0.038]], k),
     (t) => {
       let w = mix({ Hips: 1 }, { [B("UpLeg", side)]: 1 }, smoothstep(0.0, 0.13, t));

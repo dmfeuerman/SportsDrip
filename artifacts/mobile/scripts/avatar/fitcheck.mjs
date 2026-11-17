@@ -190,7 +190,7 @@ export function fitCheck(baseFile, garmentFile, { face = "oval", edgeMargin = 0.
       const o = [m.pos[v * 3], m.pos[v * 3 + 1], m.pos[v * 3 + 2]];
       const n = [m.nrm[v * 3], m.nrm[v * 3 + 1], m.nrm[v * 3 + 2]];
       const below = grid.hit(o, [-n[0], -n[1], -n[2]], 0, 0.015);
-      const above = grid.hit(o, n, 0.0002, 0.12);
+      const above = grid.hit(o, n, 0.0002, 0.2);
       if (above) covered++;
       // Skin just past a hem, cuff or collar is meant to show.
       if (below && !above && !nearEdge(o, edgeMargin) && !inside(o)) {
@@ -234,9 +234,13 @@ export function hideCoverage(baseFile, garmentFile, { face = "oval", margin = HI
     for (let v = 0; v < cov.length; v++) {
       const o = [m.pos[v * 3], m.pos[v * 3 + 1], m.pos[v * 3 + 2]];
       const n = [m.nrm[v * 3], m.nrm[v * 3 + 1], m.nrm[v * 3 + 2]];
-      // Three rays a few degrees apart, so one slipping through a crack between two triangles doesn't count as bare skin.
-      const rays = [n, tilt(n, 0.06, 0), tilt(n, 0, 0.06)];
-      cov[v] = n[1] < -0.5 || rays.some((d) => grid.hit(o, d, 0.0002, 0.12)) || skin.hit(o, n, 0.0015, 0.05) ? 1 : 0;
+      // Five rays a few degrees apart, so one slipping through a crack between two triangles doesn't count as bare skin.
+      const rays = [n, tilt(n, 0.06, 0), tilt(n, 0, 0.06), tilt(n, -0.06, 0), tilt(n, 0, -0.06)];
+      // Crevice rescue: skin deep in a fold (armpit, crotch) faces other skin
+      // down a narrow tunnel; a wider fan finds the facing wall even when the
+      // normal itself points along the tunnel.
+      const fan = [n, tilt(n, 0.35, 0), tilt(n, -0.35, 0), tilt(n, 0, 0.35), tilt(n, 0, -0.35)];
+      cov[v] = n[1] < -0.5 || rays.some((d) => grid.hit(o, d, 0.0002, 0.2)) || fan.some((d) => skin.hit(o, d, 0.0015, 0.12)) ? 1 : 0;
       if (!cov[v]) open.push(o);
     }
     per.push({ m, cov });

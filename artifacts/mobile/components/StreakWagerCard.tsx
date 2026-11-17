@@ -114,7 +114,8 @@ export default function StreakWagerCard() {
         {wager ? (
           <>
             <Text style={[styles.body, { color: c.mutedForeground }]}>
-              {days} of {WAGER_DAYS} days banked. Make a pick every day to keep it alive.
+              {days} of {WAGER_DAYS} days done. Make at least one pick every day — {WAGER_DAYS - days} more and you collect{" "}
+              {(wager.stake * 2).toLocaleString()}. Miss a day and the {wager.stake.toLocaleString()} stake is gone.
             </Text>
             <View style={styles.pips}>
               {Array.from({ length: WAGER_DAYS }, (_, i) => (
@@ -124,10 +125,16 @@ export default function StreakWagerCard() {
           </>
         ) : (
           <>
-            <Text style={[styles.body, { color: c.mutedForeground }]}>
-              Stake credits that you'll add {WAGER_DAYS} days to your pick streak{alive ? ` (now ${count})` : ""}. Get there and the stake comes back doubled.
-              {alive ? "" : " Make a pick today to start it."}
-            </Text>
+            <Text style={[styles.body, { color: c.foreground }]}>Bet on yourself to keep your streak going.</Text>
+            <View style={styles.rules}>
+              <Rule icon="numeric-1-circle" text="Pick a stake below." />
+              <Rule icon="numeric-2-circle" text={`Make at least one pick every day for ${WAGER_DAYS} days in a row${alive ? ` (your streak goes ${count} → ${count + WAGER_DAYS})` : ""}.`} />
+              <Rule icon="check-circle" tone="positive" text="Make it all 7 days: you get double your stake back." />
+              <Rule icon="close-circle" tone="negative" text="Miss a single day: you lose the stake." />
+            </View>
+            {alive ? null : (
+              <Text style={[styles.body, { color: c.warning }]}>No active streak — your first pick today starts day 1.</Text>
+            )}
             <View style={styles.row}>
               {STAKES.map((s) => (
                 <Button key={s} label={String(s)} size="sm" variant="secondary" disabled={busy || balance < s} onPress={() => place(s)} style={{ flex: 1 }} />
@@ -139,6 +146,17 @@ export default function StreakWagerCard() {
       </Card>
       {lockedPopup ? <StreakWagerSetModal wager={lockedPopup} onClose={() => setLockedPopup(null)} /> : null}
     </>
+  );
+}
+
+function Rule({ icon, text, tone }: { icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"]; text: string; tone?: "positive" | "negative" }) {
+  const c = useColors();
+  const col = tone === "positive" ? c.positive : tone === "negative" ? c.negative : c.warning;
+  return (
+    <View style={styles.rule}>
+      <MaterialCommunityIcons name={icon} size={16} color={col} />
+      <Text style={[styles.body, { color: c.mutedForeground, flex: 1 }]}>{text}</Text>
+    </View>
   );
 }
 
@@ -194,7 +212,7 @@ function StreakWagerSetModal({ wager, onClose }: { wager: StreakWagerInfo; onClo
           </Animated.Text>
           <Text style={[styles.modalTitle, { color: c.foreground }]}>7-Day Streak Challenge</Text>
           <Text style={[styles.modalSub, { color: c.mutedForeground }]}>
-            Make at least one pick every day for the next {WAGER_DAYS} days (to reach a {wager.target}-day streak) and double your stake.
+            Make at least one pick every day for the next {WAGER_DAYS} days (reaching a {wager.target}-day streak) and you get {payout.toLocaleString()} back. Miss a day and you lose the {wager.stake.toLocaleString()} you staked.
           </Text>
 
           <View style={[styles.pipsWrap, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -235,6 +253,8 @@ const styles = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { fontSize: 15, fontFamily: "Inter_800ExtraBold", flex: 1 },
   body: { fontSize: 13, lineHeight: 18, fontFamily: "Inter_500Medium" },
+  rules: { gap: 6 },
+  rule: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   row: { flexDirection: "row", gap: 8 },
   pips: { flexDirection: "row", gap: 5 },
   pip: { flex: 1, height: 6, borderRadius: 3 },

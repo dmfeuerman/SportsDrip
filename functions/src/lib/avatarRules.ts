@@ -17,6 +17,9 @@ export type Slot = "hat" | "top" | "outerwear" | "bottom" | "shoes" | "eyewear" 
 export const SLOTS: Slot[] = ["hat", "eyewear", "top", "outerwear", "bottom", "shoes", "accessory"];
 
 export type FaceStyle = "mannequin" | "features";
+/** Body frame: the masculine base body or the feminine `frameFem` blendshape. */
+export type BodyFrame = "masc" | "fem";
+export const BODY_FRAME_IDS: BodyFrame[] = ["masc", "fem"];
 /**
  * How a head item treats the hair under it. Each mode is a fit volume shared
  * by the item and every hairstyle (scripts/avatar/fit.mjs): hair is pressed
@@ -46,6 +49,8 @@ export interface AvatarConfig {
   height: number;
   /** 0..1 → slim to broad. */
   bodyType: number;
+  /** Body frame — "masc" (default) or "fem" (the girl body). */
+  bodyFrame?: BodyFrame;
   skinTone: string;
   hairStyle: string;
   hairColor: string;
@@ -104,8 +109,9 @@ export const FACE_STYLE_IDS: FaceStyle[] = ["mannequin", "features"];
 export const DEFAULT_AVATAR: AvatarConfig = {
   height: 0.5,
   bodyType: 0.5,
+  bodyFrame: "masc",
   skinTone: "#E5B18C",
-  hairStyle: "short_crop",
+  hairStyle: "bald",
   hairColor: "#2B1B12",
   faceShape: "oval",
   eyeColor: "#3B2415",
@@ -137,17 +143,19 @@ export const TEMPLATE_INFO: Record<string, TemplateInfo> = {
   hat_bucket: { slot: "hat", hairMode: "covered", excludes: [], hides: [] },
   hat_helmet: { slot: "hat", hairMode: "helmet", excludes: [], hides: [] },
   hat_crown: { slot: "hat", hairMode: null, excludes: [], hides: [] },
+  hat_headband: { slot: "hat", hairMode: "banded", excludes: [], hides: [] },
   eyewear_shades: { slot: "eyewear", hairMode: null, excludes: [], hides: [] },
-  top_tee: { slot: "top", hairMode: null, excludes: [], hides: ["chest", "abdomen"] },
-  top_longsleeve: { slot: "top", hairMode: null, excludes: [], hides: ["chest", "abdomen"] },
+  top_tee: { slot: "top", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "upperArms"] },
+  top_longsleeve: { slot: "top", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "upperArms", "elbows"] },
   top_jersey: { slot: "top", hairMode: null, excludes: [], hides: [] },
-  top_hoodie: { slot: "top", hairMode: null, excludes: [], hides: ["chest", "abdomen", "waist"] },
-  outerwear_bomber: { slot: "outerwear", hairMode: null, excludes: [], hides: ["chest"] },
+  top_hoodie: { slot: "top", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "waist", "upperArms", "elbows"] },
+  outerwear_bomber: { slot: "outerwear", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "elbows"] },
   outerwear_varsity: { slot: "outerwear", hairMode: null, excludes: [], hides: ["shoulders", "chest", "abdomen", "elbows"] },
-  outerwear_puffer: { slot: "outerwear", hairMode: null, excludes: [], hides: ["chest"] },
+  outerwear_puffer: { slot: "outerwear", hairMode: null, excludes: [], hides: ["neck", "shoulders", "chest", "abdomen", "upperArms", "elbows"] },
   outerwear_bomber_open: { slot: "outerwear", hairMode: null, excludes: [], hides: [] },
+  outerwear_puffer_open: { slot: "outerwear", hairMode: null, excludes: [], hides: ["elbows"] },
   outerwear_varsity_open: { slot: "outerwear", hairMode: null, excludes: [], hides: ["elbows"] },
-  bottom_shorts: { slot: "bottom", hairMode: null, excludes: [], hides: ["hips"] },
+  bottom_shorts: { slot: "bottom", hairMode: null, excludes: [], hides: ["hips", "thighs"] },
   bottom_pants: { slot: "bottom", hairMode: null, excludes: [], hides: ["hips", "thighs", "knees"] },
   bottom_joggers: { slot: "bottom", hairMode: null, excludes: [], hides: ["hips", "thighs", "knees"] },
   shoes_sneaker: { slot: "shoes", hairMode: null, excludes: [], hides: [] },
@@ -165,6 +173,7 @@ export const TEMPLATE_INFO: Record<string, TemplateInfo> = {
   acc_chain_dogtag: { slot: "accessory", hairMode: null, excludes: [], hides: [] },
   acc_chain_cuban: { slot: "accessory", hairMode: null, excludes: [], hides: [] },
   acc_watch: { slot: "accessory", hairMode: null, excludes: [], hides: [] },
+  acc_bracelet: { slot: "accessory", hairMode: null, excludes: [], hides: [] },
   acc_headphones: { slot: "accessory", hairMode: "banded", excludes: ["hat"], hides: [] },
 };
 
@@ -191,6 +200,7 @@ export const HAIR_MODE_PRIORITY: Record<HairMode, number> = { banded: 1, capped:
 const INFER: Array<[Slot, RegExp, string]> = [
   ["hat", /helmet/, "hat_helmet"],
   ["hat", /crown|tiara/, "hat_crown"],
+  ["hat", /headband|sweatband/, "hat_headband"],
   ["hat", /beanie/, "hat_beanie"],
   ["hat", /bucket/, "hat_bucket"],
   ["hat", /./, "hat_cap"],
@@ -199,6 +209,7 @@ const INFER: Array<[Slot, RegExp, string]> = [
   ["top", /long/, "top_longsleeve"],
   ["top", /./, "top_tee"],
   ["outerwear", /open.*(varsity|letterman)|(varsity|letterman).*open/, "outerwear_varsity_open"],
+  ["outerwear", /open.*puffer|puffer.*open/, "outerwear_puffer_open"],
   ["outerwear", /open/, "outerwear_bomber_open"],
   ["outerwear", /varsity|letterman/, "outerwear_varsity"],
   ["outerwear", /puffer|parka/, "outerwear_puffer"],
@@ -210,6 +221,7 @@ const INFER: Array<[Slot, RegExp, string]> = [
   ["shoes", /./, "shoes_sneaker"],
   ["eyewear", /./, "eyewear_shades"],
   ["accessory", /watch/, "acc_watch"],
+  ["accessory", /bracelet|wristband/, "acc_bracelet"],
   ["accessory", /headphone/, "acc_headphones"],
   ["accessory", /./, "acc_chain"],
 ];
@@ -331,6 +343,7 @@ export function appearanceErrors(a: unknown): string[] {
   const errs: string[] = [];
   if (unit(x.height) === undefined || x.height !== unit(x.height)) errs.push("height");
   if (unit(x.bodyType) === undefined || x.bodyType !== unit(x.bodyType)) errs.push("bodyType");
+  if (x.bodyFrame !== undefined && !inList(x.bodyFrame, BODY_FRAME_IDS)) errs.push("bodyFrame");
   if (!colorIn(x.skinTone, SKIN_TONES)) errs.push("skinTone");
   if (!inList(x.hairStyle, HAIR_STYLE_IDS)) errs.push("hairStyle");
   if (!colorIn(x.hairColor, HAIR_COLORS)) errs.push("hairColor");
@@ -343,7 +356,7 @@ export function appearanceErrors(a: unknown): string[] {
   if (x.mouthShape !== undefined && !inList(x.mouthShape, MOUTH_SHAPE_IDS)) errs.push("mouthShape");
   if (x.faceStyle !== undefined && !inList(x.faceStyle, FACE_STYLE_IDS)) errs.push("faceStyle");
   if (x.base !== undefined && !inList(x.base, BASE_MODELS)) errs.push("base");
-  const known = ["height", "bodyType", "skinTone", "hairStyle", "hairColor", "faceShape", "eyeColor", "eyeShape", "eyebrows", "facialHair", "noseShape", "mouthShape", "faceStyle", "base"];
+  const known = ["height", "bodyType", "bodyFrame", "skinTone", "hairStyle", "hairColor", "faceShape", "eyeColor", "eyeShape", "eyebrows", "facialHair", "noseShape", "mouthShape", "faceStyle", "base"];
   for (const k of Object.keys(x)) if (!known.includes(k)) errs.push(k);
   return errs;
 }
@@ -359,6 +372,7 @@ export function sanitizeAppearance(a: unknown): AvatarConfig {
   return {
     height: unit(x.height) ?? d.height,
     bodyType: unit(x.bodyType) ?? d.bodyType,
+    bodyFrame: (inList(x.bodyFrame, BODY_FRAME_IDS) as BodyFrame | undefined) ?? d.bodyFrame,
     skinTone: colorIn(x.skinTone, SKIN_TONES) ?? d.skinTone,
     hairStyle: inList(x.hairStyle, HAIR_STYLE_IDS) ?? d.hairStyle,
     hairColor: colorIn(x.hairColor, HAIR_COLORS) ?? d.hairColor,

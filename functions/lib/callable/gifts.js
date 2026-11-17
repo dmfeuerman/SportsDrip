@@ -53,7 +53,7 @@ exports.giftItem = (0, https_1.onCall)({ region: "us-central1" }, async (req) =>
             throw new https_1.HttpsError("not-found", "That item isn't in the store.");
         if (owned.exists)
             throw new https_1.HttpsError("already-exists", "They already own this.");
-        const price = (0, shop_1.assertSellable)(item, recipient.get("xp"), now, await (0, shop_1.rotationArmFor)(tx, from));
+        const price = (0, shop_1.assertSellable)(item, recipient, now, await (0, shop_1.rotationArmFor)(tx, from));
         const balance = await (0, economy_1.applyCredits)(tx, from, {
             delta: -price,
             type: "gift",

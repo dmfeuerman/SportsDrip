@@ -38,6 +38,8 @@ interface Settings {
   pushPrimerAt: number;
   /** Badge list key ("bets.settled", ...) -> ids already seen, so their red badge clears. */
   itemsSeen: Record<string, string[]>;
+  /** Banner kinds the player muted ("league", "social", ...). Warnings can't be muted. */
+  mutedToastKinds: string[];
 }
 
 const KEY = "sportdrip.settings.v1";
@@ -51,6 +53,7 @@ const DEFAULTS: Settings = {
   pendingSignupMeta: null,
   pushPrimerAt: 0,
   itemsSeen: {},
+  mutedToastKinds: [],
 };
 
 let state: Settings = DEFAULTS;
@@ -85,6 +88,7 @@ function hydrate() {
         walkthroughSeen: Boolean(parsed.walkthroughSeen),
         pendingSignupMeta: parsed.pendingSignupMeta ?? null,
         pushPrimerAt: typeof parsed.pushPrimerAt === "number" ? parsed.pushPrimerAt : 0,
+        mutedToastKinds: Array.isArray(parsed.mutedToastKinds) ? parsed.mutedToastKinds.filter((k) => typeof k === "string") : [],
       };
       emit();
     })
@@ -288,4 +292,23 @@ export function usePendingSignupMeta(): PendingSignupMeta | null {
     () => state.pendingSignupMeta,
     () => null
   );
+}
+
+/** Banner kinds the player muted. Read synchronously by ToastContext.show. */
+export function getMutedToastKinds(): string[] {
+  hydrate();
+  return state.mutedToastKinds;
+}
+
+export function useMutedToastKinds(): string[] {
+  return useSyncExternalStore(
+    subscribe,
+    () => state.mutedToastKinds,
+    () => state.mutedToastKinds
+  );
+}
+
+export function toggleToastKindMuted(kind: string): void {
+  const muted = state.mutedToastKinds.includes(kind);
+  persist({ ...state, mutedToastKinds: muted ? state.mutedToastKinds.filter((k) => k !== kind) : [...state.mutedToastKinds, kind] });
 }

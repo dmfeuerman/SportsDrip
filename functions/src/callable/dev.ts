@@ -4,6 +4,8 @@ import { z } from "zod";
 import { applyCredits, db, FieldValue, pairId, PRIZE_BOXES, requireAuth, STARTER_ITEMS, type BoxTier } from "../lib/economy";
 import { DEFAULT_AVATAR } from "../lib/avatarRules";
 import { DURATIONS, durationWeeks, MEMBER_COLORS, PRIZE_PRESETS, randomCode, SPORTS } from "../lib/leagueConfig";
+import { notificationRef } from "../lib/notify";
+import { simpleNotification } from "../lib/notifyModel";
 import { settleMainBet } from "../scheduled/settleBets";
 import type { MemberDoc } from "./leagues";
 
@@ -68,15 +70,15 @@ async function ensureBot(me: string, kind: "f" | "r", i: number) {
   const ref = db.collection("users").doc(uid);
   const snap = await ref.get();
   const name = `${NAMES[i % NAMES.length]} ${kind === "r" ? "(req)" : "Bot"}`;
+  const defaultUsername = `bot${kind}${i}_${me.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toLowerCase()}`;
   if (!snap.exists) {
-    const username = `bot${kind}${i}_${me.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toLowerCase()}`;
     const batch = db.batch();
-    batch.set(db.collection("usernames").doc(username), { uid, dev: true, createdAt: FieldValue.serverTimestamp() });
+    batch.set(db.collection("usernames").doc(defaultUsername), { uid, dev: true, createdAt: FieldValue.serverTimestamp() });
     const won = 5 + ((i * 7) % 20);
     const lost = 4 + ((i * 5) % 15);
     batch.set(ref, {
       uid,
-      username,
+      username: defaultUsername,
       displayName: name,
       balance: 10_000 + i * 17_500,
       avatar: {
@@ -99,30 +101,61 @@ async function ensureBot(me: string, kind: "f" | "r", i: number) {
     }
     await batch.commit();
   }
-  return { uid, name: (snap.get("displayName") as string | undefined) ?? name };
+  return {
+    uid,
+    name: (snap.get("displayName") as string | undefined) ?? name,
+    username: (snap.get("username") as string | undefined) ?? defaultUsername,
+  };
 }
 
 async function seedFriends(me: string, n: number) {
   const bots = [];
   for (let i = 0; i < n; i++) {
-    const bot = await ensureBot(me, "f", i);
-    await db.collection("friendships").doc(pairId(me, bot.uid)).set(
-      { users: [me, bot.uid].sort(), dev: true, createdAt: FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-    bots.push(bot);
+    bots.push(await ensureBot(me, "f", i));
+  }
+  if (bots.length) {
+    const batch = db.batch();
+    for (const bot of bots) {
+      batch.set(
+        db.collection("friendships").doc(pairId(me, bot.uid)),
+        { users: [me, bot.uid].sort(), dev: true, createdAt: FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+    }
+    await batch.commit();
   }
   return bots;
 }
 
 async function seedRequests(me: string, n: number) {
+  const now = Date.now();
+  const batch = db.batch();
+  let writes = 0;
   for (let i = 0; i < n; i++) {
     const bot = await ensureBot(me, "r", i);
-    const ref = db.collection("friendRequests").doc(`${bot.uid}_${me}`);
-    const snap = await ref.get();
-    if (snap.exists && snap.get("status") === "pending") continue;
-    await ref.set({ from: bot.uid, to: me, status: "pending", dev: true, createdAt: FieldValue.serverTimestamp() });
+    const reqRef = db.collection("friendRequests").doc(`${bot.uid}_${me}`);
+    const friendshipRef = db.collection("friendships").doc(pairId(me, bot.uid));
+    const [reqSnap, friendshipSnap] = await Promise.all([reqRef.get(), friendshipRef.get()]);
+    if (friendshipSnap.exists) {
+      batch.delete(friendshipRef);
+      writes++;
+    }
+    if (!reqSnap.exists || reqSnap.get("status") !== "pending" || friendshipSnap.exists) {
+      batch.set(reqRef, { from: bot.uid, to: me, status: "pending", dev: true, createdAt: FieldValue.serverTimestamp() });
+      const notif = simpleNotification({
+        id: `freq_${bot.uid}_${me}`,
+        type: "friend_request",
+        title: `${bot.name} sent you a friend request`,
+        body: `@${bot.username} wants to compete with you. Tap to respond.`,
+        now: now + i,
+        popup: true,
+        data: { fromUid: bot.uid },
+      });
+      batch.set(notificationRef(me, notif.id), { ...notif, createdAt: FieldValue.serverTimestamp() });
+      writes++;
+    }
   }
+  if (writes > 0) await batch.commit();
 }
 
 async function seedLeagues(me: string, myName: string, n: number, bots: Array<{ uid: string; name: string }>) {
@@ -133,7 +166,15 @@ async function seedLeagues(me: string, myName: string, n: number, bots: Array<{ 
     const leagueId = `lg_dev_${me.slice(0, 8)}_${i}`;
     ids.push(leagueId);
     const ref = db.collection("leagues").doc(leagueId);
-    if ((await ref.get()).exists) continue;
+    const existing = await ref.get();
+    if (
+      existing.exists &&
+      existing.get("status") === "active" &&
+      (((existing.get("endsAt") as number | undefined) ?? 0) > now) &&
+      ((existing.get("memberIds") as string[] | undefined) ?? []).includes(me)
+    ) {
+      continue;
+    }
     const mates = bots.slice(i, i + 4).length ? bots.slice(i, i + 4) : bots.slice(0, 4);
     const roster = [{ uid: me, name: myName }, ...mates];
     const members: Record<string, MemberDoc> = {};
@@ -162,7 +203,7 @@ async function seedLeagues(me: string, myName: string, n: number, bots: Array<{ 
         h2h: { w: 0, l: 0, t: 0 },
       };
     });
-    const code = randomCode();
+    const code = (existing.get("code") as string | undefined) || randomCode();
     const name = ["Dev League", "Sunday Sweats", "Group Chat FC", "Bad Beats", "Late Night Locks"][i % 5]!;
     const batch = db.batch();
     batch.set(ref, {
@@ -220,7 +261,7 @@ async function setCash(me: string, cash: number) {
     await applyCredits(tx, me, {
       delta: cash - current,
       type: "dev_grant",
-      idempotencyKey: `dev_cash_${Date.now()}`,
+      idempotencyKey: `dev_cash_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       note: `Dev tools: balance set to ${cash.toLocaleString("en-US")}`,
     });
   });
@@ -252,6 +293,17 @@ async function betToSettle(me: string): Promise<FirebaseFirestore.DocumentRefere
 
   const ref = db.collection("bets").doc(`${me}_dev_${Date.now()}`);
   await db.runTransaction(async (tx) => {
+    const userSnap = await tx.get(db.collection("users").doc(me));
+    const current = (userSnap.get("balance") as number | undefined) ?? 0;
+    if (current < 1000) {
+      await applyCredits(tx, me, {
+        delta: 1000 - current,
+        type: "dev_grant",
+        idempotencyKey: `dev_stake_topup_${ref.id}`,
+        ref: ref.id,
+        note: "Dev bet stake top-up",
+      });
+    }
     await applyCredits(tx, me, { delta: -1000, type: "bet_stake", idempotencyKey: `bet_stake_dev_${ref.id}`, ref: ref.id, note: "Dev bet" });
     tx.set(ref, {
       id: ref.id,
@@ -355,7 +407,6 @@ export const devTools = onCall({ region: "us-central1", timeoutSeconds: 120 }, a
   if (input.leagues) done.push(`${input.leagues} leagues`);
   if (input.cash !== undefined) {
     await setCash(me, input.cash);
-    done.push(`${input.cash.toLocaleString("en-US")} credits`);
   }
   if (input.chests) {
     await readyChests(me);
@@ -363,6 +414,10 @@ export const devTools = onCall({ region: "us-central1", timeoutSeconds: 120 }, a
   }
   if (input.hitBet) done.push(`bet ${await simulateResult(me, "won")} won`);
   if (input.loseBet) done.push(`bet ${await simulateResult(me, "lost")} lost`);
+  if (input.cash !== undefined) {
+    await setCash(me, input.cash);
+    done.push(`${input.cash.toLocaleString("en-US")} credits`);
+  }
   if (input.chat) {
     const ids = leagueIds.length
       ? leagueIds

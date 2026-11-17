@@ -72,7 +72,7 @@ export function progressOf(xp: unknown, level?: number): LevelProgress {
 
 /** Cash bonus paid into the wallet on reaching `level`. */
 export function levelUpCredits(level: number): number {
-  return level <= 1 ? 0 : 1000 * level;
+  return level <= 1 ? 0 : 2500 * level;
 }
 
 export const XP = {
@@ -89,7 +89,7 @@ export const XP = {
   purchaseMax: 400,
   prizeBox: 10,
   adReward: 5,
-  /** First change of the app color in Settings (functions/src/lib/levelChallenges.ts x_theme). */
+  /** First change of the app color in the Locker (functions/src/lib/levelChallenges.ts x_theme). */
   themeChange: 20,
   newFriend: 25,
   /** Someone joined with your invite code. */

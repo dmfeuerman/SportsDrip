@@ -407,17 +407,7 @@ export default function BetModal({
       >
         <tourScroll.Provider>
         <View style={styles.topMetaRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back to pick a team and bet type"
-            onPress={handleClose}
-            disabled={busy}
-            hitSlop={8}
-            style={({ pressed }) => [styles.backBtn, { backgroundColor: c.secondary, borderColor: c.border, opacity: busy ? 0.5 : pressed ? 0.7 : 1 }]}
-          >
-            <MaterialCommunityIcons name="chevron-left" size={18} color={c.foreground} />
-            <Text style={[styles.backText, { color: c.foreground }]}>Back</Text>
-          </Pressable>
+          {/* No Back button: it did the same as the X above. */}
           <Text style={[styles.gameLabel, { color: c.mutedForeground, flex: 1 }]} numberOfLines={1}>
             {gameSummary}
           </Text>
@@ -513,13 +503,12 @@ export default function BetModal({
 
         {!friendMode && wallets.length > 1 && (
           <TourTarget id="slip.wallets" style={{ gap: 6 }}>
-            <Text style={[styles.label, { color: c.mutedForeground }]}>PAY WITH</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ gap: 8 }}
-            >
+            {/* (3) The section header says what you're paying with, in the wallet's colour. */}
+            <Text style={[styles.label, { color: isLeague ? c.league : c.mutedForeground }]}>
+              PAY WITH{isLeague ? " · LEAGUE TOKENS" : ""}
+            </Text>
+            {/* Wrapping rows, not a horizontal scroll: a league wallet is never hidden off-screen. */}
+            <View style={styles.walletWrap}>
               {wallets.map((w) => {
                 const on = w.id === walletId;
                 const wTint = w.kind === "league" ? c.league : c.primary;
@@ -534,16 +523,19 @@ export default function BetModal({
                     style={[styles.wallet, { backgroundColor: on ? c.alpha(wTint, 0.14) : c.secondary, borderColor: on ? wTint : c.border }]}
                   >
                     <View style={styles.walletHead}>
-                      <MaterialCommunityIcons name={w.kind === "league" ? "shield-star" : "lightning-bolt"} size={12} color={on ? wTint : c.mutedForeground} />
+                      <MaterialCommunityIcons name={w.kind === "league" ? "trophy-outline" : "lightning-bolt"} size={12} color={on ? wTint : c.mutedForeground} />
                       <Text style={[styles.walletName, { color: on ? c.foreground : c.mutedForeground }]} numberOfLines={1}>
                         {w.label}
                       </Text>
                     </View>
                     <Amount value={w.balance} currency={w.kind === "league" ? "league" : "credits"} size="sm" />
+                    <Text style={[styles.walletKind, { color: on ? wTint : c.subtleForeground }]}>
+                      {w.kind === "league" ? "league tokens" : "credits"}
+                    </Text>
                   </Pressable>
                 );
               })}
-            </ScrollView>
+            </View>
           </TourTarget>
         )}
 
@@ -557,7 +549,7 @@ export default function BetModal({
             { backgroundColor: c.secondary, borderColor: tooBig ? c.negative : focused ? tint : c.border },
           ]}
         >
-          <MaterialCommunityIcons name={isLeague ? "shield-star" : "lightning-bolt"} size={20} color={tint} />
+          <MaterialCommunityIcons name={isLeague ? "trophy-outline" : "lightning-bolt"} size={20} color={tint} />
           <NumericInput
             ref={inputRef}
             style={[styles.input, { color: c.foreground }]}
@@ -722,7 +714,7 @@ export default function BetModal({
             accessibilityLabel={`Betting with ${wallet.label}, ${isLeague ? "league tokens" : "credits"}`}
             style={[styles.payingWith, { backgroundColor: c.alpha(tint, 0.12), borderColor: c.alpha(tint, 0.5) }]}
           >
-            <MaterialCommunityIcons name={isLeague ? "shield-star" : "lightning-bolt"} size={18} color={tint} />
+            <MaterialCommunityIcons name={isLeague ? "trophy-outline" : "lightning-bolt"} size={18} color={tint} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.payingLabel, { color: c.mutedForeground }]}>BETTING WITH</Text>
               <Text style={[styles.payingName, { color: c.foreground }]} numberOfLines={1}>
@@ -802,8 +794,9 @@ const styles = StyleSheet.create({
   lockSoonText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   context: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
   contextText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  teamRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 2, overflow: "hidden" },
-  pickChips: { flexDirection: "row", gap: 8 },
+  // marginTop -4: a little closer to the matchup line, with room to breathe.
+  teamRow: { marginTop: -4, flexDirection: "row", alignItems: "center", gap: 12, paddingTop: 8, paddingBottom: 10, paddingHorizontal: 10, borderRadius: 16, borderWidth: 2, overflow: "hidden" },
+  pickChips: { flexDirection: "row", gap: 8, marginTop: 6 },
   pickChip: { flex: 1, borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6, gap: 1 },
   pickChipKey: { fontSize: 10, letterSpacing: 1, fontFamily: "Inter_700Bold", color: "rgba(255,255,255,0.85)" },
   pickChipVal: { fontSize: 14, fontFamily: "Inter_800ExtraBold", color: "#fff" },
@@ -815,7 +808,9 @@ const styles = StyleSheet.create({
   teamName: { fontSize: 20, lineHeight: 24, fontFamily: "Inter_700Bold" },
   oddsLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
   label: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
-  wallet: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 2, minWidth: 110, maxWidth: 180 },
+  wallet: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 2, minWidth: 110, maxWidth: 180, flexGrow: 1 },
+  walletWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  walletKind: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   walletHead: { flexDirection: "row", alignItems: "center", gap: 4 },
   walletName: { fontSize: 12, fontFamily: "Inter_600SemiBold", flexShrink: 1 },
   inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1.5, borderRadius: 14, paddingHorizontal: 14, minHeight: 56 },

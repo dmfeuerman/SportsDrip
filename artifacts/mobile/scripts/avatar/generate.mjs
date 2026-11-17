@@ -51,7 +51,7 @@ import { attachmentSpecs } from "./attachments.mjs";
 import { addNormalMaps, atlas, bakeNormals, withUVs } from "./bake.mjs";
 import { encodeJPEG } from "./jpeg.mjs";
 import { sparsifyMorphs } from "./sparse.mjs";
-import { bakeAO, gradient, meshSDF, project, simplify, smax, sstep } from "./sdf.mjs";
+import { bakeAO, gradient, meshSDF, project, simplify, smax, smin, sstep } from "./sdf.mjs";
 
 // GLTFExporter's binary writer reads its Blob through FileReader.
 globalThis.FileReader ??= class {
@@ -463,7 +463,7 @@ function projectOnto(f, p, iters = 6) {
  * the base surface (clothes, facial hair): they move with the nearest base
  * surface point.
  */
-function fieldMorph(md, baseF, variantF, { weight = () => 1, transfer = false, normals = true, maxMove = 0.03 } = {}) {
+function fieldMorph(md, baseF, variantF, { weight = () => 1, transfer = false, normals = true, maxMove = 0.03, premap = null } = {}) {
   const n = md.positions.length / 3;
   const dpos = new Float32Array(n * 3);
   const dnrm = normals ? new Float32Array(n * 3) : null;
@@ -472,7 +472,8 @@ function fieldMorph(md, baseF, variantF, { weight = () => 1, transfer = false, n
     const w = weight(p);
     if (w <= 0) continue;
     const p0 = transfer ? projectOnto(baseF, p) : p;
-    const q = projectOnto(variantF, p0);
+    // premap: a one-to-one first guess at where the point lands (see femPremap), refined by projection.
+    const q = projectOnto(variantF, premap ? premap(p0) : p0);
     const d = [q[0] - p0[0], q[1] - p0[1], q[2] - p0[2]];
     const len = Math.hypot(...d);
     if (len > maxMove || !Number.isFinite(len)) continue;
@@ -592,9 +593,38 @@ const atFace = (detail, f) => (x, y, z) => {
 const BUILD_VALUES = { buildSlim: -1, buildBroad: 1 };
 const bodyField = (x, y, z) => C.bodyD(x, y, z);
 
+/** A field evaluated at the feminine frame (character.setFrame), restoring the base after. */
+const atFrame = (fr, f) => (x, y, z) => {
+  C.setFrame(fr);
+  try {
+    return f(x, y, z);
+  } finally {
+    C.setFrame(0);
+  }
+};
+/** The field a body-shape morph samples: builds change BUILD, frameFem changes FRAME. */
+const atMorph = (name, f) => (name === "frameFem" ? atFrame(1, f) : atBuild(BUILD_VALUES[name], f));
+
+/**
+ * The feminine frame narrows the torso and the tops of the legs by a smooth
+ * horizontal scale (character.mjs femTorsoIn / hipIn). Carrying each point
+ * along the surface normal to the narrower surface slid points sideways at
+ * the waist by different amounts and folded the triangles into creases;
+ * scaling the point first lands it where it belongs, one to one.
+ */
+function femPremap(p) {
+  const part = C.bodyPart(p[0], p[1], p[2]).name;
+  const s = part === "torso" ? C.femTorsoIn(p[1]) : part === "leg" ? 1 + C.hipIn(p[1]) : 1;
+  // Down the middle of the front the scale eases off, so the navel isn't squeezed into a slit.
+  const ease = part === "torso" ? sstep(0.008, 0.04, Math.abs(p[0])) : 1;
+  return [p[0] - (p[0] - p[0] / s) * ease, p[1], p[2]];
+}
+
 function addBuildMorphs(md, { transfer = false, weight = () => 1 } = {}) {
   for (const name of BUILD_MORPHS) {
-    md.morphs[name] = fieldMorph(md, bodyField, atBuild(BUILD_VALUES[name], bodyField), { transfer, weight, maxMove: 0.04 });
+    // The feminine frame's waist comes in ~5 cm at the sides: past the 4 cm cap, those vertices were skipped and left flaps.
+    const fem = name === "frameFem";
+    md.morphs[name] = fieldMorph(md, bodyField, atMorph(name, bodyField), { transfer, weight, maxMove: fem ? 0.065 : 0.04, premap: fem ? femPremap : null });
   }
 }
 
@@ -837,6 +867,60 @@ const underwearField = (() => {
   };
 })();
 
+/**
+ * Sports-top base layer over the chest, shown on the feminine frame whenever
+ * no top covers it (avatarRig.updateVisibility). Modelled on the feminine
+ * body (FRAME = 1) so it fits the bust instead of being stretched onto it.
+ * A V neckline in front, straps over the shoulders, a straight back, and a
+ * smooth cut-out under the arms (a hard arm test left torn edges).
+ */
+const braShape = (x, y, z) => {
+  const ax = Math.abs(x);
+  const front = sstep(-0.03, 0.05, z);
+  // Top edge: V in front (lowest at the centre), straight across the back.
+  const top = mix1(1.372, 1.322 + 0.05 * sstep(0.0, 0.075, ax), front) - 0.03 * sstep(0.1, 0.132, ax);
+  let r = Math.max(y - top, 1.222 - y);
+  // Straps: from the top edge up and over the shoulder.
+  const strap = Math.max(Math.abs(ax - 0.074) - 0.0115, y - 1.5, 1.3 - y);
+  r = smin(r, strap, 0.006);
+  // Under the arms: a smooth side boundary, not a per-point arm test.
+  r = smax(r, ax - 0.13 - 0.012 * sstep(1.3, 1.24, y), 0.008);
+  return r;
+};
+const mix1 = (a, b, t) => a + (b - a) * t;
+const braField = (x, y, z) => {
+  const r = braShape(x, y, z);
+  if (r > 0.03) return r;
+  return smax(C.bodyD(x, y, z) - (LAYER_OFFSET.base + 0.0035), r, 0.006);
+};
+const braFem = atFrame(1, braField);
+const bodyFem = atFrame(1, bodyField);
+
+async function buildBra() {
+  const f = braFem;
+  const m = await fieldMesh(f, [[-0.2, 1.17, -0.16], [0.2, 1.52, 0.16]], 0.0024, { targetTris: TRIS.underwear, keep: (x, y, z) => bodyFem(x, y, z) > -0.0015, error: 0.0015 });
+  const md = meshData(m);
+  const P = m.positions;
+  md.weights = Array.from({ length: P.length / 3 }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  // A darker under-band and trim along the neckline.
+  const shade = (v) => {
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+    const band = sstep(1.252, 1.244, y);
+    const trim = sstep(0.008, 0.0, Math.abs(braShape(x, y, z))) * sstep(1.26, 1.29, y);
+    const k = 1 - 0.28 * Math.max(band, trim);
+    return [k, k, k];
+  };
+  md.colors = rgba(bakeAO((x, y, z) => Math.min(f(x, y, z), bodyFem(x, y, z)), m, { step: 0.006, strength: 0.9 }), shade);
+  // Only ever drawn on the feminine frame, which it is already built on: build morphs at FRAME = 1, no frameFem.
+  for (const name of BUILD_MORPHS) {
+    md.morphs[name] =
+      name === "frameFem"
+        ? { dpos: new Float32Array(P.length), dnrm: new Float32Array(P.length) }
+        : fieldMorph(md, bodyFem, atFrame(1, atBuild(BUILD_VALUES[name], bodyField)), { transfer: true, maxMove: 0.04 });
+  }
+  return md;
+}
+
 async function buildUnderwear() {
   const f = underwearField;
   const m = await fieldMesh(f, [[-0.22, 0.7, -0.17], [0.22, 1.02, 0.17]], 0.0024, { targetTris: TRIS.underwear, keep: (x, y, z) => C.bodyD(x, y, z) > -0.0015, error: 0.0015 });
@@ -876,9 +960,11 @@ async function buildHead(face, nose = "button") {
   const ao = bakeAO((x, y, z) => Math.min(f(x, y, z), y < 1.6 ? C.bodyD(x, y, z) : 1), m, { step: 0.005, strength: 0.7, min: 0.62 });
   md.colors = rgba(ao, (v) => C.headTint(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
   md.weights = Array.from({ length: n }, (_, v) => headWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
-  // The neck at the bottom follows the body build.
+  // The neck at the bottom follows the body build; the feminine frame also reshapes the face
+  // (jaw, chin, nose, lips, brow — character.mjs), so its morph covers the whole head.
   for (const name of BUILD_MORPHS) {
-    md.morphs[name] = fieldMorph(md, f, atBuild(BUILD_VALUES[name], f), { weight: ([, y]) => sstep(1.58, 1.53, y), maxMove: 0.03 });
+    const weight = name === "frameFem" ? () => 1 : ([, y]) => sstep(1.58, 1.53, y);
+    md.morphs[name] = fieldMorph(md, f, atMorph(name, f), { weight, maxMove: 0.03 });
   }
   for (const [name, detail] of Object.entries(MOUTH_MORPHS)) {
     md.morphs[name] = fieldMorph(md, f, atFace({ nose, ...detail }, headSkin(face)), { weight: mouthBox, maxMove: 0.012 });
@@ -920,14 +1006,18 @@ async function base() {
   {
     // Body and base layer share one normal map.
     const body = await buildBody();
-    const { mds, png } = bakeSet([{ md: body.md, field: bodyField }, { md: await buildUnderwear(), field: underwearField }], texSize("body"));
+    const { mds, png } = bakeSet(
+      [{ md: body.md, field: bodyField }, { md: await buildUnderwear(), field: underwearField }, { md: await buildBra(), field: braFem }],
+      texSize("body")
+    );
     const names = [];
     for (const [region, md] of Object.entries(bodyRegions(mds[0], body.region))) {
       addMesh(ctx, `Body_${region}`, "skin", toGeometry(md), { skinned: true });
       names.push(`Body_${region}`);
     }
     addMesh(ctx, "Underwear", "base_layer", toGeometry(mds[1]), { skinned: true });
-    maps.push({ png, meshes: [...names, "Underwear"] });
+    addMesh(ctx, "Bra", "base_layer", toGeometry(mds[2]), { skinned: true });
+    maps.push({ png, meshes: [...names, "Underwear", "Bra"] });
   }
   for (const nose of NOSE_SHAPES) {
     // The four face shapes with one nose share a normal map.
@@ -939,9 +1029,9 @@ async function base() {
   }
 
   const head = REST.Head;
-  addMesh(ctx, "Eyes", "eye_white", toGeometry(builtData((b) => F.eyeballs(b)), head));
-  addMesh(ctx, "Iris", "iris", toGeometry(builtData((b) => F.irises(b)), head));
-  addMesh(ctx, "Pupils", "pupil", toGeometry(builtData((b) => F.pupils(b)), head));
+  addMesh(ctx, "Eyes", "eye_white", toGeometry(withEyeFem(builtData((b) => F.eyeballs(b))), head));
+  addMesh(ctx, "Iris", "iris", toGeometry(withEyeFem(builtData((b) => F.irises(b))), head));
+  addMesh(ctx, "Pupils", "pupil", toGeometry(withEyeFem(builtData((b) => F.pupils(b))), head));
   {
     const m = await fieldMesh(F.teethD, F.TEETH_BOX, 0.0005, { targetTris: 200, error: 0.0006 });
     addMesh(ctx, "Teeth", "teeth", toGeometry(meshData(m), head));
@@ -960,10 +1050,12 @@ async function base() {
     md.colors = rgba(new Float32Array(parts.flatMap((p) => [...p.ao])));
     md.morphs.eyeBlinkLeft = fnMorph(md, (p) => X.eyeBlink(shape, "L", p));
     md.morphs.eyeBlinkRight = fnMorph(md, (p) => X.eyeBlink(shape, "R", p));
+    withEyeFem(md);
     addMesh(ctx, `Lids_${shape}`, "skin", toGeometry(md, head));
     const lash = builtData((b) => F.lashes(b, shape));
     lash.morphs.eyeBlinkLeft = fnMorph(lash, (p) => X.eyeBlink(shape, "L", p, { lashes: true }));
     lash.morphs.eyeBlinkRight = fnMorph(lash, (p) => X.eyeBlink(shape, "R", p, { lashes: true }));
+    withEyeFem(lash);
     addMesh(ctx, `Lashes_${shape}`, "lash", toGeometry(lash, head));
   }
   for (const style of EYEBROWS) {
@@ -973,6 +1065,16 @@ async function base() {
     addMesh(ctx, `Brows_${style}`, "brow", toGeometry(meshData(m), head));
   }
   await write(ctx.scene, `${BASE_KEY}.glb`, [idleClip(), cheerClip()], maps);
+}
+
+/** frameFem on a rigid eye part: scales it about its eye's centre (the head's socket grows to match). */
+function withEyeFem(md) {
+  const k = C.EYE_FEM_SCALE - 1;
+  md.morphs.frameFem = fnMorph(md, (p) => {
+    const s = p[0] >= 0 ? 1 : -1;
+    return { d: [(p[0] - C.EYE.x * s) * k, (p[1] - C.EYE.y) * k, (p[2] - C.EYE.z) * k] };
+  });
+  return md;
 }
 
 function mergeMeshes(list) {

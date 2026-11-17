@@ -1,3 +1,5 @@
+import { FREE_PER_DAY } from "@/components/StreakBanner";
+import { nyDayOf } from "@/lib/streakGrid";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { trackEvent } from "@/lib/analytics";
 import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
@@ -128,6 +130,9 @@ export default function DailyPickCard() {
 
   const streak = profile?.streak;
   const alive = !!streak?.count;
+  // Mirrors placeFreeBet: 1,000 + 100 per active streak day (max 7).
+  const activeDays = streak?.count && (streak.lastDay === nyDayOf(Date.now()) || streak.lastDay === nyDayOf(Date.now() - 86_400_000)) ? Math.min(7, streak.count) : 0;
+  const freeStake = 1000 + activeDays * FREE_PER_DAY;
 
   const lockIn = async () => {
     if (!game || !current || !open) return;
@@ -322,7 +327,7 @@ export default function DailyPickCard() {
           <MaterialCommunityIcons name={sportIcon as never} size={20} color={c.primary} />
           <Text style={[styles.title, { color: c.foreground }]}>Daily Free Bet</Text>
           <Text style={[styles.sub, { color: c.mutedForeground, flex: 1 }]} numberOfLines={1}>
-            {game ? `${game.sport} · ${open ? untilKickoff(game.startsAt, now) : game.status === "live" ? "live" : "locked"}` : "1,000 credits, on us"}
+            {game ? `${game.sport} · ${open ? untilKickoff(game.startsAt, now) : game.status === "live" ? "live" : "locked"}` : `${freeStake.toLocaleString()} credits, on us`}
           </Text>
           <Pill label={status.label} tone={status.tone} />
         </View>
@@ -333,7 +338,7 @@ export default function DailyPickCard() {
           </Text>
         ) : (
           <Text style={[styles.sub, { color: c.mutedForeground }]} numberOfLines={1}>
-            {featured?.gameId === game?.id ? "Today's featured game · " : ""}Free 1,000 credits · tap the card for spread & totals
+            {featured?.gameId === game?.id ? "Today's featured game · " : ""}Free {freeStake.toLocaleString()} credits · tap the card for spread & totals
           </Text>
         )}
       </Pressable>
@@ -380,10 +385,10 @@ export default function DailyPickCard() {
       <View style={styles.streakRow}>
         <Text style={[styles.sub, { color: c.mutedForeground, flex: 1 }]}>
           {alive
-            ? `🔥 ${streak!.count}-day streak${streak!.freezes ? " · 🧊 freeze banked" : ""}${used ? "" : " — bet to keep it"}`
+            ? `🔥 ${streak!.count}-day streak${used ? "" : " — bet to keep it"}`
             : streak?.longest
               ? `Best streak ${streak.longest} days. Start a new one today.`
-              : "Use your free bet daily to build a streak. Every 7 days banks a freeze."}
+              : "Bet every day to build a streak and grow your free bet."}
         </Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Bet types" hitSlop={8} onPress={() => setDetails(true)}>
           <Text style={[styles.betTypes, { color: c.primary }]}>Bet Types</Text>

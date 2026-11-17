@@ -33,7 +33,7 @@ exports.MAX_SLIP_LEGS = 10;
 /** Combined price cap, so a long ticket can't print the economy. */
 exports.MAX_SLIP_ODDS = 250;
 const MIN_STAKE = 10;
-const MAX_STAKE = 100_000;
+const MAX_STAKE = 1_000_000;
 const round2 = (n) => Math.round(n * 100) / 100;
 /** Product of live legs (pushes and voids count as 1.0x), capped. */
 function slipOdds(legs) {

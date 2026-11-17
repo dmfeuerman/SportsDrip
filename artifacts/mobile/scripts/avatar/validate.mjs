@@ -41,7 +41,7 @@ const BUDGET = {
   // One body, twelve heads (4 face shapes × 3 noses, one drawn), lids/lashes for three eye shapes,
   // brows; ~half the file is blendshapes. Meshing each nose instead of morphing the button
   // (which tore) costs ~1.4 MB: still one bundled file, parsed once.
-  base: { drawn: 15_000, tris: 60_000, bytes: 3_200_000 },
+  base: { drawn: 15_000, tris: 60_000, bytes: 3_800_000 }, // frameFem (girl) blendshapes: body, whole face on every head, eyes
   garment: { drawn: 5_000, tris: 5_000, bytes: 600_000 },
   // A hairstyle and its four under-hat variants.
   hair: { drawn: 5_000, tris: 25_000, bytes: 1_200_000 },

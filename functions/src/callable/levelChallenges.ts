@@ -4,11 +4,8 @@ import { db, FieldValue, requireAuth } from "../lib/economy";
 import { grantXp } from "../lib/xp";
 import { playerLevel } from "../lib/progression";
 import {
-  challengeById,
+  levelSet,
   CLIENT_ACTIONS,
-  THEME_CHALLENGE_ID,
-  dealLevelSet,
-  type ChallengeDef,
   type ChallengeMetric,
 } from "../lib/levelChallenges";
 
@@ -19,6 +16,9 @@ import {
  * Progress is lifetime and counted on the server, except the few app-only
  * actions in CLIENT_ACTIONS, which the app reports.
  */
+
+/** Bumped when the set format changes, so old states re-deal with a baseline. */
+const SET_VERSION = 2;
 
 const stateRef = (uid: string) => db.collection("users").doc(uid).collection("levelChallenges").doc("state");
 
@@ -35,6 +35,12 @@ async function metricValue(uid: string, m: ChallengeMetric, user: FirebaseFirest
   switch (m) {
     case "bets":
       return count(db.collection("bets").where("uid", "==", uid));
+    case "boxes":
+      return count(userRef.collection("ledger").where("type", "==", "prize_box"));
+    case "videos":
+      return count(userRef.collection("ledger").where("type", "==", "ad_reward"));
+    case "referrals":
+      return (user.get("referralCount") as number | undefined) ?? 0;
     case "wins":
       return count(db.collection("bets").where("uid", "==", uid).where("status", "==", "won"));
     case "parlays":
@@ -70,19 +76,24 @@ async function load(uid: string) {
   const level = playerLevel(user);
   const claimed = (state.get("claimed") as Record<string, boolean> | undefined) ?? {};
   const counts = (state.get("counts") as Record<string, number> | undefined) ?? {};
-  // One set per level: dealt on reaching it, kept (claimed ones too) until the next level.
-  let active = (state.get("active") as string[] | undefined) ?? [];
-  if (state.get("setLevel") !== level) {
-    active = dealLevelSet(claimed, level);
-    await stateRef(uid).set({ setLevel: level, active }, { merge: true });
+  // The whole set for this level, completed ones included.
+  const defs = levelSet(level);
+  // One read per metric, shared by every challenge on it.
+  const metrics = [...new Set(defs.map((c) => c.metric))];
+  const values = new Map(await Promise.all(metrics.map(async (m) => [m, await metricValue(uid, m, user, counts)] as const)));
+  // Level goals count from where the player stood when the level's set was dealt.
+  let base = (state.get("base") as Record<string, number> | undefined) ?? {};
+  if (state.get("setLevel") !== level || state.get("v") !== SET_VERSION) {
+    base = Object.fromEntries(metrics.map((m) => [m, values.get(m) ?? 0]));
+    await stateRef(uid).set({ setLevel: level, v: SET_VERSION, base, active: defs.map((c) => c.id) }, { merge: true });
   }
-  const defs = active.map((id) => challengeById(id)).filter((c): c is ChallengeDef => !!c);
-  const progress = await Promise.all(defs.map((c) => metricValue(uid, c.metric, user, counts)));
+  const progress = defs.map((c) => Math.max(0, (values.get(c.metric) ?? 0) - (c.explore || c.lifetime ? 0 : base[c.metric] ?? 0)));
   return { level, defs, progress, claimed };
 }
 
 export const getLevelChallenges = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
+  await autoClaimChallenges(uid).catch(() => 0);
   const { level, defs, progress, claimed } = await load(uid);
   return {
     level,
@@ -100,37 +111,52 @@ export const getLevelChallenges = onCall({ region: "us-central1" }, async (req) 
   };
 });
 
+/**
+ * Pays every finished, unclaimed challenge in the player's current set. Run
+ * after anything that can move a challenge (bets, wins, boxes, purchases,
+ * friends, app actions) and on every load, so XP lands on its own — the app's
+ * XP popup shows each one. Safe to run concurrently: each challenge is marked
+ * claimed first and paid under its own idempotent key.
+ */
+export async function autoClaimChallenges(uid: string): Promise<number> {
+  let paid = 0;
+  // A payout can level the player up, which deals a new set that may already be partly done.
+  for (let round = 0; round < 3; round++) {
+    const { defs, progress, claimed } = await load(uid);
+    const done = defs.filter((c, i) => !claimed[c.id] && (progress[i] ?? 0) >= c.target);
+    if (!done.length) break;
+    await stateRef(uid).set({ claimed: Object.fromEntries(done.map((c) => [c.id, true])) }, { merge: true });
+    for (const c of done) {
+      // "quest" so it also feeds the season pass.
+      const res = await grantXp(uid, c.xp, `levelChallenge_${c.id}`, "quest", c.title);
+      if (res.applied) paid++;
+    }
+  }
+  return paid;
+}
+
+/** Best-effort wrapper for triggers. */
+export function autoClaimSoon(uid: string | undefined | null): Promise<void> {
+  if (!uid) return Promise.resolve();
+  return autoClaimChallenges(uid).then(
+    () => undefined,
+    () => undefined
+  );
+}
+
+/** Kept for older app builds: claims everything that's finished. */
 export const claimLevelChallenge = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
-  const { id } = z.object({ id: z.string().min(1) }).parse(req.data);
-  const { defs, progress, claimed } = await load(uid);
-  const i = defs.findIndex((c) => c.id === id);
-  if (i < 0) throw new HttpsError("not-found", "That challenge isn't active.");
-  const c = defs[i]!;
-  if (claimed[c.id]) throw new HttpsError("failed-precondition", "Already claimed.");
-  if ((progress[i] ?? 0) < c.target) throw new HttpsError("failed-precondition", "Not done yet.");
-  // Stays in the set (shown as done) until the next level deals a new one. Marked before the XP
-  // so this claim can be the one that completes the set and levels the player up.
-  await stateRef(uid).set({ claimed: { [c.id]: true } }, { merge: true });
-  // "quest" so it also feeds the season pass, like the weekly quests did.
-  const res = await grantXp(uid, c.xp, `levelChallenge_${c.id}`, "quest");
-  return { ok: true as const, xp: res.applied ? c.xp : 0, level: res.level };
+  z.object({ id: z.string().min(1) }).parse(req.data);
+  await autoClaimChallenges(uid);
+  const { level } = await load(uid);
+  return { ok: true as const, xp: 0, level };
 });
 
 export const recordChallengeAction = onCall({ region: "us-central1" }, async (req) => {
   const uid = requireAuth(req.auth);
   const { action } = z.object({ action: z.enum(CLIENT_ACTIONS) }).parse(req.data);
   await stateRef(uid).set({ counts: { [action]: FieldValue.increment(1) } }, { merge: true });
-  // Changing the app color is listed under "Earn XP" on the Levels screen, so it pays the first
-  // time whether or not its challenge is one of the three dealt. Same key as claiming the
-  // challenge, so it can never pay twice; marking it claimed takes it out of the deck.
-  if (action === "theme") {
-    const def = challengeById(THEME_CHALLENGE_ID);
-    if (def) {
-      await stateRef(uid).set({ claimed: { [def.id]: true } }, { merge: true });
-      const res = await grantXp(uid, def.xp, `levelChallenge_${def.id}`, "quest");
-      return { ok: true as const, xp: res.applied ? def.xp : 0 };
-    }
-  }
+  await autoClaimChallenges(uid).catch(() => 0);
   return { ok: true as const, xp: 0 };
 });

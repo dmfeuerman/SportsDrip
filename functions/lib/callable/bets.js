@@ -9,7 +9,7 @@ const playLimits_1 = require("../lib/playLimits");
 const streak_1 = require("../lib/streak");
 const streakDays_1 = require("../lib/streakDays");
 const MIN_STAKE = 10;
-const MAX_STAKE = 100_000;
+const MAX_STAKE = 1_000_000;
 const PlaceBetInput = zod_1.z
     .object({
     gameId: zod_1.z.string().min(1),

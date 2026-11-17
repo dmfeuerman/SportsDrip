@@ -39,7 +39,7 @@ exports.purchaseBackground = (0, https_1.onCall)({ region: "us-central1" }, asyn
             throw new https_1.HttpsError("failed-precondition", "That background hasn't dropped yet.");
         // Level-reward scenes are granted free on reaching that level, and can be bought before then.
         const required = listing.get("levelRequired") ?? 0;
-        if (required > (0, progression_1.levelFromXp)(user.get("xp"))) {
+        if (required > (0, progression_1.playerLevel)(user)) {
             throw new https_1.HttpsError("failed-precondition", `Reach level ${required} to buy this background.`);
         }
         const price = listing.get("price");

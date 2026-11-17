@@ -2,7 +2,6 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db, requireAuth, Timestamp } from "../lib/economy";
 import { weekKey } from "../lib/weekly";
-import { grantXp } from "../lib/xp";
 import { nyDay } from "../lib/streak";
 import { DEFAULT_QUEST_POOL, normalizePool, selectWeeklyQuests, type QuestDef, type QuestMetric } from "../lib/questPool";
 
@@ -106,6 +105,6 @@ export const claimQuest = onCall({ region: "us-central1" }, async (req) => {
   if (!q) throw new HttpsError("not-found", "Unknown quest.");
   if ((metrics[q.metric] ?? 0) < q.target) throw new HttpsError("failed-precondition", "Not done yet.");
   await questRef.set({ claimed: { [q.id]: true } }, { merge: true });
-  const res = await grantXp(uid, q.xp, `quest_${week}_${q.id}`, "quest");
-  return { ok: true, xp: res.applied ? q.xp : 0, level: res.level };
+  // XP comes only from level challenges; weekly quests no longer pay XP.
+  return { ok: true, xp: 0 };
 });
