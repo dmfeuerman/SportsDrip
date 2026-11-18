@@ -77,9 +77,9 @@ export function arm(side, build = 0, frame = 0) {
   const ul = Math.hypot(...ue);
   const top = [U[0] - (0.01 * ue[0]) / ul, U[1] - (0.01 * ue[1]) / ul, U[2] - (0.01 * ue[2]) / ul];
   const pts = [top, U, [(U[0] + E[0]) / 2, (U[1] + E[1]) / 2, (U[2] + E[2]) / 2 + 0.002], E, W];
-  const k = (1 + 0.11 * build) * (1 - 0.14 * frame) * 0.93;
-  // The cap over the shoulder joint stays below the trapezius line (more so on the narrower feminine frame).
-  const cap = 1 - 0.26 * frame;
+  const k = (1 + 0.11 * build) * (1 - 0.11 * frame) * 0.93;
+  // Keep enough shoulder cap volume on the feminine frame so the deltoid-to-arm transition has no armpit gap.
+  const cap = 1 - 0.12 * frame;
   return (ARM_CACHE[key] = limb(pts, E, (tE) => [
     scaleKeys([[0, 0.036 * cap], [0.06, 0.048 * cap], [0.28, 0.057], [tE - 0.03, 0.045], [tE + 0.06, 0.046], [0.75, 0.042], [0.93, 0.032], [1, 0.03]], k),
     scaleKeys([[0, 0.036 * cap], [0.06, 0.046 * cap], [0.28, 0.056], [tE - 0.03, 0.044], [tE + 0.06, 0.044], [0.75, 0.037], [0.93, 0.025], [1, 0.023]], k),

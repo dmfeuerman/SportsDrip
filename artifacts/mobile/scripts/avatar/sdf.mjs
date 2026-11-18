@@ -320,23 +320,41 @@ export function compact({ positions, indices }) {
  * distance in metres: the simplifier never moves the surface further than
  * that, so small features (lips, lid margins, seams) survive.
  */
-export async function simplify(mesh, targetTris, { error = 0.0005, lockBorder = true } = {}) {
+export async function simplify(mesh, targetTris, { error = 0.0005, lockBorder = true, measure = null } = {}) {
   await MeshoptSimplifier.ready;
   const target = Math.min(mesh.indices.length, targetTris * 3);
   const flags = ["ErrorAbsolute", ...(lockBorder ? ["LockBorder"] : [])];
-  const [idx] = MeshoptSimplifier.simplify(mesh.indices, mesh.positions, 3, target - (target % 3), error, flags);
+  // `measure`: positions the simplifier measures its error on (same topology); the mesh keeps its own.
+  const [idx] = MeshoptSimplifier.simplify(mesh.indices, measure ?? mesh.positions, 3, target - (target % 3), error, flags);
   return compact({ positions: mesh.positions, indices: idx });
+}
+
+/**
+ * A copy of `positions` magnified about `centre` by `s(p)` (smooth, ≥ 0.3): measured on it, the
+ * simplifier treats an error where s is large as that many times worse, so it spends its triangle
+ * budget there.
+ */
+export function importanceWarp(positions, importance, centre, gain = 1.6) {
+  const out = new Float32Array(positions.length);
+  for (let i = 0; i < positions.length; i += 3) {
+    const s = 0.3 + gain * importance(positions[i], positions[i + 1], positions[i + 2]);
+    for (let k = 0; k < 3; k++) out[i + k] = centre[k] + (positions[i + k] - centre[k]) * s;
+  }
+  return out;
 }
 
 /**
  * Full pipeline: SDF → simplified, projected mesh with field normals.
  * `keep` optionally trims the mesh (e.g. the head below the jaw seam).
  */
-export async function meshSDF(f, box, h, { targetTris, keep = null, error = 0.0005 } = {}) {
+export async function meshSDF(f, box, h, { targetTris, keep = null, error = 0.0005, importance = null, centre = null, gain = 1.6 } = {}) {
   let m = surfaceNets(f, box, h);
   project(f, m.positions, 2);
   if (keep) m = filterMesh(m, keep);
-  if (targetTris) m = await simplify(m, targetTris, { error });
+  // Importance (0 … 1 per point): the simplifier spends its triangles on the important regions
+  // (the face) and thins out the rest (the scalp under the hair).
+  const measure = targetTris && importance ? importanceWarp(m.positions, importance, centre ?? box[0].map((v, k) => (v + box[1][k]) / 2), gain) : null;
+  if (targetTris) m = await simplify(m, targetTris, { error, measure });
   project(f, m.positions, 2);
   const normals = new Float32Array(m.positions.length);
   for (let i = 0; i < m.positions.length; i += 3) {

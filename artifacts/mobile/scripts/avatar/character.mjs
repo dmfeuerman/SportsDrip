@@ -52,7 +52,7 @@ const fk = (k) => 1 + k * FRAME;
  * instead of separate bumps. Fraction by which x is scaled in, by height.
  */
 export const hipIn = (y) =>
-  0.17 * gauss(y, 0.9, 0.142) - 0.1 * gauss(y, 0.9, 0.092) + 0.0765 * gauss(y, 0.728, 0.092) + 0.2 * gauss(y, 1.04, 0.103) + 0.035 * gauss(y, 0.97, 0.09) + 0.05 * gauss(y, 1.0, 0.1) + 0.025 * gauss(y, 0.95, 0.04) - 0.06 * gauss(y, 0.875, 0.05);
+  0.085 * gauss(y, 0.94, 0.13) + 0.045 * gauss(y, 0.76, 0.11);
 
 /* ── limbs as swept tubes ────────────────────────────────────────────────── */
 
@@ -105,25 +105,27 @@ function limbMuscles(side, build, frame = 0) {
   const L = leg(side, build, frame);
   const tE = A.tJoint;
   const tK = L.tJoint;
-  const m = (1 + 0.16 * build) * (1 - 0.16 * frame) * 0.92;
+  // Athletic volume on the masculine frame; the feminine frame keeps smooth, toned limbs.
+  const masc = 1 - frame;
+  const m = (1 + 0.15 * build) * (1 - 0.24 * frame) * (0.94 + 0.1 * masc);
   const out = [];
   const axisRot = (sampler, t) => {
     const tan = sampler(t).tan;
-    // Rotation that maps +Y to the limb tangent (limbs are close to vertical).
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan.clone().negate());
     const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
     return rotation(e.x, e.y, e.z);
   };
   const r = (a, b, c) => [a * m, b, c * m];
+  const armK = 0.016 + 0.024 * frame;
   // biceps (front), triceps (back), forearm (outer/front)
-  out.push({ c: onLimb(A, tE * 0.52, 0.012 * m, 0), r: r(0.039, 0.072, 0.034), R: axisRot(A, tE * 0.52), k: 0.02 });
-  out.push({ c: onLimb(A, tE * 0.45, -0.013 * m, 0.004), r: r(0.041, 0.077, 0.036), R: axisRot(A, tE * 0.45), k: 0.02 });
-  out.push({ c: onLimb(A, tE + (1 - tE) * 0.28, 0.006, 0.008), r: r(0.035, 0.07, 0.032), R: axisRot(A, tE + (1 - tE) * 0.28), k: 0.02 });
+  out.push({ c: onLimb(A, tE * 0.52, 0.0135 * masc * (1 + 0.15 * build), 0), r: r(0.041, 0.074, 0.037), R: axisRot(A, tE * 0.52), k: armK });
+  out.push({ c: onLimb(A, tE * 0.44, -0.0145 * masc * (1 + 0.15 * build), 0.004 * masc), r: r(0.043, 0.08, 0.038), R: axisRot(A, tE * 0.44), k: armK });
+  out.push({ c: onLimb(A, tE + (1 - tE) * 0.26, 0.007 * masc, 0.0085 * masc), r: r(0.037, 0.072, 0.033), R: axisRot(A, tE + (1 - tE) * 0.26), k: armK });
   // quads (front), hamstrings (back), calf (back), knee cap
-  out.push({ c: onLimb(L, tK * 0.48, 0.014 * m, 0.006), r: r(0.058, 0.13, 0.046), R: axisRot(L, tK * 0.48), k: 0.045 });
-  out.push({ c: onLimb(L, tK * 0.5, -0.012 * m, 0), r: r(0.058, 0.13, 0.046), R: axisRot(L, tK * 0.5), k: 0.045 });
-  out.push({ c: onLimb(L, tK + (1 - tK) * 0.3, -0.014 * m, 0.002), r: r(0.043, 0.095, 0.04), R: axisRot(L, tK + (1 - tK) * 0.3), k: 0.04 });
-  out.push({ c: onLimb(L, tK - 0.012, 0.036, 0), r: [0.028, 0.03, 0.018], R: axisRot(L, tK), k: 0.03 });
+  out.push({ c: onLimb(L, tK * 0.52, 0.017 * m, 0.005 * masc), r: r(0.062, 0.132, 0.05), R: axisRot(L, tK * 0.52), k: 0.034 + 0.014 * frame });
+  out.push({ c: onLimb(L, tK * 0.5, -0.013 * m, 0), r: r(0.06, 0.13, 0.047), R: axisRot(L, tK * 0.5), k: 0.04 });
+  out.push({ c: onLimb(L, tK + (1 - tK) * 0.28, -0.016 * m, 0.003 * masc), r: r(0.047, 0.096, 0.043), R: axisRot(L, tK + (1 - tK) * 0.28), k: 0.032 + 0.01 * frame });
+  out.push({ c: onLimb(L, tK - 0.012, 0.035, 0), r: [0.028, 0.03, 0.018], R: axisRot(L, tK), k: 0.03 });
   return out;
 }
 const muscleD = (m, x, y, z) => {
@@ -135,10 +137,12 @@ function armD(s, x, y, z) {
   const { ARM, MUSCLES } = sweeps();
   if (!ARM[s].near(x, y, z, 0.08)) return 1;
   let d = ARM[s].eval(x, y, z).d;
-  const [bi, tri, fore] = MUSCLES[s];
-  d = smin(d, muscleD(bi, x, y, z), bi.k);
-  d = smin(d, muscleD(tri, x, y, z), tri.k);
-  d = smin(d, muscleD(fore, x, y, z), fore.k);
+  if (FRAME < 0.99) {
+    const [bi, tri, fore] = MUSCLES[s];
+    const m = smin(smin(d, muscleD(bi, x, y, z), bi.k), muscleD(tri, x, y, z), tri.k);
+    const m2 = smin(m, muscleD(fore, x, y, z), fore.k);
+    d = d + (m2 - d) * (1 - FRAME);
+  }
   return d;
 }
 
@@ -161,59 +165,69 @@ const DELT_R = Object.fromEntries(SIDES.map((s) => [s, rotation(0, 0, sgn(s) * 0
 const PEC_R = Object.fromEntries(SIDES.map((s) => [s, rotation(0.1, sgn(s) * 0.25, sgn(s) * -0.18)]));
 
 function deltoidD(s, x, y, z) {
-  // Masculine frame: a rounder, fuller cap (the arm tube no longer bulks out the top of the shoulder).
-  // (Width at the side of the shoulder, not height: the cap's top stays under the trapezius line.)
-  const k = bk(0.13) * fk(-0.5) * (1 + 0.16 * (1 - FRAME));
-  const l = toLocal(DELT_R[s], [(0.178 + 0.006 * BUILD - 0.049 * FRAME) * sgn(s), 1.36 - 0.018 * FRAME, -0.008], x, y, z);
-  return sdEllipsoid(l[0], l[1], l[2], 0.0378 * k, 0.061 * bk(0.05) * fk(-0.25), 0.0435 * k);
+  const k = bk(0.12) * fk(-0.22) * (1 + 0.14 * (1 - FRAME));
+  const l = toLocal(DELT_R[s], [(0.184 + 0.006 * BUILD - 0.024 * FRAME) * sgn(s), 1.367 - 0.02 * FRAME, -0.008], x, y, z);
+  return sdEllipsoid(l[0], l[1], l[2], 0.0378 * k, 0.071 * bk(0.05) * fk(-0.18), 0.0432 * k);
 }
 
-/** The feminine frame's horizontal scale-in of the torso by height (x is multiplied by it): waist cinch plus hipIn. */
-export const femTorsoIn = (y) => 1 + 0.11 * gauss(y, 1.15, 0.07) + 0.07 * gauss(y, 1.07, 0.06) + hipIn(y);
+/** The feminine frame's horizontal scale-in of the torso by height (x is multiplied by it): smooth athletic waist plus hipIn. */
+export const femTorsoIn = (y) => 1 + 0.095 * gauss(y, 1.13, 0.095) + hipIn(y);
 
 function torsoD(x, y, z) {
   if (y < 0.72 || y > 1.72 || Math.abs(x) > 0.38) return Math.max(0.09, Math.abs(y - 1.2) - 0.52);
-  // Feminine frame: the waist cinched in (the whole cross-section narrows smoothly around the
-  // natural waist, ribs and lats included), and the hips narrowed with the legs (hipIn).
-  // A smooth scale, not smaller muscles: shrinking single ellipsoids left flaps in the morph.
-  // Surface details (navel, lines) are placed in real space below, so they keep their shape.
   const x0 = x, ax0 = Math.abs(x);
   if (FRAME) x *= 1 + FRAME * (femTorsoIn(y) - 1);
   const ax = Math.abs(x);
   const w = bk(0.085) * fk(-0.14), dp = bk(0.07) * fk(-0.04);
   // Rib cage and upper chest give the V; the abdomen pinches the waist in.
   let d = sdEllipsoid(x, y - 1.268, z - 0.004, 0.136 * w, 0.158, 0.1 * dp);
-  d = smin(d, sdEllipsoid(x, y - 1.345, z - 0.0, 0.142 * bk(0.1) * fk(-0.24), 0.066, 0.089 * dp), 0.05 + 0.02 * FRAME);
+  // Upper chest: broader on the masculine frame, sleek on the feminine frame.
+  d = smin(d, sdEllipsoid(x, y - 1.345, z - 0.0, 0.148 * bk(0.1) * fk(-0.271), 0.066, 0.089 * dp), 0.05 + 0.02 * FRAME);
   const side = x >= 0 ? "L" : "R";
-  // Masculine-only terms (they fade out over the frameFem morph): fuller, rounder pecs with a crisper
-  // lower edge, wider lats and a narrower abdomen for a clear shoulder-to-waist V.
   const masc = 1 - FRAME;
   {
     const pk = bk(0.16) * fk(0.16);
     const l = toLocal(PEC_R[side], [0.062 * sgn(side) * w, 1.322 - 0.016 * FRAME, (0.05 + 0.012 * FRAME) * dp], x, y, z);
-    d = smin(d, sdEllipsoid(l[0], l[1], l[2], 0.068 * pk * fk(-0.1), 0.05 * pk * fk(0.08), 0.041 * pk * fk(0.45) * (1 + 0.08 * masc)), 0.03 - 0.008 * masc);
+    // Fuller, sculpted masculine pecs with a crisp lower edge; smooth athletic bust on the feminine frame.
+    d = smin(d, sdEllipsoid(l[0], l[1], l[2], 0.069 * pk * fk(-0.1) * (1 + 0.07 * masc), 0.051 * pk * fk(0.08) * (1 + 0.06 * masc), 0.042 * pk * fk(0.45) * (1 + 0.24 * masc)), 0.026 - 0.008 * masc);
   }
-  d = smin(d, sdEllipsoid(ax - 0.094 * w, y - 1.24, z + 0.018, 0.055 * bk(0.16) * fk(-0.4) * (1 + 0.09 * masc), 0.13, 0.066), 0.045); // lats
+  d = smin(d, sdEllipsoid(ax - 0.094 * w, y - 1.24, z + 0.018, 0.056 * bk(0.16) * fk(-0.4) * (1 + 0.18 * masc), 0.13, 0.068), 0.044); // lats
   d = smin(d, sdEllipsoid(x, y - 1.1, z - 0.01, 0.121 * bk(0.11) * fk(-0.36) * (1 - 0.055 * masc), 0.13, 0.09 * bk(0.13) * fk(-0.16)), 0.075); // abdomen
   d = smin(d, sdEllipsoid(x, y - 0.95, z + 0.002, (0.124 + 0.032 * FRAME) * bk(0.07), 0.1 - 0.004 * FRAME, 0.1 * bk(0.07)), 0.1 + 0.02 * FRAME); // pelvis
   d = smin(d, sdEllipsoid(ax - 0.062 * bk(0.05), y - 0.918, z + 0.046 * bk(0.08), 0.072 * bk(0.08) * fk(0.1), 0.078, 0.064 * bk(0.08) * fk(0.16)), 0.04 + 0.02 * FRAME); // glutes
   d = smin(d, sdEllipsoid(ax - ((0.092 + 0.02 * FRAME) * bk(0.06) + 0.011 * FRAME), y - (0.935 + 0.005 * FRAME), z + 0.004, 0.04 + 0.022 * FRAME, 0.075 - 0.005 * FRAME, 0.066 + 0.004 * FRAME), 0.05 + 0.025 * FRAME); // hip flare
-  // Trapezius: neck to the top of the shoulder.
-  d = smin(d, sdCone(ax, y, z, [0.03, 1.446 + 0.004 * BUILD, -0.026], [(0.165 - 0.03 * FRAME) * bk(0.04), 1.418 - 0.012 * FRAME, -0.02], 0.032 * bk(0.18) * fk(-0.25), 0.03 * bk(0.12) * fk(-0.18)), 0.04);
-  d = smin(d, deltoidD(side, x, y, z), 0.045);
+  d = smin(d, sdCone(ax, y, z, [0.03, 1.462 + 0.004 * BUILD - 0.016 * FRAME, -0.026], [(0.168 - 0.033 * FRAME) * bk(0.04), 1.41 - 0.004 * FRAME, -0.02], 0.033 * bk(0.18) * fk(-0.25), 0.033 * bk(0.12) * fk(-0.25)), 0.042);
+  d = smin(d, deltoidD(side, x, y, z), 0.052);
 
-  // Surface detail (inward is positive).
+  // Surface muscle definition (inward is positive).
   const front = sstep(0.0, 0.05, z);
   const back = sstep(0.0, -0.05, z);
   let dent = 0;
-  dent += 0.0028 * (1 - 0.8 * FRAME) * front * gauss(x0, 0, 0.009) * sstep(1.0, 1.05, y) * sstep(1.27, 1.2, y); // linea alba
-  dent += 0.0016 * (1 - 0.8 * FRAME) * front * gauss(ax0, 0.04, 0.03) * (gauss(y, 1.125, 0.006) + gauss(y, 1.07, 0.006)) * sstep(0.04, 0.07, z); // abs
-  dent += 0.004 * front * gauss(x0, 0, 0.006) * gauss(y, 1.025, 0.006); // navel
-  dent += (0.0026 + 0.0008 * masc) * front * gauss(y, 1.27, 0.01) * gauss(ax0, 0.07, 0.04); // under-pec line
-  dent += 0.0016 * masc * front * gauss(x0, 0, 0.008) * sstep(1.22, 1.27, y) * sstep(1.39, 1.33, y); // sternum groove between the pecs
-  dent += 0.003 * back * gauss(x0, 0, 0.012) * sstep(0.98, 1.06, y) * sstep(1.42, 1.34, y); // spine groove
-  dent -= 0.0018 * front * gauss(y, 1.418, 0.008) * gauss(ax0, 0.07, 0.04); // collarbones
-  dent += 0.003 * front * gauss(x0, 0, 0.012) * gauss(y, 1.43, 0.012); // jugular notch
+  // Linea alba (center vertical abdominal groove: defined on masculine, soft athletic line on feminine).
+  dent += (0.0028 * masc + 0.0007 * FRAME) * front * gauss(x0, 0, 0.01) * sstep(0.99, 1.04, y) * sstep(1.28, 1.21, y);
+  // Horizontal tendinous intersections (3 abdominal rows).
+  const abRows = gauss(y, 1.202, 0.0085) + gauss(y, 1.144, 0.0085) + gauss(y, 1.086, 0.0085);
+  dent += 0.0022 * masc * front * gauss(ax0, 0.034, 0.026) * abRows * sstep(0.04, 0.07, z);
+  // Sculpted 6-pack rectus abdominis pads (outward muscle bellies between the tendinous intersections).
+  const abPads = 0.85 * gauss(y, 1.23, 0.018) + 1.0 * gauss(y, 1.173, 0.019) + 0.95 * gauss(y, 1.115, 0.019) + 0.55 * gauss(y, 1.052, 0.022);
+  dent -= 0.0024 * masc * front * gauss(ax0, 0.028, 0.015) * abPads * sstep(0.04, 0.075, z);
+  // Linea semilunaris (outer border of the rectus abdominis framing the abs).
+  dent += (0.0018 * masc + 0.0006 * FRAME) * front * gauss(ax0, 0.06 - 0.008 * FRAME, 0.011) * sstep(1.01, 1.06, y) * sstep(1.26, 1.2, y);
+  // Iliac / external oblique V-taper crease.
+  dent += 0.0016 * masc * front * gauss(y - (0.965 + 1.15 * (ax0 - 0.045)), 0, 0.012) * sstep(0.035, 0.058, ax0) * sstep(0.115, 0.09, ax0);
+  // Navel.
+  dent += 0.0038 * front * gauss(x0, 0, 0.007) * gauss(y, 1.025, 0.007);
+  // Under-pec crease and central sternal groove.
+  dent += (0.0016 + 0.0018 * masc) * front * gauss(y, 1.268, 0.015) * gauss(ax0, 0.068, 0.044);
+  dent += 0.0022 * masc * front * gauss(x0, 0, 0.012) * sstep(1.23, 1.27, y) * sstep(1.39, 1.33, y);
+  // Deltopectoral groove separating outer pec from anterior deltoid.
+  dent += 0.0016 * masc * front * gauss(ax0 - (0.106 + 0.42 * (y - 1.3)), 0, 0.011) * sstep(1.28, 1.31, y) * sstep(1.4, 1.37, y);
+  // Serratus / lateral rib definition.
+  dent += 0.0011 * masc * sstep(-0.01, 0.05, z) * gauss(ax0, 0.098, 0.018) * (gauss(y - 0.25 * ax0, 1.195, 0.008) + gauss(y - 0.25 * ax0, 1.165, 0.008));
+  // Spine groove, collarbones, and jugular notch.
+  dent += 0.0026 * back * gauss(x0, 0, 0.018) * sstep(0.98, 1.06, y) * sstep(1.42, 1.34, y);
+  dent -= 0.0017 * front * gauss(y, 1.418, 0.009) * gauss(ax0, 0.07, 0.04);
+  dent += 0.0032 * front * gauss(x0, 0, 0.012) * gauss(y, 1.43, 0.012);
   return d + dent;
 }
 
@@ -246,15 +260,14 @@ const HAND = Object.fromEntries(
 const HS = 1.12; // hand scale: stylised hands read a touch larger
 /**
  * Fingers: [width position (+ = toward the thumb), proximal, middle, distal
- * phalanx lengths, radius, splay (rad), curl (rad)]. Side by side with no
- * gaps, each curling into the palm a little more than the last — a hand at
- * rest, not a spread glove.
+ * phalanx lengths, radius, splay (rad), curl (rad)]. Clean separation and
+ * natural relaxed arc so adjacent fingers never collapse into each other.
  */
 const FINGERS = [
-  [0.0305, 0.043, 0.027, 0.021, 0.0092, 0.035, 0.32],
-  [0.0102, 0.046, 0.029, 0.022, 0.0095, 0.0, 0.4],
-  [-0.0102, 0.044, 0.028, 0.021, 0.009, -0.025, 0.5],
-  [-0.0292, 0.035, 0.022, 0.018, 0.008, -0.07, 0.6],
+  [0.0315, 0.042, 0.026, 0.02, 0.0096, 0.045, 0.22],
+  [0.0105, 0.045, 0.028, 0.021, 0.01, 0.0, 0.26],
+  [-0.0105, 0.043, 0.027, 0.02, 0.0095, -0.028, 0.31],
+  [-0.0305, 0.035, 0.022, 0.017, 0.0088, -0.065, 0.36],
 ];
 
 function handD(side, x, y, z) {
@@ -266,21 +279,21 @@ function handD(side, x, y, z) {
   if (a < -0.05 || a > 0.21 || Math.abs(b) > 0.09 || Math.abs(c) > 0.08) return 1;
   const taper = 1 - 0.1 * clamp(a / 0.09, 0, 1);
   let d = sdRoundBox(a - 0.048, b * (1 / taper), c + 0.001, 0.046, 0.043, 0.015, 0.013);
-  // Relaxed curl through three joints.
+  // Natural relaxed curl through three phalanges.
   for (const [w, l1, l2, l3, r, splay, curl] of FINGERS) {
     const k0 = [0.09, w, 0.0];
     const sx = Math.sin(splay);
     const seg = (p, l, th) => [p[0] + l * Math.cos(th), p[1] + l * sx, p[2] + l * Math.sin(th)];
     const k1 = seg(k0, l1, curl);
-    const k2 = seg(k1, l2, curl * 2.3);
-    const k3 = seg(k2, l3, curl * 3.1);
-    const f = Math.min(sdCone(a, b, c, k0, k1, r, r * 0.93), sdCone(a, b, c, k1, k2, r * 0.93, r * 0.86), sdCone(a, b, c, k2, k3, r * 0.86, r * 0.74));
-    d = smin(d, f, 0.0035);
+    const k2 = seg(k1, l2, curl * 1.9);
+    const k3 = seg(k2, l3, curl * 2.5);
+    const f = Math.min(sdCone(a, b, c, k0, k1, r, r * 0.94), sdCone(a, b, c, k1, k2, r * 0.94, r * 0.87), sdCone(a, b, c, k2, k3, r * 0.87, r * 0.76));
+    d = smin(d, f, 0.0026);
   }
   const t0 = [0.022, 0.038, 0.006];
-  const t1 = [0.05, 0.062, 0.026];
-  const t2 = [0.074, 0.068, 0.044];
-  d = smin(d, Math.min(sdCone(a, b, c, t0, t1, 0.0145, 0.012), sdCone(a, b, c, t1, t2, 0.0115, 0.0098)), 0.012);
+  const t1 = [0.052, 0.063, 0.025];
+  const t2 = [0.077, 0.07, 0.042];
+  d = smin(d, Math.min(sdCone(a, b, c, t0, t1, 0.0145, 0.012), sdCone(a, b, c, t1, t2, 0.0118, 0.01)), 0.01);
   // Knuckle ridge.
   d -= 0.0012 * gauss(a, 0.09, 0.008) * sstep(0, -0.01, c);
   return d * HS;
@@ -359,6 +372,7 @@ export function regionOf(x, y, z) {
     case "deltoid":
       return "shoulders";
     case "arm":
+      if (y < 1.0 && Math.abs(x) > 0.25) return "hands";
       return p.t < 0.25 ? "upperArms" : p.t < 0.5 ? "elbows" : p.t < 0.88 ? "forearms" : "hands";
     case "leg": {
       if (p.t < 0.12) return y > 1.0 ? "abdomen" : y > 0.93 ? "waist" : "hips";
@@ -375,7 +389,7 @@ export function regionOf(x, y, z) {
       if (y > 1.18) return "chest";
       if (y > 1.0) return "abdomen";
       // Where tops end and bottoms begin: covered by both together, neither alone, so never hidden.
-      if (y > 0.93) return "waist";
+      if (y > 0.945) return "waist";
       return "hips";
     }
   }
@@ -420,8 +434,8 @@ export function bodyD(x, y, z, { hands = true, feet = true } = {}) {
   for (const s of SIDES) {
     const sx = sgn(s) * x;
     if (sx > 0.05 && y > 0.6) {
-      // Tight blend in the armpit, soft over the deltoid.
-      const kArm = 0.008 + 0.038 * sstep(1.28, 1.4, y);
+      // Smooth blend in the armpit (slightly wider on feminine frame), soft over the deltoid.
+      const kArm = 0.01 + 0.008 * FRAME + 0.04 * sstep(1.26, 1.4, y);
       let a = armD(s, x, y, z);
       if (hands && y < 0.97) a = smin(a, handD(s, x, y, z), 0.012);
       d = smin(d, a, kArm);
@@ -448,50 +462,47 @@ const [RX, RY, RZ] = HEAD.radii;
  * so the cranium — and everything that sits on it — is shared.
  *   jawX   how far out the jaw angle sits (half-width, m)
  *   jawY   height of the jaw angle
- *   chin   chin width factor; chinY its centre height
+ *   chin   chin width factor; chinY its centre height; chinZ its forward projection
  *   cheek  fullness of the cheeks (lower face mass width factor)
+ *   jawR   jawline cone radius at the gonion
  */
 export const FACE_SHAPE = {
-  oval: { jawX: 0.061, jawY: 1.565, chin: 1.0, chinY: 1.526, cheek: 1.0 },
-  round: { jawX: 0.065, jawY: 1.568, chin: 1.25, chinY: 1.53, cheek: 1.1 },
-  square: { jawX: 0.071, jawY: 1.554, chin: 1.53, chinY: 1.525, cheek: 1.02 },
-  heart: { jawX: 0.054, jawY: 1.574, chin: 0.72, chinY: 1.523, cheek: 0.96 },
+  oval: { jawX: 0.06, jawY: 1.563, chin: 1.0, chinY: 1.524, chinZ: 0.088, cheek: 1.0, jawR: 0.0195 },
+  round: { jawX: 0.068, jawY: 1.566, chin: 1.32, chinY: 1.529, chinZ: 0.086, cheek: 1.15, jawR: 0.023 },
+  square: { jawX: 0.075, jawY: 1.547, chin: 1.68, chinY: 1.521, chinZ: 0.091, cheek: 1.05, jawR: 0.0235 },
+  heart: { jawX: 0.05, jawY: 1.576, chin: 0.6, chinY: 1.518, chinZ: 0.089, cheek: 1.06, jawR: 0.0165 },
 };
 
 /** Eyeball centre and radius (left eye; mirror x for the right). */
-export const EYE = { x: 0.0375, y: 1.64, z: 0.0935, r: 0.0175 };
+export const EYE = { x: 0.0375, y: 1.64, z: 0.0922, r: 0.0175 };
 /** How much larger the eyes (balls, lids, lashes) are on the feminine frame, about each eye's centre. */
-export const EYE_FEM_SCALE = 1.1;
+export const EYE_FEM_SCALE = 1.12;
 const EAR_R = Object.fromEntries(SIDES.map((s) => [s, rotation(0, sgn(s) * 0.38, sgn(s) * -0.08)]));
 export const EAR_C = Object.fromEntries(SIDES.map((s) => [s, [0.096 * sgn(s), 1.626, -0.008]]));
 const LIP_U = rotation(-0.3, 0, 0);
 const LIP_L = rotation(0.28, 0, 0);
 /** The mouth line (neutral mouth): centre height, depth and half-width. */
-export const MOUTH = { y: 1.5595, z: 0.1135, w: 0.02 };
+export const MOUTH = { y: 1.5595, z: 0.1085, w: 0.02 };
 /** The resting smile: how far the mouth line lifts at x. */
-export const smileAt = (x, w = MOUTH.w) => 0.0026 * Math.min(1.2, Math.abs(x) / w) ** 2;
+export const smileAt = (x, w = MOUTH.w) => 0.0012 * Math.min(1.2, Math.abs(x) / w) ** 2;
 
 /**
- * Nose and mouth options. The base head is meshed with "button" / "neutral";
- * the others are baked as blendshapes (noseStraight, noseBroad, lipsFull,
- * mouthWide) by sampling these fields, so they cost no extra meshes.
+ * Nose and mouth options. Each head (face shape × nose shape) is meshed
+ * directly so straight and broad noses have clean topology and distinct silhouettes.
  */
 export const NOSE = {
-  // Small and slightly upturned (the meshed default).
-  // (Bridges are a little narrower at the top than they were, so the dorsum reads as a sculpted
-  // ridge between the eyes; tips are a touch smaller and the nostrils deeper.)
-  button: { bridge: [[0, 1.636, 0.1205], [0, 1.6045, 0.131]], br: [0.0049, 0.0075], tip: [1.6005, 0.1302, 0.0103, 0.0091, 0.0096], wing: [0.0108, 1.5965, 0.1215, 0.0072, 0.0064, 0.007] },
-  // Longer, higher bridge, tip further out and lower: reads clearly in profile.
-  // (Projects ~4 mm past the button, not ~13: any further and it hangs off the stylised face.)
-  straight: { bridge: [[0, 1.648, 0.1222], [0, 1.5985, 0.1388]], br: [0.0047, 0.0076], tip: [1.5965, 0.1366, 0.0101, 0.0096, 0.01], wing: [0.0108, 1.5935, 0.1228, 0.0068, 0.0062, 0.0068] },
-  // Wide, flatter bridge, big rounded tip and full wings: reads clearly from the front.
-  broad: { bridge: [[0, 1.634, 0.12], [0, 1.6045, 0.132]], br: [0.0084, 0.0124], tip: [1.599, 0.1322, 0.0172, 0.012, 0.011], wing: [0.0188, 1.5948, 0.1192, 0.0114, 0.0088, 0.0092] },
+  // Compact and slightly upturned (the default).
+  button: { bridge: [[0, 1.636, 0.1185], [0, 1.606, 0.1275]], br: [0.0068, 0.0088], tip: [1.6025, 0.1272, 0.0102, 0.009, 0.0095], wing: [0.0108, 1.5975, 0.1185, 0.0072, 0.0065, 0.007] },
+  // Longer, higher dorsum, tip further forward and lower: strong profile and longer bridge.
+  straight: { bridge: [[0, 1.649, 0.122], [0, 1.595, 0.138]], br: [0.0056, 0.0078], tip: [1.593, 0.1362, 0.0098, 0.0096, 0.011], wing: [0.011, 1.592, 0.1208, 0.0068, 0.0064, 0.0072] },
+  // Wider bridge, fuller rounded bulb tip and wider flared wings: clearly broader from the front.
+  broad: { bridge: [[0, 1.635, 0.118], [0, 1.603, 0.1295]], br: [0.0096, 0.0136], tip: [1.5975, 0.13, 0.0184, 0.0124, 0.0114], wing: [0.0202, 1.594, 0.1168, 0.0122, 0.0092, 0.0095] },
 };
 /** Lip ellipsoids (half-width, height, depth). Fuller than the first v3 lips across the board, so lipsFull stays the fullest. */
 export const MOUTH_SHAPE = {
-  neutral: { w: 0.02, up: [0.0202, 0.006, 0.0098], lo: [0.0182, 0.0076, 0.0099], fwd: 0.0004 },
-  full: { w: 0.0208, up: [0.0211, 0.0075, 0.0108], lo: [0.0192, 0.0096, 0.0113], fwd: 0.0015 },
-  wide: { w: 0.0238, up: [0.0238, 0.0058, 0.0094], lo: [0.0216, 0.0072, 0.0095], fwd: 0.0003 },
+  neutral: { w: 0.02, up: [0.0206, 0.0063, 0.0086], lo: [0.0188, 0.0078, 0.009], fwd: 0.0 },
+  full: { w: 0.0208, up: [0.0213, 0.0074, 0.0086], lo: [0.0196, 0.0094, 0.0092], fwd: 0.0011 },
+  wide: { w: 0.0238, up: [0.0242, 0.0056, 0.0072], lo: [0.0222, 0.007, 0.0074], fwd: 0.0 },
 };
 let NOSE_SEL = NOSE.button;
 let MOUTH_SEL = MOUTH_SHAPE.neutral;
@@ -507,14 +518,18 @@ export function craniumD(x, y, z) {
 
 function lowerFaceD(x, y, z, f) {
   // Maxilla and cheeks: the mass of the face under the eyes.
-  const jawX = f.jawX * fk(-0.12), chin = f.chin * fk(-0.2), chinY = f.chinY + 0.005 * FRAME;
-  let d = sdEllipsoid(x, y - 1.594, z - 0.032, 0.078 * f.cheek * fk(0.02), 0.066, 0.082);
-  // Jaw line: from under the ear to the chin, both sides, blended at the chin (no crease at x = 0).
-  // A slimmer jaw cone with a tighter blend: a crisp jawline from the ear to the chin.
-  const jaw = (sx) => sdCone(sx, y, z, [jawX, f.jawY + 0.004 * FRAME, -0.018], [0.016 * chin, chinY + 0.002, 0.07], 0.0195 * fk(-0.1), 0.0165 * fk(-0.15));
-  d = smin(d, smin(jaw(x), jaw(-x), 0.02), 0.023 + 0.012 * FRAME);
-  // Chin.
-  d = smin(d, sdEllipsoid(x, y - chinY, z - 0.073, 0.021 * chin, 0.019 * fk(-0.12), 0.02 * fk(-0.1)), 0.018);
+  // Around the high temple/ear rim (where banded headwear seats), all face shapes converge to the shared cranium width.
+  const earZone = sstep(1.56, 1.595, y) * sstep(0.05, 0.005, z);
+  const cheek = f.cheek + (1 - f.cheek) * earZone;
+  const jawX = (f.jawX + (0.061 - f.jawX) * earZone) * fk(-0.1), chin = f.chin * fk(-0.16), chinY = f.chinY + 0.004 * FRAME;
+  const chinZ = (f.chinZ ?? 0.086) - 0.002 * FRAME;
+  const jawR = (f.jawR ?? 0.02) * fk(-0.12);
+  let d = sdEllipsoid(x, y - 1.592, z - 0.03, 0.077 * cheek * fk(0.02), 0.067, 0.08);
+  // Jaw line: from the gonion under the ear forward to the chin, with a smooth rounded mandible.
+  const jaw = (sx) => sdCone(sx, y, z, [jawX, f.jawY + 0.004 * FRAME, -0.014], [0.018 * chin, chinY + 0.001, chinZ - 0.006], jawR, 0.0175 * fk(-0.14));
+  d = smin(d, smin(jaw(x), jaw(-x), 0.022), 0.036 + 0.006 * FRAME);
+  // Chin: soft rounded projection aligned cleanly with the lower lip.
+  d = smin(d, sdEllipsoid(x, y - chinY, z - chinZ, 0.024 * chin * fk(-0.08), 0.02 * fk(-0.08), 0.023 * fk(-0.06)), 0.026);
   return d;
 }
 
@@ -534,10 +549,10 @@ function earD(s, x, y, z) {
 export function skullD(shape, x, y, z) {
   const f = FACE_SHAPE[shape];
   let d = craniumD(x, y, z);
-  d = smin(d, lowerFaceD(x, y, z, f), 0.045);
-  // Temples flatten a little; the back of the skull drops into the nape.
-  d = smin(d, sdEllipsoid(x, y - 1.58, z + 0.04, 0.065, 0.06, 0.06), 0.04);
-  if (z < 0.03 && y < 1.62) d = smin(d, sdEllipsoid(x, y - 1.565, z + 0.026, 0.05, 0.034, 0.028), 0.02);
+  d = smin(d, sdEllipsoid(x, y - 1.695, z - 0.05, 0.081, 0.055, 0.06), 0.03);
+  d = smin(d, sdEllipsoid(x, y - 1.664, z + 0.026, 0.086, 0.088, 0.088), 0.02);
+  d = smin(d, lowerFaceD(x, y, z, f), 0.042);
+  d = smin(d, sdEllipsoid(x, y - 1.578, z + 0.03, 0.06, 0.05, 0.05), 0.035);
   return d;
 }
 
@@ -553,55 +568,60 @@ export function scalpUnionD(x, y, z) {
 export function headD(shape, x, y, z) {
   const ax = Math.abs(x);
   if (ax > 0.16 || y < 1.45 || y > 1.82 || z < -0.15 || z > 0.19) return 0.08;
+  const f = FACE_SHAPE[shape];
   let d = skullD(shape, x, y, z);
 
-  // Brow ridge: one broad, smooth mass over both eyes (two small lumps read as a crease on a bare head).
-  d = smin(d, sdEllipsoid(ax - 0.03, y - 1.6715, z - 0.095, 0.034, 0.0115, 0.0155), 0.024);
-  // Cheekbones: higher and further out, blended tighter so they read as a plane, with a soft
-  // hollow beneath them (less on the feminine frame).
-  d = smin(d, sdEllipsoid(ax - 0.056, y - 1.616, z - 0.071, 0.027, 0.0165, 0.032), 0.019);
-  d += 0.0011 * (1 - 0.5 * FRAME) * gauss(ax, 0.052, 0.012) * gauss(y, 1.584, 0.011) * sstep(0.035, 0.065, z);
+  // Brow ridge: one broad, smooth mass over both eyes.
+  d = smin(d, sdEllipsoid(ax - 0.03, y - 1.6705, z - 0.0965, 0.035, 0.0125, 0.0155), 0.026);
+  // Glabella: fills between the brows so the forehead runs straight down into the nose bridge.
+  d = smin(d, sdEllipsoid(x, y - 1.656, z - 0.1035, 0.013, 0.016, 0.009), 0.012);
+  // Cheekbones: soft, full zygomatic contour blended smoothly into the lower cheeks.
+  const zCheek = 1 + (f.cheek - 1) * 0.45 * sstep(0.01, 0.05, z);
+  d = smin(d, sdEllipsoid(ax - 0.048 * zCheek, y - 1.602, z - 0.07, 0.032 * zCheek, 0.025, 0.036), 0.045);
 
   // Eye sockets: a soft bowl the eyeball and the lid meshes sit in.
   const ex = ax - EYE.x, ey = y - EYE.y;
   if (Math.abs(ex) < 0.045 && Math.abs(ey) < 0.035 && z > 0.06) {
-    // The feminine frame's eyes are EYE_FEM_SCALE larger (face.mjs / generate.mjs eye morphs): so is the socket.
     const es = 1 + (EYE_FEM_SCALE - 1) * FRAME;
-    const socket = sdEllipsoid(ex - 0.001 * es, ey + 0.0008 * es, z - (EYE.z + 0.006 * es), 0.0214 * es, 0.0158 * es, 0.0155 * es);
-    d = smax(d, -socket, 0.006);
-    // A bed for the eyeball so no skin pokes through it.
+    const socket = sdEllipsoid(ex + 0.0006 * es, ey + 0.0008 * es, z - (EYE.z + 0.0068 * es), 0.0222 * es, 0.0158 * es, 0.0163 * es);
+    d = smax(d, -socket, 0.008);
+    d = smax(d, -sdEllipsoid(ex + 0.0125 * es, ey + 0.0004, z - (EYE.z + 0.0125), 0.0075 * es, 0.0082 * es, 0.0115), 0.004);
     d = smax(d, -(Math.hypot(ex, ey, z - EYE.z) - (EYE.r * es + 0.0007)), 0.002);
   }
 
   // Nose: bridge, a rounded tip and soft wings.
-  // (The box is wide enough for the broadest nose's wings and the straight nose's bridge plus
-  // their blend, so no variant is clipped by it — a clipped field leaves a ridge in the morph.)
   if (ax < 0.052 && y > 1.562 && y < 1.672 && z > 0.088) {
     const N = NOSE_SEL;
     const ns = fk(-0.14), nw = fk(-0.12);
     let n = sdCone(x, y, z, N.bridge[0], N.bridge[1], N.br[0] * ns, N.br[1] * ns);
     n = smin(n, sdEllipsoid(x, y - N.tip[0], z - N.tip[1] + 0.0015 * FRAME, N.tip[2] * ns, N.tip[3] * ns, N.tip[4] * ns), 0.008);
     n = smin(n, sdEllipsoid(ax - N.wing[0] * nw, y - N.wing[1], z - N.wing[2], N.wing[3] * nw, N.wing[4] * nw, N.wing[5] * nw), 0.007);
-    // The crease where each wing meets the cheek, then the nostrils.
+    const sw = (N.bridge[0][2] + N.bridge[1][2]) / 2 - 0.0085;
+    n = smin(n, sdEllipsoid(x, y - (N.bridge[1][1] + 0.006), z - sw, (N.br[1] + 0.0058) * ns, 0.019, 0.0085), 0.008);
     n += 0.0007 * gauss(ax, N.wing[0] * nw + N.wing[3] * nw * 0.8, 0.0018) * gauss(y, N.wing[1] + 0.001, 0.0045);
     n = smax(n, -sdEllipsoid(ax - (N.wing[0] - 0.0046), y - (N.wing[1] - 0.0042), z - (N.wing[2] + 0.004), 0.0028, 0.0017, 0.0034), 0.0012); // nostrils
-    d = smin(d, n, 0.009);
+    d = smin(d, n, 0.014);
   }
 
-  // Lips with a slight smile, parted by a real slit into a mouth cavity (so jawOpen can open it).
+  // Lips with a slight smile, parted by a soft slit into a mouth cavity (so jawOpen can open it).
   if (ax < 0.045 && y > 1.525 && y < 1.585 && z > 0.07) {
     const M = MOUTH_SEL;
     const sm = smileAt(x, M.w);
     const u = toLocal(LIP_U, [0, MOUTH.y + 0.0056 + sm, MOUTH.z - 0.0016 + M.fwd], x, y, z);
     const l = toLocal(LIP_L, [0, MOUTH.y - 0.0056 - (M.lo[1] - 0.0066) * 0.6 + sm * 0.6, MOUTH.z - 0.0034 + M.fwd], x, y, z);
     const lv = fk(0.22), lz = fk(0.1);
-    const lips = smin(sdEllipsoid(u[0], u[1], u[2], M.up[0], M.up[1] * lv, M.up[2] * lz), sdEllipsoid(l[0], l[1], l[2], M.lo[0], M.lo[1] * lv, M.lo[2] * lz), 0.005);
-    d = smin(d, lips, 0.0085);
-    // The slit between the lips, and the mouth's inside behind it.
-    const slit = sdEllipsoid(x, y - (MOUTH.y + sm), z - (MOUTH.z - 0.004), M.w * 0.98, 0.0011 * (1 - 0.5 * (ax / M.w) ** 2), 0.014);
+    let lips = smin(sdEllipsoid(u[0], u[1], u[2], M.up[0], M.up[1] * lv, M.up[2] * lz), sdEllipsoid(l[0], l[1], l[2], M.lo[0], M.lo[1] * lv, M.lo[2] * lz), 0.005);
+    const outer = sstep(0.45, 1.05, ax / M.w);
+    lips += 0.0026 * outer;
+    const below = sstep(MOUTH.y - 0.002, MOUTH.y - 0.009, y);
+    d = smin(d, lips, 0.006 + 0.0075 * outer + 0.0025 * below);
+    const slit = sdEllipsoid(x, y - (MOUTH.y + sm), z - (MOUTH.z - 0.004), M.w * 0.9, 0.0006 * (1 - 0.5 * (ax / M.w) ** 2), 0.013);
     const inside = sdEllipsoid(x, y - (MOUTH.y - 0.003), z - (MOUTH.z - 0.021), 0.018, 0.0095, 0.011);
-    d = smax(d, -smin(slit, inside, 0.003), 0.0012);
-    d = smax(d, -sdEllipsoid(ax - M.w, y - (MOUTH.y + 0.0028), z - (MOUTH.z - 0.007), 0.0032, 0.003, 0.0038), 0.003); // corners
+    d = smax(d, -smin(slit, inside, 0.003), 0.0014);
+  }
+  // Soft mentolabial contour between lower lip and chin.
+  if (ax < 0.032 && y > 1.528 && y < 1.552 && z > 0.085) {
+    d += 0.0006 * gauss(x, 0, 0.016) * gauss(y, 1.541, 0.0045) * sstep(0.085, 0.1, z);
   }
   // Philtrum: a shallow groove from under the nose to the upper lip's peak.
   if (ax < 0.012 && y > 1.565 && y < 1.6 && z > 0.09) d += 0.0006 * gauss(x, 0, 0.0035) * gauss(y, 1.5785, 0.006) * sstep(0.09, 0.1, z);
@@ -665,6 +685,22 @@ export function bodyTint(x, y, z) {
   red += 0.25 * gauss(ax, 0.19, 0.05) * gauss(y, 1.42, 0.03);
   red = Math.min(1, red);
   return [1 - 0.02 * red, 1 - 0.1 * red, 1 - 0.1 * red];
+}
+
+/** How much a point on the body matters to the simplifier (generate.mjs buildBody): hands and toes 1.0, chest/abs 0.55, smooth limb shafts 0.22. */
+export function bodyImportance(x, y, z) {
+  const ax = Math.abs(x);
+  const hands = sstep(0.24, 0.29, ax) * sstep(0.98, 0.91, y) * sstep(0.68, 0.74, y);
+  const toes = sstep(0.09, 0.04, y) * sstep(0.05, 0.11, z);
+  const torsoFront = 0.55 * sstep(-0.01, 0.04, z) * sstep(0.95, 1.02, y) * sstep(1.45, 1.38, y) * sstep(0.16, 0.11, ax);
+  return 0.22 + 0.78 * Math.max(hands, toes, torsoFront);
+}
+
+/** How much a point on the head matters to the simplifier (generate.mjs buildHead): the face 1, the ears 0.5, the scalp 0.12. */
+export function headImportance(x, y, z) {
+  const face = sstep(-0.005, 0.045, z) * sstep(1.49, 1.525, y) * sstep(1.725, 1.69, y);
+  const ears = 0.5 * sstep(0.066, 0.08, Math.abs(x)) * sstep(0.05, 0.02, z) * sstep(1.55, 1.58, y) * sstep(1.71, 1.68, y);
+  return 0.12 + 0.88 * Math.max(face, ears);
 }
 
 /** Front surface z of the (oval) face at (x, y), found by ray marching — for decals and eyewear. */

@@ -33,7 +33,7 @@
  * WebAssembly) don't.
  */
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -88,7 +88,7 @@ export const TRIS = {
   underwear: 800,
   head: 3500,
   lids: 500,
-  brows: 140,
+  brows: 260,
   hair: 3600,
   hairPressed: 2600,
   beard: 900,
@@ -122,7 +122,8 @@ const MATERIAL_LOOK = {
   pupil: { color: "#08080a", roughness: 0.1 },
   teeth: { color: "#f3efe6", roughness: 0.3 },
   brow: { color: "#2b1b12", roughness: 0.85 },
-  hair: { color: "#2b1b12", roughness: 0.56, vertexColors: true, sheen: 0.35, sheenColor: "#ffffff", sheenRoughness: 0.45 },
+  // Matte-satin: rough enough that light hair doesn't read as wet plastic, with a soft, low sheen.
+  hair: { color: "#2b1b12", roughness: 0.68, vertexColors: true, sheen: 0.2, sheenColor: "#ffffff", sheenRoughness: 0.6 },
   stubble: { color: "#6b5040", roughness: 0.9, vertexColors: true, transparent: true },
   beard: { color: "#2b1b12", roughness: 0.75, vertexColors: true, sheen: 0.4, sheenColor: "#ffffff", sheenRoughness: 0.6 },
   hair_tie: { color: "#e2564a", roughness: 0.55 },
@@ -393,8 +394,8 @@ function addMesh(ctx, name, mat, geometry, { skinned = false, parent = null, dou
 }
 
 /** Mesh a field; returns null when it's empty. Triangle targets hold in preview too. */
-async function fieldMesh(f, box, h, { targetTris = null, keep = null, error = 0.0006, minPiece = 0 } = {}) {
-  let m = await meshSDF(f, box, h * Q, { targetTris, keep, error });
+async function fieldMesh(f, box, h, { targetTris = null, keep = null, error = 0.0006, minPiece = 0, importance = null, centre = null } = {}) {
+  let m = await meshSDF(f, box, h * Q, { targetTris, keep, error, importance, centre });
   if (minPiece > 0 && m.indices.length) m = dropSpecks(m, minPiece);
   return m.indices.length ? m : null;
 }
@@ -629,11 +630,19 @@ function femPremap(p) {
   return [p[0] - (p[0] - p[0] / s) * ease, p[1], p[2]];
 }
 
+/** Inverse of femPremap: maps a feminine-frame torso/leg point back toward the masculine base frame. */
+function invFemPremap(p) {
+  const part = C.bodyPart(p[0], p[1], p[2]).name;
+  const s = part === "torso" ? C.femTorsoIn(p[1]) : part === "leg" ? 1 + C.hipIn(p[1]) : 1;
+  const ease = part === "torso" ? sstep(0.008, 0.04, Math.abs(p[0])) : 1;
+  return [p[0] + (p[0] * s - p[0]) * ease, p[1], p[2]];
+}
+
 function addBuildMorphs(md, { transfer = false, weight = () => 1 } = {}) {
   for (const name of BUILD_MORPHS) {
     // The feminine frame's waist comes in ~5 cm at the sides: past the 4 cm cap, those vertices were skipped and left flaps.
     const fem = name === "frameFem";
-    md.morphs[name] = fieldMorph(md, bodyField, atMorph(name, bodyField), { transfer, weight, maxMove: fem ? 0.065 : 0.04, premap: fem ? femPremap : null });
+    md.morphs[name] = fieldMorph(md, bodyField, atMorph(name, bodyField), { transfer, weight, maxMove: fem ? 0.075 : 0.05, premap: fem ? femPremap : null });
   }
 }
 
@@ -742,8 +751,11 @@ function addMissingBuildMorphs(md, { base = bodyField, weight = () => 1 } = {}) 
   for (const name of BUILD_MORPHS) {
     if (md.morphs[name]) continue;
     const fem = name === "frameFem";
-    md.morphs[name] = fieldMorph(md, base, atMorph(name, base), { transfer: true, weight, maxMove: fem ? 0.065 : 0.04, premap: fem && base === bodyField ? femPremap : null });
+    md.morphs[name] = fieldMorph(md, base, atMorph(name, base), { transfer: true, weight, maxMove: fem ? 0.075 : 0.05, premap: fem && base === bodyField ? femPremap : null });
   }
+  // The runtime's order (build, then frame, then the rest), whichever the art authored.
+  const rest = Object.keys(md.morphs).filter((k) => !BUILD_MORPHS.includes(k));
+  md.morphs = Object.fromEntries([...BUILD_MORPHS, ...rest].map((k) => [k, md.morphs[k]]));
 }
 
 /** Face blendshapes the art didn't author: mouth shapes and the jaw/smile expressions (heads and facial hair). */
@@ -870,7 +882,8 @@ const bodyAOField = (x, y, z) => Math.min(C.bodyD(x, y, z), y > 1.47 ? C.headD("
 function bodySkinAttributes(md, { transfer = false } = {}) {
   const P = md.positions;
   md.weights = Array.from({ length: P.length / 3 }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
-  md.colors = rgba(bakeAO(bodyAOField, md, { step: 0.007, strength: 1.2 }), (v) => C.bodyTint(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  // Broad, soft occlusion (armpits, under the jaw, between the legs), not every muscle seam.
+  md.colors = rgba(bakeAO(bodyAOField, md, { step: 0.009, strength: 1.0, min: 0.5 }), (v) => C.bodyTint(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
   addBuildMorphs(md, { transfer });
   return md;
 }
@@ -1131,7 +1144,9 @@ async function buildBody() {
   const meshed = await fieldMesh(bodyField, [[-0.5, -0.004, -0.17], [0.5, 1.62, 0.22]], 0.0021, {
     targetTris: TRIS.body + 150, // edge thinning and the strip net about -150
     keep: (x, y, z) => !(y > SEAM_Y - 0.0015 && inSeamColumn(x, z)),
-    error: 0.004,
+    error: 0.0022,
+    importance: C.bodyImportance,
+    centre: [0, 0.95, 0],
   });
   flattenNeckEdge(meshed, bodyField, SEAM_Y - 0.0015);
   const { mesh: m, ring } = sealedTo(thinNeckEdge(meshed, 0.006), bodyField);
@@ -1193,7 +1208,7 @@ const braShape = (x, y, z) => {
   const strap = Math.max(Math.abs(ax - 0.074) - 0.0115, y - 1.5, 1.3 - y);
   r = smin(r, strap, 0.006);
   // Under the arms: a smooth side boundary, not a per-point arm test.
-  r = smax(r, ax - 0.13 - 0.012 * sstep(1.3, 1.24, y), 0.008);
+  r = smax(r, ax - 0.132 - 0.012 * sstep(1.3, 1.24, y), 0.008);
   return r;
 };
 const mix1 = (a, b, t) => a + (b - a) * t;
@@ -1201,7 +1216,7 @@ const braField = (x, y, z) => {
   const r = braShape(x, y, z);
   if (r > 0.03) return r;
   // The elastic under-band stands a millimetre proud of the cups above it.
-  return smax(C.bodyD(x, y, z) - (LAYER_OFFSET.base + 0.0035 + 0.001 * sstep(1.256, 1.25, y)), r, 0.006);
+  return smax(C.bodyD(x, y, z) - (LAYER_OFFSET.base + 0.0045 + 0.001 * sstep(1.256, 1.25, y)), r, 0.006);
 };
 const braFem = atFrame(1, braField);
 const bodyFem = atFrame(1, bodyField);
@@ -1221,12 +1236,23 @@ async function buildBra() {
     return [k, k, k];
   };
   md.colors = rgba(bakeAO((x, y, z) => Math.min(f(x, y, z), bodyFem(x, y, z)), m, { step: 0.006, strength: 0.9 }), shade);
-  // Only ever drawn on the feminine frame, which it is already built on: build morphs at FRAME = 1, no frameFem.
+  // Only ever drawn on the feminine frame, which it is already built on: no frameFem morph.
+  // Because Body's buildSlim and buildBroad morphs are baked at FRAME = 0 and added linearly to
+  // frameFem at runtime, Bra must carry the exact same FRAME = 0 build delta at the corresponding
+  // base skin point so Body_chest and Bra move together at all builds (-1 to +1).
+  const n = P.length / 3;
+  const baseSkinPos = new Float32Array(P.length);
+  for (let v = 0; v < n; v++) {
+    const qFem = projectOnto(bodyFem, [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
+    const q0 = projectOnto(bodyField, invFemPremap(qFem));
+    baseSkinPos.set(q0, v * 3);
+  }
+  const baseRef = { positions: baseSkinPos, normals: md.normals };
   for (const name of BUILD_MORPHS) {
     md.morphs[name] =
       name === "frameFem"
         ? { dpos: new Float32Array(P.length), dnrm: new Float32Array(P.length) }
-        : fieldMorph(md, bodyFem, atFrame(1, atBuild(BUILD_VALUES[name], bodyField)), { transfer: true, maxMove: 0.04 });
+        : fieldMorph(baseRef, bodyField, atBuild(BUILD_VALUES[name], bodyField), { transfer: false, maxMove: 0.05 });
   }
   return md;
 }
@@ -1267,6 +1293,10 @@ async function buildHead(face, nose = "button") {
     targetTris: TRIS.head + 600, // the edge thinning below removes ~700 and the strip adds ~150
     keep: (x, y, z) => y > SEAM_Y + 0.0012,
     error: 0.0025,
+    // The face (and ears) get the triangles; the scalp, mostly under hair, gives them up. Without
+    // this the head's budget was spread evenly and the lips, lids and nose came out faceted.
+    importance: C.headImportance,
+    centre: [0, 1.62, 0.02],
   });
   // The fine head grid leaves ~800 vertices on the open neck edge, zigzagging between grid rows.
   // Flatten the edge onto the cut plane, then thin it out (border unlocked, sub-millimetre error:
@@ -1314,6 +1344,10 @@ function builtData(build) {
   };
 }
 
+/** Body regions from most to least often covered by clothes (art body triangles that straddle regions take the later one). */
+// (The waist is never hidden — it's where tops and bottoms overlap — so it ranks with the least covered.)
+const ART_REGION_ORDER = ["chest", "abdomen", "shoulders", "hips", "upperArms", "thighs", "elbows", "knees", "forearms", "shins", "ankles", "waist", "neck", "hands", "feet"];
+
 async function base() {
   const ctx = newScene({
     kind: "base",
@@ -1337,10 +1371,24 @@ async function base() {
     artTris("Body", md, TRIS.body);
     md.weights ??= Array.from({ length: n }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
     addMissingBuildMorphs(md);
+    // Art triangles are large: on the limbs, one straddling two regions goes to the one further out
+    // (covered less often), so a sleeve or leg that hides a region never leaves a vertex past its hem.
+    const vReg = Array.from({ length: n }, (_, v) => C.regionOf(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+    const rank = Object.fromEntries(ART_REGION_ORDER.map((r, i) => [r, i]));
     const region = new Array(md.indices.length / 3);
+    const LIMB = new Set(["upperArms", "elbows", "forearms", "hands", "thighs", "knees", "shins", "ankles", "feet"]);
     for (let t = 0; t < region.length; t++) {
-      const i = [0, 1, 2].map((k) => md.indices[t * 3 + k] * 3);
-      region[t] = C.regionOf((P[i[0]] + P[i[1]] + P[i[2]]) / 3, (P[i[0] + 1] + P[i[1] + 1] + P[i[2] + 1]) / 3, (P[i[0] + 2] + P[i[1] + 2] + P[i[2] + 2]) / 3);
+      const rs = [0, 1, 2].map((k) => vReg[md.indices[t * 3 + k]]);
+      // (Feet are covered by shoes more often than the ankles above them: a triangle spanning the
+      // two goes to the ankle side.)
+      let limb = rs.filter((r) => LIMB.has(r));
+      if (limb.includes("feet") && limb.some((r) => r !== "feet")) limb = limb.filter((r) => r !== "feet");
+      if (limb.length) region[t] = limb.reduce((a, b) => (rank[b] > rank[a] ? b : a));
+      else {
+        // On the trunk, by the triangle's centre (as the procedural body).
+        const i = rs.map((_, k) => md.indices[t * 3 + k] * 3);
+        region[t] = C.regionOf((P[i[0]] + P[i[1]] + P[i[2]]) / 3, (P[i[0] + 1] + P[i[1] + 1] + P[i[2] + 1]) / 3, (P[i[0] + 2] + P[i[1] + 2] + P[i[2] + 2]) / 3);
+      }
     }
     const named = [];
     for (const [r, part] of Object.entries(bodyRegions(md, region))) {
@@ -1507,7 +1555,8 @@ async function hairAsset(style) {
     const under = (mode !== "banded" && H.HAIR_UNDER_HAT[style]) || f;
     const g = !mode ? f : style === "ponytail" ? (x, y, z) => H.ponytailPressedD(mode, x, y, z) : (x, y, z) => smax(under(x, y, z), hairAllowance(mode, x, y, z), 0.004);
     const t0 = Date.now();
-    const m = await fieldMesh(g, box, 0.0013, { targetTris: mode ? TRIS.hairPressed : TRIS.hair, keep, error: 0.004, minPiece: 30 });
+    // Sculpted styles keep a tighter error so their locks and coils survive as shapes.
+    const m = await fieldMesh(g, box, 0.0013, { targetTris: mode ? TRIS.hairPressed : TRIS.hair, keep, error: H.HAIR_ERROR[style] ?? 0.004, minPiece: 30 });
     if (!m) continue;
     const md = meshData(m);
     const ao = bakeAO((x, y, z) => Math.min(g(x, y, z), C.headD("oval", x, y, z)), m, { step: 0.004, strength: 0.9, min: 0.5 });
@@ -1891,7 +1940,28 @@ async function garment(key, t) {
   }
   console.log(`  ${key}: ${parts.map((x) => `${x.p.material}:${x.tris}`).join(" ")}${total > budget ? ` (from ${total})` : ""}`);
   await write(ctx.scene, `${key}.glb`, [], maps);
+  await reseat(key, t);
 }
+
+/**
+ * Ring-style headwear (the crown) is seated from the hair fields; on sculpted locks that misses what
+ * the built meshes do (lifted tips), so for those styles the seat is measured on the built item and
+ * hair (hatfit's own check) and the item is rebuilt once with it.
+ */
+let RESEATED = false;
+async function reseat(key, t) {
+  if (key !== "hat_crown" || RESEATED || process.env.AVATAR_NO_RESEAT) return;
+  const styles = LOCK_STYLES.filter((s) => existsSync(join(OUT, `hair_${s}.glb`)));
+  if (!styles.length) return;
+  const { refineSeats } = await import("./hatfit.mjs");
+  const seats = refineSeats(OUT, key, styles);
+  for (const [s, v] of Object.entries(seats)) SPECS[key].perHair[s] = v;
+  console.log(`  ${key}: seated on the built ${styles.join(", ")} meshes ${JSON.stringify(seats)}`);
+  RESEATED = true;
+  await garment(key, t);
+}
+/** Hairstyles of sculpted locks (hair.mjs). */
+const LOCK_STYLES = ["short_crop", "fade", "curls"];
 
 /* ── driver ──────────────────────────────────────────────────────────────── */
 

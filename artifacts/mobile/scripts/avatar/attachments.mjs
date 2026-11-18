@@ -52,6 +52,11 @@ function topAt(f, x, z, y0 = 1.95, y1 = 1.6) {
  * point under it, on fuller hair it settles into the fullest parts (up to
  * 3.5 mm) rather than balancing on one tuft and floating over the rest.
  */
+/** Styles of sculpted locks: the ring may settle further into them (up to 4.5 mm), never floating more than 4.5 mm over their middle. */
+const LOCK_STYLES = ["short_crop", "fade"];
+/** The crown's centre line (z), where its socket sits. */
+const CROWN_ZC = 0.004;
+
 export function crownSeats() {
   const out = {};
   const inner = CROWN.r - 0.0026;
@@ -59,17 +64,34 @@ export function crownSeats() {
     const tops = [];
     for (let i = 0; i < 48; i++) {
       const a = (i / 48) * Math.PI * 2;
-      tops.push(topAt(f, inner * Math.sin(a), 0.004 + inner * CROWN.ez * Math.cos(a)));
+      const z = CROWN_ZC + inner * CROWN.ez * Math.cos(a);
+      tops.push({ y: topAt(f, inner * Math.sin(a), z), z });
     }
-    return tops.sort((p, q) => p - q);
+    return tops;
   };
+  // The skull rises toward the forehead: on bare and buzzed heads the ring tilts to the scalp's
+  // best-fit slope front to back (y = a + b·z through the bare scalp's tops).
+  const scalp = topsFor(scalpD);
+  const n = scalp.length, mz = scalp.reduce((s, p) => s + p.z, 0) / n, my = scalp.reduce((s, p) => s + p.y, 0) / n;
+  const b = scalp.reduce((s, p) => s + (p.z - mz) * (p.y - my), 0) / scalp.reduce((s, p) => s + (p.z - mz) ** 2, 0);
+  const tilts = {};
   for (const style of HAIR_STYLES) {
     const f = style === "bald" ? scalpD : (x, y, z) => Math.min(HAIR[style](x, y, z), scalpD(x, y, z));
-    const tops = topsFor(f);
-    const top = tops[tops.length - 1];
-    out[style] = style === "bald" || style === "buzz" ? top : Math.max(tops[Math.floor(tops.length * 0.6)], top - 0.0035);
+    // (Fuller styles hide the skull's slope: their ring stays level.)
+    // Sculpted locks rise toward the lifted fringe: tilt to their own slope.
+    const pts = topsFor(f);
+    const slope = (P) => {
+      const k = P.length, z0 = P.reduce((s, p) => s + p.z, 0) / k, y0 = P.reduce((s, p) => s + p.y, 0) / k;
+      return P.reduce((s, p) => s + (p.z - z0) * (p.y - y0), 0) / P.reduce((s, p) => s + (p.z - z0) ** 2, 0);
+    };
+    const bb = style === "bald" || style === "buzz" ? b : LOCK_STYLES.includes(style) ? slope(pts) : 0;
+    const tops = pts.map((p) => p.y - bb * (p.z - CROWN_ZC)).sort((p, q) => p - q);
+    const top = tops[tops.length - 1], med = tops[tops.length >> 1];
+    const seat = Math.max(tops[Math.floor(tops.length * 0.6)], top - 0.0035);
+    out[style] = style === "bald" || style === "buzz" ? top : LOCK_STYLES.includes(style) ? Math.min(Math.max(seat, top - 0.0045), med + 0.0045) : seat;
+    tilts[style] = Math.atan(bb);
   }
-  return { seats: out };
+  return { seats: out, tilts };
 }
 
 /** Distance along the body normal from the skin to a field's surface, starting from `from` and searching outward. */
@@ -206,9 +228,9 @@ export function attachmentSpecs() {
   }
   // Crown: rides on the hair.
   {
-    const { seats } = crownSeats();
+    const { seats, tilts } = crownSeats();
     const perHair = {};
-    for (const [style, seat] of Object.entries(seats)) perHair[style] = { position: [0, r4(seat - CROWN.y), 0] };
+    for (const [style, seat] of Object.entries(seats)) perHair[style] = { position: [0, r4(seat - CROWN.y - (style === "bald" ? 0.008 : 0)), 0], rotation: [r4((-tilts[style] * 180) / Math.PI), 0, 0] }; // attach rotations are in degrees
     specs.hat_crown.perHair = perHair;
   }
   const chain = chainFits();

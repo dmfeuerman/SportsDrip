@@ -113,8 +113,8 @@ const FACE_OPTIONS: Record<"noseShape" | "mouthShape", Record<string, string>> =
   mouthShape: { full: "lipsFull", wide: "mouthWide" },
 };
 
-/** Resting face: a hint of a smile. */
-const NEUTRAL: Record<Expression, number> = { eyeBlinkLeft: 0, eyeBlinkRight: 0, mouthSmileLeft: 0.2, mouthSmileRight: 0.2, jawOpen: 0 };
+/** Resting face: calm, with only the faintest lift at the corners (0.2 read as a fixed grin and creased the mouth corners). */
+const NEUTRAL: Record<Expression, number> = { eyeBlinkLeft: 0, eyeBlinkRight: 0, mouthSmileLeft: 0.04, mouthSmileRight: 0.04, jawOpen: 0 };
 
 export interface GarmentSource {
   piece: OutfitPiece;
@@ -441,7 +441,12 @@ export class AvatarRig {
   }
 
   /** Swaps a hair / facial-hair part: its meshes ride the Head bone like the face does. */
+  private isRawPair() {
+    return this.baseMeshes.some((m) => m.name === "RawMale" || m.name === "RawFemale");
+  }
+
   private bindPart(current: BoundPart | null, gltf: GLTF | null): BoundPart | null {
+    if (this.isRawPair()) gltf = null;
     if (current?.gltf === gltf) return current;
     if (current) for (const m of current.meshes) m.removeFromParent();
     if (!gltf) return null;
@@ -467,6 +472,9 @@ export class AvatarRig {
    * rebuilt only when its asset, colours or overrides change.
    */
   setOutfit(outfit: ResolvedOutfit, sources: GarmentSource[]) {
+    if (this.isRawPair() || process.env.EXPO_PUBLIC_PREVIEW_BARE === "1" || process.env.PREVIEW_BARE === "1") {
+      sources = [];
+    }
     const wanted = new Set(sources.map((s) => s.piece.slot));
     for (const slot of [...this.garments.keys()]) {
       if (!wanted.has(slot as OutfitPiece["slot"])) this.dropGarment(slot);
@@ -663,23 +671,33 @@ export class AvatarRig {
   private updateVisibility() {
     const a = this.appearance;
     if (!a) return;
+    if (this.isRawPair()) {
+      const target = a.bodyFrame === "fem" ? "RawFemale" : "RawMale";
+      for (const m of this.baseMeshes) m.visible = this.baseVisible && m.name === target;
+      return;
+    }
+    const bare = process.env.EXPO_PUBLIC_PREVIEW_BARE === "1" || process.env.PREVIEW_BARE === "1";
     const face = a.faceShape ?? "oval";
     const eyes = a.eyeShape ?? "round";
     const nose = a.noseShape ?? "button";
     const hidden = new Set<BodyRegion>();
-    for (const g of this.garments.values()) for (const r of g.hides) hidden.add(r);
+    if (!bare) {
+      for (const g of this.garments.values()) for (const r of g.hides) hidden.add(r);
+    }
     // One head mesh per face shape × nose shape (button is the plain `Head_<face>`); an older base
     // without that nose falls back to the button head below.
     const headName = nose === "button" ? `Head_${face}` : `Head_${face}_${nose}`;
     const head = this.baseMeshes.some((m) => m.name === headName) ? headName : `Head_${face}`;
     const show = new Set<string>([head, "Eyes", "Iris", "Pupils", "Teeth", `Lids_${eyes}`, `Lashes_${eyes}`]);
-    // The base layer covers the hips (fitcheck.mjs checks it) until bottoms do.
-    if (!hidden.has("hips")) {
-      show.add("Underwear");
-      hidden.add("hips");
+    if (!bare) {
+      // The base layer covers the hips (fitcheck.mjs checks it) until bottoms do.
+      if (!hidden.has("hips")) {
+        show.add("Underwear");
+        hidden.add("hips");
+      }
+      // The feminine frame keeps a sports top on until a garment covers the chest.
+      if (a.bodyFrame === "fem" && !hidden.has("chest")) show.add("Bra");
     }
-    // The feminine frame keeps a sports top on until a garment covers the chest.
-    if (a.bodyFrame === "fem" && !hidden.has("chest")) show.add("Bra");
     for (const r of BODY_REGIONS) if (!hidden.has(r)) show.add(`Body_${r}`);
     if (a.eyebrows && a.eyebrows !== "none") show.add(`Brows_${a.eyebrows}`);
     let headShown = false;
@@ -1163,10 +1181,12 @@ function studioEnvironment(gl: THREE.WebGLRenderer | undefined): THREE.Texture |
  */
 export function addStudioLights(scene: THREE.Scene | THREE.Object3D, gl?: THREE.WebGLRenderer, { shadows = false } = {}) {
   const g = new THREE.Group();
-  // A dim, dark-floored bounce: the key and rims carry the shape against "House Black" backgrounds.
-  g.add(new THREE.HemisphereLight("#eef2f6", "#1d2026", 0.5));
-  const key = new THREE.DirectionalLight("#fff1e2", 2.5);
-  key.position.set(2.2, 4.2, 3.2);
+  // A soft, warm-floored bounce: the key and rims carry the shape against "House Black" backgrounds,
+  // while the bounce and fill keep the shadow side of the face warm and readable (not black under
+  // the brows, nose and jaw).
+  g.add(new THREE.HemisphereLight("#f4f5f8", "#5c453a", 0.85));
+  const key = new THREE.DirectionalLight("#fff2e4", 2.0);
+  key.position.set(2.4, 3.8, 3.0);
   if (shadows) {
     key.castShadow = true;
     key.shadow.mapSize.set(1024, 1024);
@@ -1183,8 +1203,8 @@ export function addStudioLights(scene: THREE.Scene | THREE.Object3D, gl?: THREE.
     key.target.position.set(0, 0.9, 0);
     g.add(key.target);
   }
-  const fill = new THREE.DirectionalLight("#dfe8ff", 0.42);
-  fill.position.set(-2.6, 1.2, 3.2);
+  const fill = new THREE.DirectionalLight("#fdece0", 1.05);
+  fill.position.set(-2.6, 1.2, 3.4);
   // Rims high and behind, strong enough to trace the head, shoulders and arms on a near-black backdrop.
   const rim = new THREE.DirectionalLight("#ffb547", 2.2);
   rim.position.set(-2.4, 3.0, -2.8);
@@ -1196,7 +1216,7 @@ export function addStudioLights(scene: THREE.Scene | THREE.Object3D, gl?: THREE.
   const s = scene as THREE.Scene;
   if (env && s.isScene) {
     s.environment = env;
-    s.environmentIntensity = 0.5;
+    s.environmentIntensity = 0.6;
   }
   return g;
 }

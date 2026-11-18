@@ -13,7 +13,7 @@
  * and for rotation-like moves the rotation to apply to the normal.
  */
 import { EYE, MOUTH, smileAt } from "./character.mjs";
-import { EYE_SHAPE } from "./face.mjs";
+import { EYE_SHAPE, LID_GAP } from "./face.mjs";
 import { sstep } from "./sdf.mjs";
 
 const ZERO = { d: [0, 0, 0], r: null };
@@ -69,7 +69,7 @@ export function mouthSmile(side, p) {
 /* ── blink ───────────────────────────────────────────────────────────────── */
 
 const upper = (e, u) => e.top * Math.pow(Math.max(0, 1 - (u / e.w) ** 2), e.p) + e.tilt * u;
-const R_LID = EYE.r + 0.0019;
+const R_LID = EYE.r + LID_GAP;
 
 /** Angle the upper lid rolls through to meet the lower one, for an eye shape. */
 export const blinkAngle = (shape) => {

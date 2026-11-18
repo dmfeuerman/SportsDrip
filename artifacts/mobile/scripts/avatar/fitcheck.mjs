@@ -241,7 +241,7 @@ export function hideCoverage(baseFile, garmentFile, { face = "oval", margin = HI
       // normal itself points along the tunnel.
       const fan = [n, tilt(n, 0.35, 0), tilt(n, -0.35, 0), tilt(n, 0, 0.35), tilt(n, 0, -0.35)];
       cov[v] = n[1] < -0.5 || rays.some((d) => grid.hit(o, d, 0.0002, 0.2)) || fan.some((d) => skin.hit(o, d, 0.0015, 0.12)) ? 1 : 0;
-      if (!cov[v]) open.push(o);
+      if (!cov[v]) { open.push(o); if (process.env.FIT_DEBUG && m.name.startsWith("Body_")) console.log("  open", m.name, o.map((c) => c.toFixed(3)).join(" ")); }
     }
     per.push({ m, cov });
   }

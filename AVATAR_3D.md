@@ -145,6 +145,37 @@ node scripts/avatar/registry.mjs
   - The tee as a bare, unskinned mesh, then generate: validate and fitcheck pass; weights and build shapes are filled in.
   - A skinned `Body` and a single `Head` with no shape keys, then generate: validate passes; regions, `frameFem`, builds, noses, mouths and expressions are filled in.
 
+### 2.2.1 The shipped base art (`art/base.glb`, Nov 2026)
+
+`art/base.glb` is built from two rigged source meshes with the same topology (`male-base-mesh-base_male.glb`,
+`female-base-mesh-base_female.glb`, repo root; MakeHuman skeleton) by `scripts/avatar/basemesh.mjs`, in Node — no Blender:
+
+```bash
+cd artifacts/mobile
+node scripts/avatar/basemesh.mjs ../../male-base-mesh-base_male.glb ../../female-base-mesh-base_female.glb   # → art/base.glb
+node scripts/avatar/generate.mjs --only base
+```
+
+1. **Pose and proportion.** Every source bone maps to an `sd_rig_v3` bone. Each limb segment gets an affine that carries the
+   source segment onto the rig segment (`REST`), blended by the source skin weights: arms come down from the source's wide
+   A-pose to the rig's, legs and feet onto the rig's, the trunk (one map, pelvis → neck) onto the rig's. The head is placed by
+   landmarks: eyes on `EYE`, crown on `rig.HEAD`, nose tip and back of the skull. The source's open jaw is closed (`JAW_CLOSE`).
+2. **Conform.** The large-scale shape is pulled onto the procedural body and head fields, so every garment, hat and hair
+   fitted to them still fits: the offset to the field is low-passed over the mesh (60 + 20 smoothing iterations, the second on
+   the body only) and then applied, so the source keeps its finer detail. Hands, ears and the inside of the mouth keep their
+   own shape. Then hard limits: skin ≤ 2.2 mm outside the procedural body below the neck, scalp within +2 / −3.5 mm of
+   `scalpD` where hats sit.
+3. **frameFem.** The female source goes through the same steps against the `frameFem` field; its difference from the male
+   is the `frameFem` shape key (both stay on the rig's skeleton; the runtime still narrows the shoulders on the bones).
+4. **Split, decimate, bake.** Split at `NECK_SEAM` into `Body` and `Head` sharing their seam vertices (and their weights,
+   which come from the source weights mapped onto rig bones, so the seam can't crack). Decimated with meshoptimizer to
+   7.4k / 3.45k triangles (borders locked; the head favours the face). Tangent-space normal map (1024², one atlas for both)
+   and vertex AO baked from the full-resolution source. Material `skin`, neutral colour, so `skinTone` tints it.
+5. Eyes, irises, pupils, lids, lashes, brows and teeth stay procedural (built around `EYE` / `MOUTH`, where the landmarks put
+   the source's eye openings and mouth), so eye colour, blinks and the jaw keep working. Nails are dropped.
+
+Delete `art/base.glb` (or `AVATAR_NO_ART=1`) to go back to the procedural body and heads.
+
 ### 2.3 Naming conventions
 
 | Thing | Name |
@@ -210,7 +241,7 @@ All of this is in `lib/avatar3d/avatarRig.ts` and shared by the live stage and t
 - **Animation:**
   - **Idle:** 8 s of breathing, weight shift, soft elbows and head drift. Each avatar starts at a random phase.
   - **Cheer:** a reaction with a grin and an open jaw.
-  - **Face:** random blinks, sometimes a double blink, and a resting hint of a smile.
+  - **Face:** random blinks, sometimes a double blink, and a calm resting mouth (smile 0.04).
 
 ---
 
@@ -337,6 +368,7 @@ For every preset:
 
 All run on the shipped files in `assets/avatar/`:
 
+- **Nov 2026, art base (`art/base.glb`) + reworked hair/face fields:** `validate` 49/49, `fitcheck` 37/37 (and every declared `hides` region fully clear, as the functions test requires), `hatfit` 225/225 (the crown is seated per hairstyle: tilted to the skull's slope on bare and buzzed heads, and measured on the built meshes for the locked styles, `generate.mjs` `reseat`), `budget` ≤ 26.6k for the heaviest look, `functions` 205/205. Sheets: `docs/avatar/base_art_*.jpg`.
 - **`validate.mjs` — 33/33 pass.** It checks the rig and metadata; that every skin joint is a rig bone with the right parent and rest offset; sockets; normalised weights; and the budgets in §6.
 - **`fitcheck.mjs` — 21/21 garments pass.** No skin shows through cloth in the rest pose (the varsity is worst, with 6 vertices = 0.22 %). Every declared `hides` region is 100 % covered: no vertex uncovered, and ≥ 98.5 % at least 15 mm from uncovered skin.
 - **`hatfit.mjs` — 189/189 pass.** That is every hat and the headphones × four face shapes × nine hairstyles. It checks:

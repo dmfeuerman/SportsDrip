@@ -186,42 +186,82 @@ export function hatFit(dir, key, { faces = FACE_SHAPES, styles = HAIR_STYLES } =
   return { key, mode, results };
 }
 
+/** The gap under a ring-style item's lowest edge per azimuth (24 bins), placed by attach transform t, over `grid`. */
+function ringGaps(meshes, socket, t, grid) {
+  const item = placed(meshes, socket, t);
+  let minY = Infinity;
+  for (const m of item) for (let v = 1; v < m.pos.length; v += 3) minY = Math.min(minY, m.pos[v]);
+  // Per azimuth (24 bins round the ring, so the result doesn't depend on how the mesh happens to be
+  // tessellated): the gap under the ring's lowest edge there.
+  const bins = new Array(24).fill(null);
+  for (const m of item)
+    for (let v = 0; v < m.pos.length / 3; v++) {
+      const p = [m.pos[v * 3], m.pos[v * 3 + 1], m.pos[v * 3 + 2]];
+      if (p[1] > minY + 0.002) continue;
+      let g = 0.05;
+      for (let s = -0.01; s <= 0.05; s += 0.0005) {
+        if (grid.hit([p[0], p[1] - s + 0.0005, p[2]], [0, -1, 0], 0, 0.0005)) {
+          g = s;
+          break;
+        }
+      }
+      const k = Math.floor(((Math.atan2(p[0], p[2] - 0.004) / (2 * Math.PI) + 1) % 1) * 24);
+      bins[k] = bins[k] === null ? g : Math.min(bins[k], g);
+    }
+  const gaps = bins.filter((g) => g !== null).sort((a, b) => a - b);
+  return { bins, minGap: gaps[0], medGap: gaps[Math.floor(gaps.length / 2)] };
+}
+
+/** What a crown-style item rests on for a hairstyle: the head and that style's free hair. */
+function seatGrid(dir, style, face) {
+  const base = parseGlb(join(dir, readdirSync(dir).filter((f) => /^sd_base_v\d+\.glb$/.test(f)).sort().pop())).meshes;
+  const hair = style === "bald" ? [] : parseGlb(join(dir, `hair_${style}.glb`)).meshes.filter((m) => m.name === "Hair" || m.name === "HairTie");
+  return new TriGrid([...base.filter((m) => m.name === `Head_${face}`), ...hair], 0.01);
+}
+
+/** The seat rule hatfit enforces: hair is soft, so the ring may settle up to 5.5 mm into the fullest parts and float as much over the thinnest. */
+export const SEAT_LIMIT = 0.0055;
+
 /** Crown-style items (no hair mode) sit on the hair: report how far the ring floats above / sinks into it. */
 export function seatCheck(dir, key, { faces = FACE_SHAPES, styles = HAIR_STYLES } = {}) {
   const { json, meshes } = parseGlb(join(dir, `${key}.glb`));
   const meta = json.scenes[0].extras.sdAvatar;
-  const base = parseGlb(join(dir, readdirSync(dir).filter((f) => /^sd_base_v\d+\.glb$/.test(f)).sort().pop())).meshes;
   const out = [];
   for (const style of styles) {
-    const hair = style === "bald" ? [] : parseGlb(join(dir, `hair_${style}.glb`)).meshes.filter((m) => m.name === "Hair" || m.name === "HairTie");
-    const head = base.filter((m) => m.name === `Head_${faces[0]}`);
-    const grid = new TriGrid([...head, ...hair], 0.01);
     const t = resolveAttach(meta.attach, { hairStyle: style, faceShape: faces[0] });
-    const item = placed(meshes, meta.attach?.socket ?? "HeadTop", t);
-    // The lowest ring of vertices, and the distance straight down from each to the hair/head.
-    let minY = Infinity;
-    for (const m of item) for (let v = 1; v < m.pos.length; v += 3) minY = Math.min(minY, m.pos[v]);
-    // Per azimuth (24 bins round the ring, so the result doesn't depend on how the mesh happens to be
-    // tessellated): the gap under the ring's lowest edge there.
-    const bins = new Array(24).fill(null);
-    for (const m of item)
-      for (let v = 0; v < m.pos.length / 3; v++) {
-        const p = [m.pos[v * 3], m.pos[v * 3 + 1], m.pos[v * 3 + 2]];
-        if (p[1] > minY + 0.002) continue;
-        let g = 0.05;
-        for (let s = -0.01; s <= 0.05; s += 0.0005) {
-          if (grid.hit([p[0], p[1] - s + 0.0005, p[2]], [0, -1, 0], 0, 0.0005)) {
-            g = s;
-            break;
-          }
-        }
-        const k = Math.floor(((Math.atan2(p[0], p[2] - 0.004) / (2 * Math.PI) + 1) % 1) * 24);
-        bins[k] = bins[k] === null ? g : Math.min(bins[k], g);
-      }
-    const gaps = bins.filter((g) => g !== null).sort((a, b) => a - b);
-    out.push({ style, minGap: gaps[0], medGap: gaps[Math.floor(gaps.length / 2)] });
+    const r = ringGaps(meshes, meta.attach?.socket ?? "HeadTop", t, seatGrid(dir, style, faces[0]));
+    if (process.env.SEAT_DEBUG) console.log(style, r.bins.map((g) => (g === null ? "-" : (g * 1000).toFixed(0))).join(" "));
+    out.push({ style, minGap: r.minGap, medGap: r.medGap });
   }
   return { key, out };
+}
+
+/**
+ * Seats a ring-style item on hairstyles whose surface its field-measured seat can't capture
+ * (sculpted locks): searches the height and front-to-back tilt, on the built meshes, for the
+ * placement that best meets the seat rule. Returns { [style]: { position, rotation } } offsets.
+ */
+export function refineSeats(dir, key, styles, face = FACE_SHAPES[0]) {
+  const { json, meshes } = parseGlb(join(dir, `${key}.glb`));
+  const meta = json.scenes[0].extras.sdAvatar;
+  const socket = meta.attach?.socket ?? "HeadTop";
+  const out = {};
+  for (const style of styles) {
+    const grid = seatGrid(dir, style, face);
+    const base = resolveAttach(meta.attach, { hairStyle: style, faceShape: face });
+    const cur = meta.attach.perHair?.[style] ?? { position: [0, 0, 0], rotation: [0, 0, 0] };
+    let best = null;
+    for (let rx = -0.24; rx <= 0.08001; rx += 0.02)
+      for (let dy = -0.014; dy <= 0.014001; dy += 0.001) {
+        const t = { ...base, position: [base.position[0], base.position[1] + dy, base.position[2]], rotation: [base.rotation[0] - ((cur.rotation?.[0] ?? 0) * Math.PI) / 180 + rx, base.rotation[1], base.rotation[2]] };
+        const r = ringGaps(meshes, socket, t, grid);
+        const m = SEAT_LIMIT - 0.0008;
+        const cost = Math.max(0, -m - r.minGap) + Math.max(0, r.medGap - m) + 0.05 * Math.abs(r.medGap - 0.002);
+        if (!best || cost < best.cost) best = { cost, dy, rx };
+      }
+    out[style] = { position: [0, Math.round((cur.position[1] + best.dy) * 10000) / 10000, 0], rotation: [Math.round(((best.rx * 180) / Math.PI) * 100) / 100, 0, 0] }; // degrees, as attach specs are
+  }
+  return out;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -242,7 +282,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       const r = seatCheck(dir, key);
       for (const s of r.out) {
         // Hair is soft: the ring may settle up to 5 mm into the fullest parts, and float as much over the thinnest.
-        const ok = s.minGap > -0.0055 && s.medGap < 0.0055;
+        const ok = s.minGap > -SEAT_LIMIT && s.medGap < SEAT_LIMIT;
         if (!ok) failed++;
         console.log(`${ok ? "ok  " : "FAIL"} ${key.padEnd(16)} ${s.style.padEnd(11)} seat: lowest point ${(s.minGap * 1000).toFixed(1)} mm, median ${(s.medGap * 1000).toFixed(1)} mm above the hair`);
       }
