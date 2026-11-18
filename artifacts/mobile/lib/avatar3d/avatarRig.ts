@@ -170,13 +170,12 @@ function upgradeMaterial(src: THREE.MeshStandardMaterial, opts: { strands?: bool
   const m = src.clone();
   if (m.name === "skin") {
     // A little warm self-light stands in for subsurface scattering in the shadows.
-    // (Kept low and deep: a brighter, more orange glow flattened darker skin tones.)
-    m.emissive = new THREE.Color("#2b1209");
-    m.emissiveIntensity = 0.12;
+    m.emissive = new THREE.Color("#3a1408");
+    m.emissiveIntensity = 0.18;
   }
   if (m.name === "hair" && opts.strands && (m as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) {
     // The hair's TANGENT runs along the strands: a stretched highlight across them.
-    (m as THREE.MeshPhysicalMaterial).anisotropy = 0.7;
+    (m as THREE.MeshPhysicalMaterial).anisotropy = 0.55;
   }
   if (m.name === "beard") {
     // A thin shell over the skin at its edges.
@@ -216,9 +215,6 @@ const WHITE = new THREE.Color("#ffffff");
 /** Warm, reddish forward scatter for skin's sheen lobe, mixed into the skin's own colour. */
 const SKIN_SHEEN = new THREE.Color("#ff9a7a");
 const liftSheen = (c: THREE.Color, out: THREE.Color) => out.copy(c).lerp(WHITE, 0.3);
-const _hsl = { h: 0, s: 0, l: 0 };
-/** Cloth sheen: the cloth's own hue, lifted 6–30 % toward white with its lightness. */
-const fabricSheen = (c: THREE.Color, out: THREE.Color) => out.copy(c).lerp(WHITE, 0.06 + 0.24 * c.getHSL(_hsl).l);
 
 const _lifeEuler = new THREE.Euler();
 const _lifeQuat = new THREE.Quaternion();
@@ -518,10 +514,9 @@ export class AvatarRig {
         const tint = TINTS[srcMat.name];
         if (tint) {
           (c as THREE.MeshStandardMaterial).color.copy(tint(p, s));
-          // Fabric sheen takes the cloth's own colour, lifted toward white in proportion to how light the
-          // cloth is: a fixed lift turned black cloth grey.
+          // Fabric sheen takes the cloth's own colour (a white sheen washes dark cloth out).
           const ph = c as THREE.MeshPhysicalMaterial;
-          if (ph.isMeshPhysicalMaterial && ph.sheen > 0) fabricSheen(ph.color, ph.sheenColor);
+          if (ph.isMeshPhysicalMaterial && ph.sheen > 0) ph.sheenColor.copy(ph.color).lerp(new THREE.Color("#ffffff"), 0.35);
         }
         if (metal && srcMat.name === "metal") (c as THREE.MeshStandardMaterial).color.copy(metal);
         const dark = PATTERN_MATERIALS[srcMat.name];
@@ -1163,9 +1158,8 @@ function studioEnvironment(gl: THREE.WebGLRenderer | undefined): THREE.Texture |
  */
 export function addStudioLights(scene: THREE.Scene | THREE.Object3D, gl?: THREE.WebGLRenderer, { shadows = false } = {}) {
   const g = new THREE.Group();
-  // A dim, dark-floored bounce: the key and rims carry the shape against "House Black" backgrounds.
-  g.add(new THREE.HemisphereLight("#eef2f6", "#1d2026", 0.5));
-  const key = new THREE.DirectionalLight("#fff1e2", 2.5);
+  g.add(new THREE.HemisphereLight("#f1f5f2", "#3b423e", 0.75));
+  const key = new THREE.DirectionalLight("#fff3e6", 2.1);
   key.position.set(2.2, 4.2, 3.2);
   if (shadows) {
     key.castShadow = true;
@@ -1183,20 +1177,19 @@ export function addStudioLights(scene: THREE.Scene | THREE.Object3D, gl?: THREE.
     key.target.position.set(0, 0.9, 0);
     g.add(key.target);
   }
-  const fill = new THREE.DirectionalLight("#dfe8ff", 0.42);
+  const fill = new THREE.DirectionalLight("#dfe8ff", 0.55);
   fill.position.set(-2.6, 1.2, 3.2);
-  // Rims high and behind, strong enough to trace the head, shoulders and arms on a near-black backdrop.
-  const rim = new THREE.DirectionalLight("#ffb547", 2.2);
-  rim.position.set(-2.4, 3.0, -2.8);
-  const rim2 = new THREE.DirectionalLight("#a9d4ff", 1.6);
-  rim2.position.set(2.6, 2.6, -2.8);
+  const rim = new THREE.DirectionalLight("#ffb547", 1.25);
+  rim.position.set(-3, 2.4, -2.6);
+  const rim2 = new THREE.DirectionalLight("#a9d4ff", 0.8);
+  rim2.position.set(3, 1.8, -3);
   g.add(key, fill, rim, rim2);
   scene.add(g);
   const env = studioEnvironment(gl);
   const s = scene as THREE.Scene;
   if (env && s.isScene) {
     s.environment = env;
-    s.environmentIntensity = 0.5;
+    s.environmentIntensity = 0.42;
   }
   return g;
 }

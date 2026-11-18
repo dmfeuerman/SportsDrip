@@ -42,9 +42,7 @@ function build(json, bin) {
   return Buffer.concat([head, chunk(js.length, 0x4e4f534a), js, chunk(b.length, 0x004e4942), b]);
 }
 
-// Break-even for a quantised (int16) VEC3 target with 16-bit indices is 75 % moved (6 bytes dense vs
-// 2 + 6 sparse per vertex); half keeps a margin for 32-bit indices and float targets.
-export function sparsifyMorphs(glb, { ratio = Number(process.env.SPARSE_RATIO ?? 1 / 2) } = {}) {
+export function sparsifyMorphs(glb, { ratio = 1 / 3 } = {}) {
   const { json, bin } = parse(glb);
   if (!json?.accessors || !json.bufferViews) return Buffer.from(glb);
   const targets = new Set();

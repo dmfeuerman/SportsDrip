@@ -16,10 +16,9 @@ import { gauss, smax, sstep } from "./sdf.mjs";
  * the outer corner.
  */
 export const EYE_SHAPE = {
-  // Upper lids sit a little lower over the iris (a relaxed, lidded look rather than a stare).
-  round: { w: 0.0179, top: 0.0113, bot: 0.0102, p: 0.6, q: 0.6, tilt: 0.04, lash: 1.0 },
-  almond: { w: 0.0189, top: 0.0092, bot: 0.0068, p: 0.75, q: 0.75, tilt: 0.16, lash: 1.15 },
-  sleepy: { w: 0.0181, top: 0.0062, bot: 0.0084, p: 0.85, q: 0.7, tilt: -0.04, lash: 0.85 },
+  round: { w: 0.0179, top: 0.0122, bot: 0.0104, p: 0.55, q: 0.6, tilt: 0.04, lash: 1.0 },
+  almond: { w: 0.0189, top: 0.0098, bot: 0.0069, p: 0.7, q: 0.75, tilt: 0.16, lash: 1.15 },
+  sleepy: { w: 0.0181, top: 0.0064, bot: 0.0085, p: 0.85, q: 0.7, tilt: -0.04, lash: 0.85 },
 };
 
 const upper = (e, u) => e.top * Math.pow(Math.max(0, 1 - (u / e.w) ** 2), e.p) + e.tilt * u;
@@ -36,12 +35,9 @@ export function lidD(shape, s, x, y, z) {
   const cx = EYE.x * s;
   const dx = x - cx, dy = y - EYE.y, dz = z - EYE.z;
   const r = Math.hypot(dx, dy, dz);
+  // Shell just over the eyeball, 2.2 mm thick, with a rounded margin.
+  const shell = Math.abs(r - (EYE.r + 0.0019)) - 0.0011;
   const u = dx * s;
-  const e = EYE_SHAPE[shape];
-  // Shell just over the eyeball, 2.2 mm thick, with a rounded margin; the upper lid swells into a
-  // soft fold a few millimetres above its margin, so the lid has a crease and reads as heavy-lidded.
-  const fold = 0.0009 * Math.exp(-(((dy - upper(e, u) - 0.0034) / 0.0022) ** 2)) * Math.max(0, 1 - (u / (e.w * 1.15)) ** 2);
-  const shell = Math.abs(r - (EYE.r + 0.0019 + fold * 0.5)) - 0.0011 - fold * 0.5;
   const open = openingD(shape, u, dy);
   // Only the front of the eye; past the socket rim the shell is buried in the head anyway.
   const front = -(dz + 0.004);
@@ -115,7 +111,7 @@ export function lashes(b, shape) {
       const z = EYE.z + Math.sqrt(Math.max(0, rr * rr - u * u - v * v));
       const out = Math.max(0, u / e.w - 0.45) / 0.55; // 0 inside → 1 at the outer corner
       const flick = out * out * 0.0042 * e.lash;
-      const r = (0.00085 + 0.001 * out + 0.00035 * Math.sin((i / 14) * Math.PI)) * e.lash; // a bold lash line, like liner
+      const r = (0.0007 + 0.0009 * out + 0.0003 * Math.sin((i / 14) * Math.PI)) * e.lash;
       pts.push({ c: [EYE.x * s + s * (u + flick * 0.7), EYE.y + v + flick * 0.6, z - flick * 0.2], rx: r, rz: r * 0.7, w: {} });
     }
     tube(b, pts, { steps: 1, radial: 4, capStart: true, capEnd: true });
@@ -126,10 +122,9 @@ export function lashes(b, shape) {
 
 /** Brow strokes in face space: x along the brow (inner → outer), arch, thickness and taper. */
 export const BROW_STYLE = {
-  // Fuller than the first v3 brows: a squared inner head, the peak about two-thirds out, a tapered tail.
-  soft: { x0: 0.0115, x1: 0.06, y: 1.6745, arch: 0.0046, th: 0.0051, tail: 0.42, slope: 0.0 },
-  arched: { x0: 0.0125, x1: 0.06, y: 1.6755, arch: 0.0088, th: 0.0047, tail: 0.3, slope: 0.002 },
-  bold: { x0: 0.0095, x1: 0.062, y: 1.674, arch: 0.0036, th: 0.0078, tail: 0.5, slope: -0.0015 },
+  soft: { x0: 0.012, x1: 0.059, y: 1.6745, arch: 0.0042, th: 0.0042, tail: 0.5, slope: 0.0 },
+  arched: { x0: 0.013, x1: 0.059, y: 1.6755, arch: 0.0085, th: 0.0038, tail: 0.35, slope: 0.002 },
+  bold: { x0: 0.010, x1: 0.061, y: 1.674, arch: 0.0032, th: 0.0068, tail: 0.6, slope: -0.0015 },
 };
 
 /** Brow as a field: a stroke on the forehead, lifted just off the oval face's skin. */
@@ -139,17 +134,12 @@ export function browD(style, x, y, z) {
   if (ax < st.x0 - 0.006 || ax > st.x1 + 0.006 || Math.abs(y - st.y) > 0.02 || z < 0.06) return 1;
   const t = (ax - st.x0) / (st.x1 - st.x0); // 0 inner → 1 outer
   const tc = Math.max(0, Math.min(1, t));
-  // Arch peaks ~65 % of the way out, then the tail drops away.
-  const centre = st.y + st.arch * Math.sin(Math.PI * Math.min(1, tc * 0.77)) ** 1.3 + st.slope * tc - 0.0042 * sstep(0.62, 1, tc);
-  const half = (st.th * (1 - (1 - st.tail) * sstep(0.45, 1, tc))) / 2 * (0.9 + 0.1 * Math.sin(Math.PI * Math.min(1, tc * 2)));
+  const centre = st.y + st.arch * Math.sin(Math.PI * Math.min(1, tc * 1.15)) + st.slope * tc - 0.003 * tc * tc;
+  const half = (st.th * (1 - (1 - st.tail) * tc ** 1.5)) / 2 * (0.85 + 0.15 * Math.sin(Math.PI * Math.min(1, tc * 2)));
   const stroke = Math.max(Math.abs(y - centre) - half, Math.max(st.x0 - ax, ax - st.x1) * 0.6);
   const skin = headD("oval", x, y, z);
-  // Thicker in the middle of the stroke than at its edges: sculpted, not painted on.
-  const lift = 0.0009 + 0.0005 * sstep(0, -half, Math.abs(y - centre) - half);
-  const layer = Math.abs(skin - lift) - lift;
-  // Fine hair grooves running out along the brow.
-  const hairs = 0.00012 * Math.abs(Math.sin((y - centre) * 2600 + ax * 900));
-  return smax(layer, stroke, 0.0009) + hairs;
+  const layer = Math.abs(skin - 0.0009) - 0.0009;
+  return smax(layer, stroke, 0.0012);
 }
 
 export function browBox() {

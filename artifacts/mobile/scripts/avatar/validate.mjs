@@ -26,7 +26,7 @@ import { BODY_REGIONS, BONES, BUILD_MORPHS, EXPRESSIONS, EYE_SHAPES, EYEBROWS, F
 
 export const SLOTS = ["hat", "eyewear", "top", "outerwear", "bottom", "shoes", "accessory"];
 export const TINT_MATERIALS = ["primary", "secondary", "primary_dark", "secondary_dark", "metal", "lens", "sole", "laces"];
-export const MATERIALS = {
+const MATERIALS = {
   base: ["skin", "eye_white", "iris", "pupil", "teeth", "brow", "lash", "base_layer"],
   hair: ["hair", "hair_tie"],
   facialHair: ["beard", "stubble"],
@@ -37,7 +37,7 @@ export const MATERIALS = {
  * carries every head, lid and brow variant, a hairstyle one variant per hat
  * mode, but only one of each is shown); `tris`/`bytes` cap the whole file.
  */
-export const BUDGET = {
+const BUDGET = {
   // One body, twelve heads (4 face shapes × 3 noses, one drawn), lids/lashes for three eye shapes,
   // brows; ~half the file is blendshapes. Meshing each nose instead of morphing the button
   // (which tore) costs ~1.4 MB: still one bundled file, parsed once.

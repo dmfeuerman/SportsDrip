@@ -193,12 +193,6 @@ export function atlas(entries, size, { pad = Math.max(2, size / 128) } = {}) {
     return true;
   };
   let lo = 1, hi = 1;
-  // So many small charts that their padding alone overflows the atlas (a finely clumped beard can
-  // break into hundreds): halve the padding rather than leave charts unplaced (no UVs).
-  if (!place(lo)) {
-    if (pad > 1) return atlas(entries, size, { pad: Math.max(1, Math.floor(pad / 2)) });
-    throw new Error(`atlas: ${all.length} charts don't fit a ${size}² atlas`);
-  }
   while (place(hi * 2)) hi *= 2;
   hi *= 2;
   for (let i = 0; i < 24; i++) {
