@@ -162,8 +162,9 @@ const PEC_R = Object.fromEntries(SIDES.map((s) => [s, rotation(0.1, sgn(s) * 0.2
 
 function deltoidD(s, x, y, z) {
   // Masculine frame: a rounder, fuller cap (the arm tube no longer bulks out the top of the shoulder).
-  const k = bk(0.13) * fk(-0.5) * (1 + 0.1 * (1 - FRAME));
-  const l = toLocal(DELT_R[s], [(0.172 + 0.006 * BUILD - 0.043 * FRAME) * sgn(s), 1.366 - 0.024 * FRAME, -0.008], x, y, z);
+  // (Width at the side of the shoulder, not height: the cap's top stays under the trapezius line.)
+  const k = bk(0.13) * fk(-0.5) * (1 + 0.16 * (1 - FRAME));
+  const l = toLocal(DELT_R[s], [(0.178 + 0.006 * BUILD - 0.049 * FRAME) * sgn(s), 1.36 - 0.018 * FRAME, -0.008], x, y, z);
   return sdEllipsoid(l[0], l[1], l[2], 0.0378 * k, 0.061 * bk(0.05) * fk(-0.25), 0.0435 * k);
 }
 
@@ -198,7 +199,7 @@ function torsoD(x, y, z) {
   d = smin(d, sdEllipsoid(ax - 0.062 * bk(0.05), y - 0.918, z + 0.046 * bk(0.08), 0.072 * bk(0.08) * fk(0.1), 0.078, 0.064 * bk(0.08) * fk(0.16)), 0.04 + 0.02 * FRAME); // glutes
   d = smin(d, sdEllipsoid(ax - ((0.092 + 0.02 * FRAME) * bk(0.06) + 0.011 * FRAME), y - (0.935 + 0.005 * FRAME), z + 0.004, 0.04 + 0.022 * FRAME, 0.075 - 0.005 * FRAME, 0.066 + 0.004 * FRAME), 0.05 + 0.025 * FRAME); // hip flare
   // Trapezius: neck to the top of the shoulder.
-  d = smin(d, sdCone(ax, y, z, [0.03, 1.446 + 0.004 * BUILD, -0.026], [(0.145 - 0.03 * FRAME) * bk(0.04), 1.406 - 0.016 * FRAME, -0.02], 0.029 * bk(0.18) * fk(-0.35), 0.025 * bk(0.12) * fk(-0.3)), 0.04);
+  d = smin(d, sdCone(ax, y, z, [0.03, 1.446 + 0.004 * BUILD, -0.026], [(0.165 - 0.03 * FRAME) * bk(0.04), 1.418 - 0.012 * FRAME, -0.02], 0.032 * bk(0.18) * fk(-0.25), 0.03 * bk(0.12) * fk(-0.18)), 0.04);
   d = smin(d, deltoidD(side, x, y, z), 0.045);
 
   // Surface detail (inward is positive).
@@ -612,21 +613,30 @@ export function headD(shape, x, y, z) {
 
 /* ── skin tint (multiplied with the user's skin colour at runtime) ───────── */
 
-/** Where the body mesh stops and the head's own neck takes over. */
+/** Where stubble fades out down the neck. */
 export const NECK_CUT = 1.5;
+/**
+ * Where the body mesh ends and every head mesh begins: one shared ring of
+ * vertices round the neck (generate.mjs neckRing), so the two meet edge to
+ * edge with identical positions, normals, shading, weights and blendshapes.
+ */
+export const NECK_SEAM = 1.47;
 
 /**
  * The head's skin for one face shape, merged smoothly into the top of the
- * neck (under the jaw and at the nape). Below NECK_CUT its neck sits just
- * inside the body's, so the body shows there.
+ * neck (under the jaw and at the nape), and becoming the body's own surface
+ * by the seam, so the head's lower edge lies exactly on the body's.
  */
 export function headSkinD(face, x, y, z) {
   const h = headD(face, x, y, z);
   if (y > 1.62) return h;
-  const n = neckD(x, y, z) + 0.0012 * sstep(NECK_CUT + 0.004, NECK_CUT - 0.022, y);
+  const n = neckD(x, y, z);
   const k = 0.022;
   const hh = Math.max(k - Math.abs(h - n), 0) / k;
-  return Math.min(h, n) - hh * hh * k * 0.25;
+  const d = Math.min(h, n) - hh * hh * k * 0.25;
+  if (y >= 1.505) return d;
+  const b = bodyD(x, y, z, { hands: false, feet: false });
+  return b + (d - b) * sstep(NECK_SEAM, 1.505, y);
 }
 
 export function headTint(x, y, z) {

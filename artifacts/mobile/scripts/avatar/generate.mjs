@@ -52,7 +52,7 @@ import { addNormalMaps, atlas, bakeNormals, withUVs } from "./bake.mjs";
 import { encodeJPEG } from "./jpeg.mjs";
 import { sparsifyMorphs } from "./sparse.mjs";
 import { artMesh, artNormalMaps, craniumDeviation, loadArt } from "./art.mjs";
-import { bakeAO, gradient, meshSDF, project, simplify, smax, smin, sstep } from "./sdf.mjs";
+import { bakeAO, compact, gradient, meshSDF, project, simplify, smax, smin, sstep } from "./sdf.mjs";
 
 // GLTFExporter's binary writer reads its Blob through FileReader.
 globalThis.FileReader ??= class {
@@ -856,28 +856,288 @@ function bakeSet(items, size, { quality = 92 } = {}) {
 
 /* ── base ────────────────────────────────────────────────────────────────── */
 
-/** The neck column inside the head: the body stops here and the head skin takes over. */
 const NECK_CUT = C.NECK_CUT;
-const inNeckColumn = (x, y, z) => y > NECK_CUT && Math.abs(x) < 0.1 && z > -0.13 && z < 0.12;
+
+/* ── neck seam: body and heads share one ring of vertices ────────────────── */
+
+const SEAM_Y = C.NECK_SEAM;
+const SEAM_N = 72;
+const SEAM_ZC = -0.013; // the neck's axis at the seam
+/** The neck column above the seam: the body stops at its floor, the heads start there. */
+const inSeamColumn = (x, z) => Math.hypot(x, z - SEAM_ZC) < 0.11;
+const bodyAOField = (x, y, z) => Math.min(C.bodyD(x, y, z), y > 1.47 ? C.headD("oval", x, y, z) : 1);
+/** What the body gives a skin vertex: weights, AO × tint, build blendshapes. The ring and the heads' neck band use it. */
+function bodySkinAttributes(md, { transfer = false } = {}) {
+  const P = md.positions;
+  md.weights = Array.from({ length: P.length / 3 }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  md.colors = rgba(bakeAO(bodyAOField, md, { step: 0.007, strength: 1.2 }), (v) => C.bodyTint(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  addBuildMorphs(md, { transfer });
+  return md;
+}
+
+let ringCache = null;
+/** The seam ring: SEAM_N points round the neck at SEAM_Y on the body's surface, with the attributes both sides share. */
+function neckRing() {
+  if (ringCache) return ringCache;
+  const positions = new Float32Array(SEAM_N * 3), normals = new Float32Array(SEAM_N * 3);
+  for (let i = 0; i < SEAM_N; i++) {
+    const a = (2 * Math.PI * i) / SEAM_N;
+    const at = (r) => [Math.sin(a) * r, SEAM_Y, SEAM_ZC + Math.cos(a) * r];
+    let lo = 0.015, hi = 0.11;
+    if (!(bodyField(...at(lo)) < 0 && bodyField(...at(hi)) > 0)) throw new Error(`neck seam: no body surface at angle ${i}`);
+    for (let k = 0; k < 50; k++) {
+      const m = (lo + hi) / 2;
+      if (bodyField(...at(m)) < 0) lo = m;
+      else hi = m;
+    }
+    const p = at((lo + hi) / 2);
+    positions.set(p, i * 3);
+    normals.set(gradient(bodyField, ...p).slice(0, 3), i * 3);
+  }
+  ringCache = bodySkinAttributes({ positions, normals, indices: new Uint32Array(0), colors: null, weights: null, morphs: {} });
+  return ringCache;
+}
+
+/** Ordered boundary loops of a triangle mesh (each a list of vertex indices). */
+function boundaryLoops(indices) {
+  const directed = new Set();
+  for (let t = 0; t < indices.length; t += 3) for (let k = 0; k < 3; k++) directed.add(`${indices[t + k]},${indices[t + ((k + 1) % 3)]}`);
+  const next = new Map();
+  for (const e of directed) {
+    const [a, b] = e.split(",").map(Number);
+    if (!directed.has(`${b},${a}`)) next.set(a, b);
+  }
+  const loops = [], seen = new Set();
+  for (const s of next.keys()) {
+    if (seen.has(s)) continue;
+    const loop = [];
+    for (let v = s; v !== undefined && !seen.has(v); v = next.get(v)) {
+      seen.add(v);
+      loop.push(v);
+    }
+    loops.push(loop);
+  }
+  return loops;
+}
+
+/**
+ * Closes a mesh's open edge round the neck onto the seam ring: appends the ring's vertices and
+ * stitches a strip of triangles between the edge and the ring (walking both round the neck by
+ * angle, facing outward). Returns the mesh and the ring's first vertex index.
+ */
+function sealToRing(m, ring) {
+  const P = m.positions;
+  const ang = (x, z) => Math.atan2(x, z - SEAM_ZC);
+  const wrap = (d) => d - 2 * Math.PI * Math.round(d / (2 * Math.PI));
+  let best = null;
+  for (const loop of boundaryLoops(m.indices)) {
+    if (loop.length < 24) continue;
+    let y = 0, r = 0;
+    for (const v of loop) {
+      y += P[v * 3 + 1];
+      r += Math.hypot(P[v * 3], P[v * 3 + 2] - SEAM_ZC);
+    }
+    y /= loop.length;
+    r /= loop.length;
+    if (r < 0.11 && (!best || Math.abs(y - SEAM_Y) < Math.abs(best.y - SEAM_Y))) best = { loop, y };
+  }
+  if (!best || Math.abs(best.y - SEAM_Y) > 0.01) throw new Error("neck seam: no open edge round the neck near the seam");
+  let loop = best.loop;
+  const A = (v) => ang(P[v * 3], P[v * 3 + 2]);
+  let turn = 0;
+  for (let i = 0; i < loop.length; i++) turn += wrap(A(loop[(i + 1) % loop.length]) - A(loop[i]));
+  if (turn < 0) loop = loop.slice().reverse();
+  let start = 0;
+  for (let i = 1; i < loop.length; i++) if (Math.abs(wrap(A(loop[i]))) < Math.abs(wrap(A(loop[start])))) start = i;
+  loop = [...loop.slice(start), ...loop.slice(0, start)];
+  const nA = loop.length;
+  const UA = [wrap(A(loop[0]))];
+  for (let i = 1; i <= nA; i++) UA.push(UA[i - 1] + wrap(A(loop[i % nA]) - A(loop[i - 1])));
+  const base = P.length / 3;
+  const positions = new Float32Array(P.length + SEAM_N * 3);
+  positions.set(P);
+  positions.set(ring.positions, P.length);
+  const normals = new Float32Array(positions.length);
+  if (m.normals) normals.set(m.normals); // (sealedTo recomputes them)
+  normals.set(ring.normals, P.length);
+  const at = (v) => [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]];
+  const tris = [];
+  const face = (a, b, c) => {
+    const [pa, pb, pc] = [at(a), at(b), at(c)];
+    const u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]], w = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+    const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+    const out = [pa[0] + pb[0] + pc[0], 0, pa[2] + pb[2] + pc[2] - 3 * SEAM_ZC];
+    if (n[0] * out[0] + n[2] * out[2] >= 0) tris.push(a, b, c);
+    else tris.push(a, c, b);
+  };
+  let i = 0, j = 0;
+  while (i < nA || j < SEAM_N) {
+    const a0 = loop[i % nA], r0 = base + (j % SEAM_N);
+    const nextA = i < nA ? UA[i + 1] : Infinity;
+    const nextR = j < SEAM_N ? (2 * Math.PI * (j + 1)) / SEAM_N : Infinity;
+    if (nextA <= nextR) {
+      face(a0, loop[(i + 1) % nA], r0);
+      i++;
+    } else {
+      face(a0, base + ((j + 1) % SEAM_N), r0);
+      j++;
+    }
+  }
+  const indices = new Uint32Array(m.indices.length + tris.length);
+  indices.set(m.indices);
+  indices.set(tris, m.indices.length);
+  return { mesh: { ...m, positions, normals, indices }, ring: base };
+}
+
+/**
+ * A meshed part (body or head) sealed onto the seam ring: the strip is added, the mesh is compacted
+ * and given field normals. Returns the mesh and the vertex index of each ring point.
+ */
+function sealedTo(meshed, f) {
+  const { mesh, ring: first } = sealToRing(meshed, neckRing());
+  const s = compact(mesh);
+  const P = s.positions;
+  const R = neckRing().positions;
+  const ring = new Int32Array(SEAM_N).fill(-1);
+  for (let v = 0; v < P.length / 3; v++) {
+    if (Math.abs(P[v * 3 + 1] - SEAM_Y) > 1e-6) continue;
+    for (let i = 0; i < SEAM_N; i++) if (P[v * 3] === R[i * 3] && P[v * 3 + 2] === R[i * 3 + 2]) ring[i] = v;
+  }
+  if (ring.includes(-1)) throw new Error("neck seam: ring vertices lost");
+  const normals = new Float32Array(P.length);
+  for (let v = 0; v < P.length / 3; v++) normals.set(gradient(f, P[v * 3], P[v * 3 + 1], P[v * 3 + 2]).slice(0, 3), v * 3);
+  for (let i = 0; i < SEAM_N; i++) normals.set(neckRing().normals.subarray(i * 3, i * 3 + 3), ring[i] * 3);
+  return { mesh: { ...s, normals }, ring };
+}
+
+/**
+ * Collapses vertices along a mesh's open neck edge (already flattened onto a plane) into their
+ * neighbours on the edge until no edge segment is shorter than `minLen`, skipping any collapse
+ * that would flip a triangle. Only the edge's own fan of triangles changes.
+ */
+function thinNeckEdge(m, minLen) {
+  const P = m.positions;
+  let I = Array.from(m.indices);
+  const len = (a, b) => Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
+  const nrm = (a, b, c) => {
+    const u = [P[b * 3] - P[a * 3], P[b * 3 + 1] - P[a * 3 + 1], P[b * 3 + 2] - P[a * 3 + 2]], w = [P[c * 3] - P[a * 3], P[c * 3 + 1] - P[a * 3 + 1], P[c * 3 + 2] - P[a * 3 + 2]];
+    return [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+  };
+  for (let pass = 0; pass < 8; pass++) {
+    const loop = boundaryLoops(Uint32Array.from(I)).filter((l) => l.length > 24).sort((a, b) => b.length - a.length)[0];
+    if (!loop) break;
+    const fans = new Map();
+    for (let t = 0; t < I.length; t += 3) for (let k = 0; k < 3; k++) (fans.get(I[t + k]) ?? fans.set(I[t + k], []).get(I[t + k])).push(t);
+    const gone = new Set();
+    let changed = 0;
+    for (let i = 0; i < loop.length; i++) {
+      const v = loop[i], u = loop[(i + 1) % loop.length];
+      if (gone.has(v) || gone.has(u) || gone.has(loop[(i + loop.length - 1) % loop.length]) || len(v, u) >= minLen) continue;
+      // v → u: every triangle of v's fan that doesn't contain u gets u instead; those that do vanish.
+      let ok = true;
+      for (const t of fans.get(v)) {
+        const tri = I.slice(t, t + 3);
+        if (tri.includes(u)) continue;
+        const after = tri.map((x) => (x === v ? u : x));
+        const n0 = nrm(...tri), n1 = nrm(...after);
+        if (n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2] <= 0) ok = false;
+      }
+      if (!ok) continue;
+      for (const t of fans.get(v)) {
+        if (I.slice(t, t + 3).includes(u)) I[t] = I[t + 1] = I[t + 2] = -1;
+        else for (let k = 0; k < 3; k++) if (I[t + k] === v) I[t + k] = u;
+      }
+      gone.add(v);
+      gone.add(u);
+      changed++;
+    }
+    I = I.filter((_, j) => I[j - (j % 3)] !== -1);
+    if (!changed) break;
+  }
+  return compact({ positions: P, indices: Uint32Array.from(I) });
+}
+
+/** Moves a mesh's open neck edge onto the plane y = cut (each vertex slid round to the surface there). */
+function flattenNeckEdge(m, f, cut) {
+  const P = m.positions;
+  const edge = new Set(boundaryLoops(m.indices).flat());
+  for (const v of edge) {
+    if (Math.abs(P[v * 3 + 1] - cut) > 0.004) continue;
+    const a = Math.atan2(P[v * 3], P[v * 3 + 2] - SEAM_ZC);
+    const at = (r) => [Math.sin(a) * r, cut, SEAM_ZC + Math.cos(a) * r];
+    let lo = 0.015, hi = 0.11;
+    for (let k = 0; k < 40; k++) {
+      const mid = (lo + hi) / 2;
+      if (f(...at(mid)) < 0) lo = mid;
+      else hi = mid;
+    }
+    P.set(at((lo + hi) / 2), v * 3);
+  }
+}
+
+/** Gives the ring's vertices exactly the ring's attributes, so both sides of the seam agree. */
+function stampRing(md, ringIdx) {
+  const ring = neckRing();
+  for (let i = 0; i < SEAM_N; i++) {
+    const v = ringIdx[i];
+    md.positions.set(ring.positions.subarray(i * 3, i * 3 + 3), v * 3);
+    md.normals.set(ring.normals.subarray(i * 3, i * 3 + 3), v * 3);
+    md.weights[v] = { ...ring.weights[i] };
+    if (md.colors) md.colors.set(ring.colors.subarray(i * 4, i * 4 + 4), v * 4);
+    for (const [name, m] of Object.entries(md.morphs)) {
+      const r = ring.morphs[name];
+      m.dpos.set(r ? r.dpos.subarray(i * 3, i * 3 + 3) : [0, 0, 0], v * 3);
+      if (m.dnrm) m.dnrm.set(r?.dnrm ? r.dnrm.subarray(i * 3, i * 3 + 3) : [0, 0, 0], v * 3);
+    }
+  }
+}
+
+/** A head's neck band (from the seam up SEAM_BAND) blends from the body's weights, shading and build shapes to the head's own. */
+const SEAM_BAND = 0.03;
+function blendNeckBand(md) {
+  const P = md.positions;
+  const band = [];
+  for (let v = 0; v < P.length / 3; v++) if (P[v * 3 + 1] < SEAM_Y + SEAM_BAND) band.push(v);
+  if (!band.length) return;
+  const sub = { positions: new Float32Array(band.length * 3), normals: new Float32Array(band.length * 3), indices: new Uint32Array(0), colors: null, weights: null, morphs: {} };
+  band.forEach((v, i) => {
+    sub.positions.set(P.subarray(v * 3, v * 3 + 3), i * 3);
+    sub.normals.set(md.normals.subarray(v * 3, v * 3 + 3), i * 3);
+  });
+  bodySkinAttributes(sub, { transfer: true });
+  band.forEach((v, i) => {
+    const s = sstep(SEAM_Y, SEAM_Y + SEAM_BAND, P[v * 3 + 1]);
+    const w = {};
+    for (const [b, x] of Object.entries(md.weights[v])) w[b] = (w[b] ?? 0) + s * x;
+    for (const [b, x] of Object.entries(sub.weights[i])) w[b] = (w[b] ?? 0) + (1 - s) * x;
+    md.weights[v] = w;
+    if (md.colors) for (let c = 0; c < 4; c++) md.colors[v * 4 + c] = Math.round(s * md.colors[v * 4 + c] + (1 - s) * sub.colors[i * 4 + c]);
+    for (const [name, m] of Object.entries(md.morphs)) {
+      const body = sub.morphs[name];
+      for (let k = 0; k < 3; k++) {
+        m.dpos[v * 3 + k] = s * m.dpos[v * 3 + k] + (1 - s) * (body ? body.dpos[i * 3 + k] : 0);
+        if (m.dnrm) m.dnrm[v * 3 + k] = s * m.dnrm[v * 3 + k] + (1 - s) * (body?.dnrm ? body.dnrm[i * 3 + k] : 0);
+      }
+    }
+  });
+}
 
 /** The head skin merged into the top of the neck (smooth under the jaw), for one face shape. */
 const headSkin = (face) => (x, y, z) => C.headSkinD(face, x, y, z);
 
 async function buildBody() {
   const t0 = Date.now();
-  const m = await fieldMesh(bodyField, [[-0.5, -0.004, -0.17], [0.5, 1.62, 0.22]], 0.0021, {
-    targetTris: TRIS.body,
-    keep: (x, y, z) => !inNeckColumn(x, y, z),
+  // The body stops just under the seam; the strip up to the shared ring replaces what it loses.
+  const meshed = await fieldMesh(bodyField, [[-0.5, -0.004, -0.17], [0.5, 1.62, 0.22]], 0.0021, {
+    targetTris: TRIS.body + 150, // edge thinning and the strip net about -150
+    keep: (x, y, z) => !(y > SEAM_Y - 0.0015 && inSeamColumn(x, z)),
     error: 0.004,
   });
-  const md = meshData(m);
-  const n = m.positions.length / 3;
+  flattenNeckEdge(meshed, bodyField, SEAM_Y - 0.0015);
+  const { mesh: m, ring } = sealedTo(thinNeckEdge(meshed, 0.006), bodyField);
+  const md = bodySkinAttributes(meshData(m));
+  stampRing(md, ring);
   const P = m.positions;
-  md.weights = Array.from({ length: n }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
-  const both = (x, y, z) => Math.min(C.bodyD(x, y, z), y > 1.47 ? C.headD("oval", x, y, z) : 1);
-  const ao = bakeAO(both, m, { step: 0.007, strength: 1.2 });
-  md.colors = rgba(ao, (v) => C.bodyTint(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
-  addBuildMorphs(md);
   // The hide region of every triangle (the body ships as one mesh per region).
   const region = new Array(m.indices.length / 3);
   for (let t = 0; t < region.length; t++) {
@@ -1003,11 +1263,19 @@ export const headName = (face, nose = "button") => (nose === "button" ? `Head_${
 async function buildHead(face, nose = "button") {
   const t0 = Date.now();
   const f = atFace({ nose }, headSkin(face));
-  const m = await fieldMesh(f, [[-0.15, 1.472, -0.15], [0.15, 1.81, 0.165]], 0.00095, {
-    targetTris: TRIS.head,
-    keep: (x, y, z) => y > 1.476,
+  const meshed = await fieldMesh(f, [[-0.15, SEAM_Y - 0.012, -0.15], [0.15, 1.81, 0.165]], 0.00095, {
+    targetTris: TRIS.head + 600, // the edge thinning below removes ~700 and the strip adds ~150
+    keep: (x, y, z) => y > SEAM_Y + 0.0012,
     error: 0.0025,
   });
+  // The fine head grid leaves ~800 vertices on the open neck edge, zigzagging between grid rows.
+  // Flatten the edge onto the cut plane, then thin it out (border unlocked, sub-millimetre error:
+  // only edge vertices give way), so the strip to the ring is small and the face keeps its triangles.
+  // (Only the edge: a second simplifier pass over the whole head merged vertices across the closed
+  // lips, which tore the mouth corners open when the jaw moved.)
+  flattenNeckEdge(meshed, f, SEAM_Y + 0.0012);
+  const thinned = thinNeckEdge(meshed, 0.004);
+  const { mesh: m, ring } = sealedTo(thinned, f);
   const md = meshData(m);
   const P = m.positions;
   const n = P.length / 3;
@@ -1025,6 +1293,8 @@ async function buildHead(face, nose = "button") {
   }
   // Lids blink on their own meshes; the head carries the mouth and jaw.
   for (const name of EXPRESSIONS) if (!name.startsWith("eyeBlink")) md.morphs[name] = fnMorph(md, X.EXPRESSION_FNS[name]);
+  blendNeckBand(md);
+  stampRing(md, ring);
   console.log(`  head ${face}/${nose}: ${m.indices.length / 3} tris, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   return md;
 }
