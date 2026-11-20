@@ -1,9 +1,11 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeInDown, FadeIn, useReducedMotion, useSharedValue, useAnimatedStyle, withDelay, withSpring, withTiming, Easing } from "react-native-reanimated";
 import Burst from "@/components/fx/Burst";
 import { Button } from "@/components/ui";
+import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { useColors } from "@/hooks/useColors";
 import { useOverlayTurn, OVERLAY } from "@/lib/overlayTurns";
 import { haptic, SPRING } from "@/lib/motion";
@@ -57,20 +59,26 @@ function CreditsEarned({ amount, onClose }: { amount: number; onClose: () => voi
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.scrim}>
+        {Platform.OS !== "web" ? (
+          <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(4, 6, 12, 0.64)" }]} />
         <Burst colors={colors} count={44} power={1.1} duration={1500} originY={0.42} />
-        <Animated.View style={[styles.card, { backgroundColor: c.card, borderColor: c.alpha(c.primary, 0.5) }, cardStyle]}>
-          <Animated.View style={[styles.coin, { backgroundColor: c.primary }, coinStyle]}>
-            <MaterialCommunityIcons name="lightning-bolt" size={34} color={c.primaryForeground} />
-          </Animated.View>
-          <Animated.Text entering={FadeInDown.delay(150).duration(320)} style={[styles.kicker, { color: c.mutedForeground }]}>
-            CREDITS ADDED
-          </Animated.Text>
-          <Text style={[styles.amount, { color: c.foreground }]} accessibilityLiveRegion="polite">
-            +{shown.toLocaleString("en-US")}
-          </Text>
-          <Animated.View entering={FadeIn.delay(700).duration(300)} style={{ alignSelf: "stretch" }}>
-            <Button label="Nice" onPress={onClose} />
-          </Animated.View>
+        <Animated.View style={[styles.cardWrap, cardStyle]}>
+          <GlassModalSurface id="credits_earned" glowColor={c.primary} style={styles.card}>
+            <Animated.View style={[styles.coin, { backgroundColor: c.primary }, coinStyle]}>
+              <MaterialCommunityIcons name="lightning-bolt" size={34} color={c.primaryForeground} />
+            </Animated.View>
+            <Animated.Text entering={FadeInDown.delay(150).duration(320)} style={[styles.kicker, { color: c.primary }]}>
+              CREDITS ADDED
+            </Animated.Text>
+            <Text style={[styles.amount, { color: c.foreground }]} accessibilityLiveRegion="polite">
+              +{shown.toLocaleString("en-US")}
+            </Text>
+            <Animated.View entering={FadeIn.delay(700).duration(300)} style={{ alignSelf: "stretch" }}>
+              <Button label="Nice" onPress={onClose} />
+            </Animated.View>
+          </GlassModalSurface>
         </Animated.View>
       </View>
     </Modal>
@@ -78,9 +86,10 @@ function CreditsEarned({ amount, onClose }: { amount: number; onClose: () => voi
 }
 
 const styles = StyleSheet.create({
-  scrim: { flex: 1, backgroundColor: "rgba(4, 5, 8, 0.78)", alignItems: "center", justifyContent: "center", padding: 24 },
-  card: { width: "100%", maxWidth: 340, borderRadius: 26, borderWidth: 1, padding: 24, alignItems: "center", gap: 10 },
+  scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+  cardWrap: { width: "100%", maxWidth: 340 },
+  card: { padding: 24, alignItems: "center", gap: 10 },
   coin: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", marginBottom: 6 },
-  kicker: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.8 },
+  kicker: { fontSize: 11, fontFamily: "Inter_900Black", letterSpacing: 1.8 },
   amount: { fontSize: 46, fontFamily: "Inter_900Black", letterSpacing: -1.5, fontVariant: ["tabular-nums"], marginBottom: 8 },
 });
