@@ -4,21 +4,21 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import React, { useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import AvatarBackdrop from "@/components/avatar/AvatarBackdrop";
 import { Pressable } from "@/components/fx/Tap";
 import LevelBar, { LevelBadge, levelTier } from "@/components/LevelBar";
 import { replayLevelUp } from "@/components/LevelUpHost";
-import { Card, ScreenHeader, SectionHeader, useBottomPad } from "@/components/ui";
+import { ScreenHeader, SectionHeader, useBottomPad } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { levelUpCredits, totalXpForLevel } from "@/constants/progression";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { useLevelRewards, type LevelUnlock } from "@/hooks/useLevelRewards";
 import { haptic } from "@/lib/motion";
 import * as api from "@/lib/api";
 import LevelChallengesCard from "@/components/LevelChallengesCard";
-
-type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
 /**
  * Levels: where you are, how XP is earned, and the road ahead — what every
@@ -29,6 +29,7 @@ export default function LevelsScreen() {
   useExitBreakpoint("levels_exit");
   const c = useColors();
   const bottom = useBottomPad(false);
+  const ready = useDeferredMount();
   const { progress } = useApp();
   const { rows, nextAfter } = useLevelRewards();
   const tier = levelTier(progress.level);
@@ -51,82 +52,91 @@ export default function LevelsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader back title="Levels" subtitle={`${progress.xp.toLocaleString()} XP lifetime`} />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, { borderColor: c.alpha(tier.glow, 0.4) }]}>
-          <AvatarBackdrop id="galaxy" />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.25)" }]} />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Level ${progress.level}. Replay the level-up`}
-            onPress={() => {
-              haptic.light();
-              replayLevelUp(progress.level);
-            }}
-            disabled={progress.level < 2}
-          >
-            <LevelBadge level={progress.level} size={92} glow />
-          </Pressable>
-          <Text style={styles.heroTitle}>Level {progress.level}</Text>
-          <Text style={[styles.heroRank, { color: tier.glow }]}>{tier.name.toUpperCase()}</Text>
-          <Text style={styles.heroSub}>
-            {progress.maxed ? "Max level. Legend." : `${toNext.toLocaleString()} XP to level ${progress.level + 1}`}
-          </Text>
-          {!progress.maxed ? (
-            <Text style={[styles.heroBonus, { color: "#FFD56A" }]}>
-              <MaterialCommunityIcons name="cash-multiple" size={13} color="#FFD56A" /> Level {progress.level + 1} pays +{levelUpCredits(progress.level + 1).toLocaleString()} credits
-            </Text>
-          ) : null}
-          <LevelBar progress={progress} nextReward={next} style={{ alignSelf: "stretch", marginTop: 6 }} />
+      {!ready ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={c.mutedForeground} />
         </View>
-
-        <SectionHeader title="Earn XP: This Level's Challenges" />
-        <LevelChallengesCard />
-
-        <SectionHeader title="Level Road" />
-        {rows.map((r) => {
-          const reached = progress.level >= r.level;
-          const isNext = r.level === progress.level + 1;
-          return (
-            <View
-              key={r.level}
-              style={[
-                styles.road,
-                { backgroundColor: c.card, borderColor: isNext ? c.alpha(c.primary, 0.6) : c.border },
-                isNext && { borderWidth: 1.5 },
-                !reached && !isNext && { opacity: 0.72 },
-              ]}
+      ) : (
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]} showsVerticalScrollIndicator={false}>
+          <LiquidGlass variant="hero" radius={26} borderColor={c.alpha(tier.glow, 0.52)} contentStyle={styles.hero}>
+            <AvatarBackdrop id="galaxy" />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.28)" }]} />
+            <GlassDomeSheen id="levels_hero" glowColor={tier.glow} intensity={0.34} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Level ${progress.level}. Replay the level-up`}
+              onPress={() => {
+                haptic.light();
+                replayLevelUp(progress.level);
+              }}
+              disabled={progress.level < 2}
             >
-              <View style={{ opacity: reached || isNext ? 1 : 0.55 }}>
-                <LevelBadge level={r.level} size={38} />
-              </View>
-              <View style={{ flex: 1, gap: 6 }}>
-                <View style={styles.roadHead}>
-                  <Text style={[styles.roadCredits, { color: c.foreground }]}>
-                    <MaterialCommunityIcons name="lightning-bolt" size={13} color={c.primary} /> +{r.credits.toLocaleString()}
-                  </Text>
-                  <Text style={[styles.roadXp, { color: c.subtleForeground }]}>{totalXpForLevel(r.level).toLocaleString()} XP</Text>
+              <LevelBadge level={progress.level} size={92} glow />
+            </Pressable>
+            <Text style={styles.heroTitle}>Level {progress.level}</Text>
+            <Text style={[styles.heroRank, { color: tier.glow }]}>{tier.name.toUpperCase()}</Text>
+            <Text style={styles.heroSub}>
+              {progress.maxed ? "Max level. Legend." : `${toNext.toLocaleString()} XP to level ${progress.level + 1}`}
+            </Text>
+            {!progress.maxed ? (
+              <Text style={[styles.heroBonus, { color: "#FFD56A" }]}>
+                <MaterialCommunityIcons name="cash-multiple" size={13} color="#FFD56A" /> Level {progress.level + 1} pays +{levelUpCredits(progress.level + 1).toLocaleString()} credits
+              </Text>
+            ) : null}
+            <LevelBar progress={progress} nextReward={next} style={{ alignSelf: "stretch", marginTop: 6 }} />
+          </LiquidGlass>
+
+          <SectionHeader title="Earn XP: This Level's Challenges" />
+          <LevelChallengesCard />
+
+          <SectionHeader title="Level Road" />
+          {rows.map((r) => {
+            const reached = progress.level >= r.level;
+            const isNext = r.level === progress.level + 1;
+            return (
+              <LiquidGlass
+                key={r.level}
+                variant="card"
+                radius={18}
+                tintColor={isNext ? c.alpha(c.primary, c.isDark ? 0.14 : 0.09) : undefined}
+                borderColor={isNext ? c.alpha(c.primary, 0.65) : undefined}
+                borderWidth={isNext ? 1.5 : 1}
+                style={!reached && !isNext ? { opacity: 0.72 } : undefined}
+                contentStyle={styles.road}
+              >
+                <View style={{ opacity: reached || isNext ? 1 : 0.55 }}>
+                  <LevelBadge level={r.level} size={38} />
                 </View>
-                {r.unlocks.length ? (
-                  <View style={styles.chips}>
-                    {r.unlocks.map((u) => (
-                      <UnlockChip key={`${u.kind}:${u.id}`} u={u} />
-                    ))}
+                <View style={{ flex: 1, gap: 6 }}>
+                  <View style={styles.roadHead}>
+                    <Text style={[styles.roadCredits, { color: c.foreground }]}>
+                      <MaterialCommunityIcons name="lightning-bolt" size={13} color={c.primary} /> +{r.credits.toLocaleString()}
+                    </Text>
+                    <Text style={[styles.roadXp, { color: c.subtleForeground }]}>{totalXpForLevel(r.level).toLocaleString()} XP</Text>
                   </View>
-                ) : null}
-              </View>
-              {reached ? (
-                <MaterialCommunityIcons name="check-circle" size={20} color={c.primary} />
-              ) : isNext ? (
-                <Text style={[styles.nextTag, { color: c.primaryForeground, backgroundColor: c.primary }]}>NEXT</Text>
-              ) : (
-                <MaterialCommunityIcons name="lock-outline" size={18} color={c.subtleForeground} />
-              )}
-            </View>
-          );
-        })}
-        <BannerSlot />
-      </ScrollView>
+                  {r.unlocks.length ? (
+                    <View style={styles.chips}>
+                      {r.unlocks.map((u) => (
+                        <UnlockChip key={`${u.kind}:${u.id}`} u={u} />
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+                {reached ? (
+                  <MaterialCommunityIcons name="check-circle" size={20} color={c.primary} />
+                ) : isNext ? (
+                  <Text style={[styles.nextTag, { color: c.primaryForeground, backgroundColor: c.primary }]}>NEXT</Text>
+                ) : (
+                  <MaterialCommunityIcons name="lock-outline" size={18} color={c.subtleForeground} />
+                )}
+              </LiquidGlass>
+            );
+          })}
+          <BannerSlot />
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -135,7 +145,7 @@ function UnlockChip({ u }: { u: LevelUnlock }) {
   const c = useColors();
   const col = c.rarity(u.rarity);
   return (
-    <View style={[styles.chip, { borderColor: c.alpha(col, 0.55), backgroundColor: c.alpha(col, 0.1) }]}>
+    <View style={[styles.chip, { borderColor: c.alpha(col, 0.55), backgroundColor: c.alpha(col, 0.14) }]}>
       <MaterialCommunityIcons name={u.kind === "background" ? "image-filter-hdr" : u.mode === "reward" ? "gift" : "lock-open-variant-outline"} size={12} color={col} />
       <Text style={[styles.chipText, { color: c.foreground }]} numberOfLines={1}>
         {u.name}
@@ -148,17 +158,12 @@ function UnlockChip({ u }: { u: LevelUnlock }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, gap: 12 },
-  hero: { borderRadius: 24, borderWidth: 1, overflow: "hidden", alignItems: "center", padding: 18, paddingTop: 22, gap: 2 },
+  hero: { overflow: "hidden", alignItems: "center", padding: 18, paddingTop: 22, gap: 2 },
   heroTitle: { color: "#FFFFFF", fontSize: 30, fontFamily: "Inter_900Black", letterSpacing: -1, marginTop: 8 },
   heroRank: { fontSize: 12, fontFamily: "Inter_900Black", letterSpacing: 3 },
   heroSub: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontFamily: "Inter_600SemiBold", marginTop: 4 },
   heroBonus: { fontSize: 12, fontFamily: "Inter_800ExtraBold", marginTop: 4 },
-  earnRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
-  earnIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  earnLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  earnXp: { fontSize: 13, fontFamily: "Inter_800ExtraBold" },
-  note: { fontSize: 12, fontFamily: "Inter_500Medium", lineHeight: 17, marginTop: -4 },
-  road: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1 },
+  road: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12 },
   roadHead: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
   roadCredits: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
   roadXp: { fontSize: 11, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
