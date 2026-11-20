@@ -1,17 +1,18 @@
 import { haptic as buzz } from "@/lib/motion";
 import { useUnseenCount } from "@/lib/settings";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useDeferredValue, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import ChallengeCard from "@/components/ChallengeCard";
 import GameQuickView from "@/components/GameQuickView";
 import { Amount, ConfirmDialog, EmptyState, ErrorBanner, IconButton, LoadingState, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
+import { ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useApp } from "@/context/AppContext";
 import { useChallenges, viewOf, type ChallengeView } from "@/context/ChallengeContext";
 import { useToast } from "@/context/ToastContext";
 import { useColors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { useGames } from "@/hooks/useGames";
-import { useNow } from "@/hooks/useNow";
 
 type Tab = "inbox" | "live" | "history";
 
@@ -23,6 +24,7 @@ export default function ChallengesScreen() {
   const c = useColors();
   const bottom = useBottomPad(false);
   const now = useNow(30_000);
+  const mounted = useDeferredMount();
   const params = useLocalSearchParams<{ tab?: string }>();
   const { balance } = useApp();
   const { uid, loaded, incoming, outgoing, live, history, escrowed, respond, cancel } = useChallenges();
@@ -31,6 +33,7 @@ export default function ChallengesScreen() {
   const gameById = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
 
   const [tab, setTab] = useState<Tab>(params.tab === "live" || params.tab === "history" ? params.tab : incoming.length || outgoing.length || !live.length ? "inbox" : "live");
+  const deferredTab = useDeferredValue(tab);
   const [busy, setBusy] = useState<{ id: string; action: "accept" | "decline" | "cancel" } | null>(null);
   const [confirm, setConfirm] = useState<ChallengeView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +123,7 @@ export default function ChallengesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader
         back
         title="Challenges"
@@ -151,9 +155,9 @@ export default function ChallengesScreen() {
       <ScrollView contentContainerStyle={[styles.list, { paddingBottom: bottom }]} showsVerticalScrollIndicator={false}>
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
-        {!loaded && inV.length + outV.length + liveV.length + histV.length === 0 ? (
+        {!mounted || (!loaded && inV.length + outV.length + liveV.length + histV.length === 0) ? (
           <LoadingState label="Loading challenges…" />
-        ) : tab === "inbox" ? (
+        ) : deferredTab === "inbox" ? (
           inV.length + outV.length === 0 ? (
             <EmptyState
               icon="sword-cross"
@@ -166,13 +170,13 @@ export default function ChallengesScreen() {
             />
           ) : (
             <>
-              {inV.length > 0 && <Text style={[styles.section, { color: c.foreground }]}>Waiting on You</Text>}
+              {inV.length > 0 && <Text style={[styles.section, { color: c.subtleForeground }]}>WAITING ON YOU</Text>}
               {inV.map(card)}
-              {outV.length > 0 && <Text style={[styles.section, { color: c.foreground }]}>Waiting on Them</Text>}
+              {outV.length > 0 && <Text style={[styles.section, { color: c.subtleForeground }]}>WAITING ON THEM</Text>}
               {outV.map(card)}
             </>
           )
-        ) : tab === "live" ? (
+        ) : deferredTab === "live" ? (
           liveV.length === 0 ? (
             <EmptyState icon="lock-outline" title="Nothing Locked in" body="Accepted challenges sit here until the final whistle. The pot pays out on its own." action="Browse Games" onAction={browse} />
           ) : (
@@ -205,9 +209,11 @@ export default function ChallengesScreen() {
   );
 }
 
+import { useNow } from "@/hooks/useNow";
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   stats: { flexDirection: "row", gap: 8 },
   list: { padding: 16 },
-  section: { fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: 10, marginTop: 4 },
+  section: { fontSize: 11.5, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.0, marginBottom: 10, marginTop: 6 },
 });
