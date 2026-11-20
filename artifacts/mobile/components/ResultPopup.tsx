@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import { EXPERIMENTS, useExperiment } from "@/lib/experiments";
 import { liveActivitySupported } from "@/modules/live-activity";
 import { celebrate } from "@/lib/celebrate";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Modal, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Modal, Platform, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
@@ -12,6 +13,7 @@ import Burst from "@/components/fx/Burst";
 import ResultRecap from "@/components/ResultRecap";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import { ActionChip, Amount, Button, Pill } from "@/components/ui";
+import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
 import { useLeague } from "@/context/LeagueContext";
@@ -187,7 +189,11 @@ function ResultPopup({
   const fx = celebrate("bet_win", { big });
   return (
     <Modal visible transparent animationType="none" onRequestClose={onDismiss} statusBarTranslucent>
-      <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.scrim, { backgroundColor: c.overlay }]}>
+      <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={styles.scrim}>
+        {Platform.OS !== "web" ? (
+          <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(4, 6, 12, 0.64)" }]} />
         <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} accessibilityLabel="Dismiss" />
         {/* Confetti for a win — gold for a big one. */}
         {won && fx.burst ? (
@@ -198,7 +204,12 @@ function ResultPopup({
         <Animated.View
           entering={ZoomIn.springify().damping(14).stiffness(160)}
           accessibilityViewIsModal
-          style={[styles.card, { backgroundColor: c.elevated, borderColor: c.alpha(accent, big ? 0.9 : 0.45), shadowColor: accent }]}
+          style={{ width: "100%", maxWidth: 380 }}
+        >
+        <GlassModalSurface
+          id={`result_${n.id}`}
+          glowColor={accent}
+          style={[styles.card, { borderColor: c.alpha(accent, big ? 0.85 : 0.48) }]}
         >
           {bet && <View style={[styles.stripe, { backgroundColor: bet.teamColor }]} />}
 
@@ -353,6 +364,7 @@ function ResultPopup({
               <ActionChip label="Skip All" chevron={false} onPress={onDismissAll} />
             </View>
           )}
+        </GlassModalSurface>
         </Animated.View>
         </View>
         </Animated.View>
@@ -445,15 +457,7 @@ const styles = StyleSheet.create({
   shell: { width: "100%", maxWidth: 380, alignItems: "center" },
   card: {
     width: "100%",
-    maxWidth: 380,
-    borderRadius: 26,
-    borderWidth: 1.5,
-    overflow: "hidden",
     paddingBottom: 16,
-    shadowOpacity: 0.35,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 20,
   },
   stripe: { height: 5, width: "100%" },
   stage: { height: 230, marginHorizontal: 16, marginTop: 14, borderRadius: 18, overflow: "hidden" },
