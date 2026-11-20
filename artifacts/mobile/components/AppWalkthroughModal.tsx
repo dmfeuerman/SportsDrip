@@ -1,10 +1,12 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import { haptic as buzz } from "@/lib/motion";
 import React, { useEffect, useState } from "react";
 import { OVERLAY, useOverlayTurn } from "@/lib/overlayTurns";
-import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { Button, CloseButton, Pill } from "@/components/ui";
+import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { useColors } from "@/hooks/useColors";
 import { closeWalkthrough, useWalkthroughState } from "@/lib/settings";
 import { APP_NAME } from "@/constants/brand";
@@ -259,9 +261,13 @@ export default function AppWalkthroughModal({ autoTrigger = false }: { autoTrigg
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={handleClose} statusBarTranslucent>
-      <View style={[styles.scrim, { backgroundColor: c.overlay }]}>
+      <View style={styles.scrim}>
+        {Platform.OS !== "web" ? (
+          <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(4, 6, 12, 0.64)" }]} />
         <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityLabel="Close walkthrough" />
-        <View accessibilityViewIsModal style={[styles.card, { backgroundColor: c.elevated, borderColor: c.border }]}>
+        <GlassModalSurface id={`walk_${slide.key}`} glowColor={accentColor} style={styles.card}>
           {/* Top Bar */}
           <View style={styles.topRow}>
             <Pill label={slide.badge} tone={slide.tone} icon={slide.icon} />
@@ -282,7 +288,7 @@ export default function AppWalkthroughModal({ autoTrigger = false }: { autoTrigg
             {/* Feature Bullets */}
             <View style={styles.bullets}>
               {slide.bullets.map((b) => (
-                <View key={b.title} style={[styles.bulletCard, { backgroundColor: c.card, borderColor: c.border }]}>
+                <View key={b.title} style={[styles.bulletCard, { backgroundColor: c.alpha(c.secondary, c.isDark ? 0.55 : 0.7), borderColor: c.isDark ? c.alpha("#FFFFFF", 0.12) : c.border }]}>
                   <View style={[styles.bulletIcon, { backgroundColor: c.alpha(accentColor, 0.14) }]}>
                     <MaterialCommunityIcons name={b.icon} size={18} color={accentColor} />
                   </View>
@@ -328,7 +334,7 @@ export default function AppWalkthroughModal({ autoTrigger = false }: { autoTrigg
               style={{ flex: 1.5 }}
             />
           </View>
-        </View>
+        </GlassModalSurface>
       </View>
     </Modal>
   );
@@ -340,8 +346,6 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 420,
     maxHeight: "88%",
-    borderRadius: 24,
-    borderWidth: 1,
     padding: 20,
     gap: 14,
   },
