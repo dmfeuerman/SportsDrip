@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useIsFocused, useLocalSearchParams, useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -33,6 +33,7 @@ import CartButton from "@/components/CartButton";
 import CartExitDialog from "@/components/CartExitDialog";
 import ThemePicker from "@/components/ThemePicker";
 import { Button, ChoiceDialog, ErrorBanner } from "@/components/ui";
+import { LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import {
   EYE_COLORS,
   EYE_SHAPES,
@@ -133,6 +134,7 @@ export default function CustomizeScreen() {
     const want = params.category ?? (params.tab ? TAB_CAT[params.tab] : undefined);
     return CATS.some((x) => x.id === want) ? (want as CatId) : "hat";
   });
+  const activeCat = useDeferredValue(cat);
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [cheer, setCheer] = useState(0);
@@ -464,16 +466,22 @@ export default function CustomizeScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       {/* header */}
-      <View style={[styles.header, { paddingTop: (Platform.OS === "web" ? 12 : insets.top) + 6, borderBottomColor: c.border }]}>
+      <LiquidGlass
+        variant="bar"
+        borderColor={c.isDark ? c.alpha("#FFFFFF", 0.14) : c.alpha(c.foreground, 0.1)}
+        contentStyle={[styles.header, { paddingTop: (Platform.OS === "web" ? 12 : insets.top) + 6 }]}
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Cancel"
           onPress={close}
           hitSlop={10}
-          style={[styles.round, { backgroundColor: c.secondary, borderColor: c.border }]}
         >
-          <MaterialCommunityIcons name="close" size={18} color={c.foreground} />
+          <LiquidGlass variant="pill" interactive contentStyle={styles.round}>
+            <MaterialCommunityIcons name="close" size={18} color={c.foreground} />
+          </LiquidGlass>
         </Pressable>
         <Text accessibilityRole="header" style={[styles.title, { color: c.foreground }]}>
           Drip Shop
@@ -484,9 +492,11 @@ export default function CustomizeScreen() {
           disabled={!dirty}
           onPress={reset}
           hitSlop={10}
-          style={[styles.round, { backgroundColor: c.secondary, borderColor: c.border, opacity: dirty ? 1 : 0.4 }]}
+          style={{ opacity: dirty ? 1 : 0.4 }}
         >
-          <MaterialCommunityIcons name="undo-variant" size={18} color={c.foreground} />
+          <LiquidGlass variant="pill" interactive contentStyle={styles.round}>
+            <MaterialCommunityIcons name="undo-variant" size={18} color={c.foreground} />
+          </LiquidGlass>
         </Pressable>
         <Button
           label={saving ? "Saving" : dirty ? "Save" : "Saved"}
@@ -497,7 +507,7 @@ export default function CustomizeScreen() {
           accessibilityHint={unowned.length ? "Asks whether to buy the new items or save just your character" : undefined}
         />
         <TourTarget id="shop.cart"><CartButton from="customize" /></TourTarget>
-      </View>
+      </LiquidGlass>
 
       {/* stage */}
       <View style={[styles.stage, { height: stageH, backgroundColor: c.card, borderBottomColor: c.border }]}>
@@ -576,7 +586,7 @@ export default function CustomizeScreen() {
       {/* panel */}
       <TourTarget id="shop.list" style={styles.fill}>
       <ScrollView style={styles.fill} contentContainerStyle={[styles.panel, { paddingBottom: insets.bottom + (unowned.length ? 96 : 28) }]} showsVerticalScrollIndicator={false}>
-        {cat === "body" && (
+        {activeCat === "body" && (
           <>
             <Chips label="Body" options={BODY_FRAMES} value={avatar.bodyFrame ?? "masc"} onChange={(bodyFrame) => edit({ bodyFrame })} />
             <Swatches label="Skin Tone" options={SKIN_TONES} value={avatar.skinTone} onChange={(skinTone) => edit({ skinTone })} />
@@ -585,7 +595,7 @@ export default function CustomizeScreen() {
           </>
         )}
 
-        {cat === "face" && (
+        {activeCat === "face" && (
           <>
             <Chips label="Face Shape" options={FACE_SHAPES} value={avatar.faceShape ?? "oval"} onChange={(faceShape) => edit({ faceShape })} />
             <Chips label="Eye Shape" options={EYE_SHAPES} value={avatar.eyeShape ?? "round"} onChange={(eyeShape) => edit({ eyeShape })} />
@@ -604,7 +614,7 @@ export default function CustomizeScreen() {
           </>
         )}
 
-        {cat === "hair" && (
+        {activeCat === "hair" && (
           <>
             <Chips label="Style" options={HAIR_STYLES} value={avatar.hairStyle} onChange={(hairStyle) => edit({ hairStyle })} />
             <Swatches label="Color" options={HAIR_COLORS} value={avatar.hairColor} onChange={(hairColor) => edit({ hairColor })} />
@@ -624,17 +634,17 @@ export default function CustomizeScreen() {
           </>
         )}
 
-        {cat === "theme" && (
+        {activeCat === "theme" && (
           <ThemePicker />
         )}
 
-        {isSlot(cat) && starterMissing.length ? (
+        {isSlot(activeCat) && starterMissing.length ? (
           <TourTarget id="shop.starterKit">
             <StarterKitCard items={starterMissing} inCart={starterMissing.every((i) => cart.has(i.id))} onAdd={addStarterKit} />
           </TourTarget>
         ) : null}
 
-        {cat === "moves" && (
+        {activeCat === "moves" && (
           <>
             <Text style={[styles.note, { color: moveNote ? c.warning : c.mutedForeground }]}>
               {moveNote ?? `Tap a move to watch your character do it · ${ownedMoves.size} owned · ${loadout.length} of ${MAX_LOADOUT} on your dance button`}
@@ -656,7 +666,7 @@ export default function CustomizeScreen() {
           </>
         )}
 
-        {cat === "scenes" && (
+        {activeCat === "scenes" && (
           <>
             <Text style={[styles.note, { color: c.mutedForeground }]}>
               Tap a scene to see it behind your character · {ownedBackgrounds.size} owned · Level {progress.level}
@@ -682,9 +692,9 @@ export default function CustomizeScreen() {
           </>
         )}
 
-        {isSlot(cat) && (
+        {isSlot(activeCat) && (
           <SlotGrid
-            slot={cat}
+            slot={activeCat}
             items={items}
             byId={byId}
             equipped={equipped}
@@ -703,7 +713,14 @@ export default function CustomizeScreen() {
       </TourTarget>
 
       {unowned.length > 0 ? (
-        <View style={[styles.cartBar, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.5), bottom: insets.bottom + 12 }]}>
+        <LiquidGlass
+          variant="hero"
+          radius={22}
+          borderColor={c.alpha(c.primary, 0.55)}
+          borderWidth={1.25}
+          style={[styles.cartBarWrap, { bottom: insets.bottom + 12 }]}
+          contentStyle={styles.cartBar}
+        >
           <View style={{ flex: 1 }}>
             <Text style={[styles.buyName, { color: c.foreground }]} numberOfLines={1}>
               {notInCart.length
@@ -730,7 +747,7 @@ export default function CustomizeScreen() {
               <Text style={styles.removeText}>Remove</Text>
             )}
           </Pressable>
-        </View>
+        </LiquidGlass>
       ) : null}
 
       <CartExitDialog
@@ -902,11 +919,11 @@ function SlotGrid({
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   centre: { alignItems: "center", justifyContent: "center" },
-  header: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  header: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingBottom: 10 },
   sceneGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   sceneCell: { width: "48%" },
-  title: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold" },
-  round: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  title: { flex: 1, fontSize: 19, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.3 },
+  round: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   stage: { borderBottomWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   demoPill: { position: "absolute", top: 10, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1, maxWidth: "80%" },
   demoText: { fontSize: 12, fontFamily: "Inter_700Bold" },
@@ -944,22 +961,17 @@ const styles = StyleSheet.create({
   badge: { position: "absolute", top: 7, right: 7, width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   price: { position: "absolute", top: 7, right: 6, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   priceText: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  cartBar: {
+  cartBarWrap: {
     position: "absolute",
     left: 12,
     right: 12,
+  },
+  cartBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
   },
   addCart: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 14, height: 38, borderRadius: 999 },
   removeText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
