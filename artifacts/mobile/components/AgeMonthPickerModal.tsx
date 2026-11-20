@@ -1,7 +1,9 @@
+import { BlurView } from "expo-blur";
 import React, { useMemo, useState } from "react";
-import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable, TouchableOpacity } from "@/components/fx/Tap";
 import { CloseButton } from "@/components/ui";
+import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { useColors } from "@/hooks/useColors";
 import { haptic as buzz } from "@/lib/motion";
 
@@ -37,10 +39,14 @@ export default function AgeMonthPickerModal({ visible, onClose, onConfirm }: { v
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={[s.scrim, { backgroundColor: colors.overlay }]}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <View style={s.scrim}>
+        {Platform.OS !== "web" ? (
+          <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(4, 6, 12, 0.64)" }]} />
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[s.modal, { backgroundColor: colors.elevated, borderColor: colors.border }]}>
+        <GlassModalSurface id="age_month_picker" glowColor={colors.primary} style={s.modal}>
           <View style={s.header}>
             <View style={{ flex: 1 }}>
               <Text style={[s.title, { color: colors.foreground }]}>Your Age & Birth Month</Text>
@@ -71,7 +77,7 @@ export default function AgeMonthPickerModal({ visible, onClose, onConfirm }: { v
           >
             <Text style={[s.btnText, { color: colors.primaryForeground }]}>Confirm</Text>
           </TouchableOpacity>
-        </View>
+        </GlassModalSurface>
       </View>
     </Modal>
   );
@@ -81,7 +87,16 @@ function Column({ label, colors, flex = 1, children }: { label: string; colors: 
   return (
     <View style={[s.col, { flex }]}>
       <Text style={[s.colLabel, { color: colors.mutedForeground }]}>{label}</Text>
-      <ScrollView style={[s.scroll, { borderColor: colors.border, backgroundColor: colors.secondary }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={[
+          s.scroll,
+          {
+            borderColor: colors.isDark ? colors.alpha("#FFFFFF", 0.14) : colors.border,
+            backgroundColor: colors.alpha(colors.secondary, colors.isDark ? 0.55 : 0.72),
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {children}
       </ScrollView>
     </View>
@@ -98,16 +113,16 @@ function Option({ label, active, onPress, colors }: { label: string; active: boo
 
 const s = StyleSheet.create({
   scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
-  modal: { width: "100%", maxWidth: 400, borderRadius: 22, borderWidth: 1, padding: 20, gap: 14 },
+  modal: { width: "100%", maxWidth: 400, padding: 20, gap: 14 },
   header: { flexDirection: "row", alignItems: "center", gap: 10 },
   title: { fontSize: 18, fontFamily: "Inter_800ExtraBold" },
   subtitle: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   columns: { flexDirection: "row", gap: 8, height: 220 },
   col: { gap: 6 },
   colLabel: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8, textAlign: "center" },
-  scroll: { flex: 1, borderWidth: 1, borderRadius: 12 },
-  option: { paddingVertical: 9, alignItems: "center", borderRadius: 8, marginHorizontal: 4, marginVertical: 2 },
+  scroll: { flex: 1, borderWidth: 1, borderRadius: 14 },
+  option: { paddingVertical: 9, alignItems: "center", borderRadius: 9, marginHorizontal: 4, marginVertical: 2 },
   optionText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  btn: { paddingVertical: 14, borderRadius: 14, alignItems: "center", marginTop: 4 },
+  btn: { paddingVertical: 14, borderRadius: 16, alignItems: "center", marginTop: 4 },
   btnText: { fontSize: 16, fontFamily: "Inter_700Bold" },
 });
