@@ -3,19 +3,20 @@ import Constants from "expo-constants";
 import { router } from "expo-router";
 import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
-import { Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import FavoriteTeamsSheet from "@/components/FavoriteTeamsSheet";
 import PlayLimitsCard from "@/components/PlayLimitsCard";
 import { Button, Card, ConfirmDialog, ScreenHeader, SectionHeader, SegmentedControl, useBottomPad } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useAds } from "@/context/AdsContext";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { setOddsFormat, toggleToastKindMuted, useMutedToastKinds, useOddsFormat } from "@/lib/settings";
 import { openTourMenu } from "@/lib/tour/store";
 import * as api from "@/lib/api";
-import { recordXpReason } from "@/components/XpGainPopup";
 import { unblockPlayer, useBlockedUids } from "@/lib/blocks";
 import { getDb } from "@/lib/firebase";
 import { NO_CASH_VALUE, SUPPORT_EMAIL } from "@/constants/legal";
@@ -26,6 +27,7 @@ type Icon = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 export default function SettingsScreen() {
   const c = useColors();
   const bottom = useBottomPad(false);
+  const ready = useDeferredMount();
   const oddsFormat = useOddsFormat();
   const { profile } = useApp();
   const { signOut } = useAuth();
@@ -53,72 +55,95 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader back title="Settings" />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]} showsVerticalScrollIndicator>
-        <SectionHeader title="Account" />
-        <Card style={styles.card}>
-          <Row icon="account-circle-outline" title={profile?.displayName ?? "Player"} sub={profile?.username ? `@${profile.username}` : undefined} />
-          <Divider />
-          <Row icon="cash-off" title="Credits" sub={NO_CASH_VALUE} />
-        </Card>
+      {!ready ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={c.mutedForeground} />
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]} showsVerticalScrollIndicator={false}>
+          {/* 2026 Bento Account Hero */}
+          <LiquidGlass variant="hero" radius={24} contentStyle={styles.heroCard}>
+            <GlassDomeSheen id="settings_account" glowColor={c.primary} intensity={0.28} />
+            <View style={styles.heroTop}>
+              <View style={[styles.avatarBadge, { backgroundColor: c.alpha(c.primary, 0.16), borderColor: c.alpha(c.primary, 0.4) }]}>
+                <MaterialCommunityIcons name="account-circle-outline" size={28} color={c.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.kicker, { color: c.primary }]}>ACCOUNT</Text>
+                <Text style={[styles.heroName, { color: c.foreground }]} numberOfLines={1}>
+                  {profile?.displayName ?? "Player"}
+                </Text>
+                {profile?.username ? (
+                  <Text style={[styles.heroHandle, { color: c.mutedForeground }]}>@{profile.username}</Text>
+                ) : null}
+              </View>
+            </View>
+            <View style={[styles.creditsBanner, { backgroundColor: c.alpha(c.secondary, 0.55), borderColor: c.border }]}>
+              <MaterialCommunityIcons name="cash-off" size={16} color={c.mutedForeground} />
+              <Text style={[styles.creditsNote, { color: c.mutedForeground }]}>{NO_CASH_VALUE}</Text>
+            </View>
+          </LiquidGlass>
 
-        <SectionHeader title="Blocked Players" />
-        <BlockedPlayersCard />
+          <SectionHeader title="Display" />
+          <Card style={[styles.card, { gap: 10, padding: 14 }]}>
+            <Text style={[styles.rowTitle, { color: c.foreground }]}>Odds Format</Text>
+            <SegmentedControl
+              value={oddsFormat}
+              onChange={(v) => {
+                void setOddsFormat(v);
+                api.reportChallengeAction("oddsFormat");
+              }}
+              options={[
+                { value: "decimal", label: "Decimal (2.31x)" },
+                { value: "american", label: "American (+131)" },
+              ]}
+            />
+          </Card>
 
-        <SectionHeader title="Display" />
-        <Card style={[styles.card, { gap: 8, padding: 14 }]}>
-          <Text style={[styles.rowTitle, { color: c.foreground }]}>Odds Format</Text>
-          <SegmentedControl
-            value={oddsFormat}
-            onChange={(v) => {
-              void setOddsFormat(v);
-              api.reportChallengeAction("oddsFormat");
-            }}
-            options={[
-              { value: "decimal", label: "Decimal (2.31x)" },
-              { value: "american", label: "American (+131)" },
-            ]}
-          />
-        </Card>
+          <SectionHeader title="Notifications" />
+          <Card style={styles.card}>
+            <Row icon="heart-outline" title="Favorite Teams & Game Reminders" onPress={() => setEditTeams(true)} />
+            <Divider />
+            <Row
+              icon="bell-cog-outline"
+              title="System Notification Settings"
+              sub="Turn push alerts on or off"
+              onPress={() => void (Platform.OS === "web" ? Promise.resolve() : Linking.openSettings())}
+            />
+            <Divider />
+            <BannerMutesRow />
+          </Card>
 
-        <SectionHeader title="Alerts & Limits" />
-        <PlayLimitsCard />
+          <SectionHeader title="Alerts & Limits" />
+          <PlayLimitsCard />
 
-        <SectionHeader title="Notifications" />
-        <Card style={styles.card}>
-          <Row icon="heart-outline" title="Favorite Teams & Game Reminders" onPress={() => setEditTeams(true)} />
-          <Divider />
-          <Row
-            icon="bell-cog-outline"
-            title="System Notification Settings"
-            sub="Turn push alerts on or off"
-            onPress={() => void (Platform.OS === "web" ? Promise.resolve() : Linking.openSettings())}
-          />
-          <Divider />
-          <BannerMutesRow />
-        </Card>
+          <SectionHeader title="Blocked Players" />
+          <BlockedPlayersCard />
 
-        <SectionHeader title="Help & Privacy" />
-        <Card style={styles.card}>
-          <Row icon="compass-outline" title="Tutorials" sub="Interactive walkthroughs of every screen" onPress={openTourMenu} />
-          <Divider />
-          <Row icon="file-document-outline" title="Terms of Service" sub="Includes the Community Guidelines" onPress={() => router.push({ pathname: "/legal", params: { doc: "terms" } })} />
-          <Divider />
-          <Row icon="shield-lock-outline" title="Privacy Policy" onPress={() => router.push({ pathname: "/legal", params: { doc: "privacy" } })} />
-          <Divider />
-          <Row icon="email-outline" title="Contact Support" sub={SUPPORT_EMAIL} onPress={() => void Linking.openURL(`mailto:${SUPPORT_EMAIL}`)} />
-          {privacyOptionsRequired ? (
-            <>
-              <Divider />
-              <Row icon="shield-account-outline" title="Privacy & Ad Choices" onPress={openPrivacyOptions} />
-            </>
-          ) : null}
-        </Card>
+          <SectionHeader title="Help & Privacy" />
+          <Card style={styles.card}>
+            <Row icon="compass-outline" title="Tutorials" sub="Interactive walkthroughs of every screen" onPress={openTourMenu} />
+            <Divider />
+            <Row icon="file-document-outline" title="Terms of Service" sub="Includes the Community Guidelines" onPress={() => router.push({ pathname: "/legal", params: { doc: "terms" } })} />
+            <Divider />
+            <Row icon="shield-lock-outline" title="Privacy Policy" onPress={() => router.push({ pathname: "/legal", params: { doc: "privacy" } })} />
+            <Divider />
+            <Row icon="email-outline" title="Contact Support" sub={SUPPORT_EMAIL} onPress={() => void Linking.openURL(`mailto:${SUPPORT_EMAIL}`)} />
+            {privacyOptionsRequired ? (
+              <>
+                <Divider />
+                <Row icon="shield-account-outline" title="Privacy & Ad Choices" onPress={openPrivacyOptions} />
+              </>
+            ) : null}
+          </Card>
 
-        <Button label="Sign Out" icon="logout" variant="destructive" onPress={() => setConfirmOut(true)} style={{ marginTop: 8 }} />
-        <Button label="Delete Account" icon="account-remove-outline" variant="ghost" onPress={() => setConfirmDelete(true)} />
-        {version ? <Text style={[styles.version, { color: c.subtleForeground }]}>On The House v{version}</Text> : null}
-      </ScrollView>
+          <Button label="Sign Out" icon="logout" variant="destructive" onPress={() => setConfirmOut(true)} style={{ marginTop: 8 }} />
+          <Button label="Delete Account" icon="account-remove-outline" variant="ghost" onPress={() => setConfirmDelete(true)} />
+          {version ? <Text style={[styles.version, { color: c.subtleForeground }]}>On The House v{version}</Text> : null}
+        </ScrollView>
+      )}
 
       <FavoriteTeamsSheet
         visible={editTeams}
@@ -171,7 +196,7 @@ function Row({ icon, title, sub, onPress }: { icon: Icon; title: string; sub?: s
   );
   if (!onPress) return <View style={styles.row}>{body}</View>;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.secondary }]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.alpha(c.secondary, 0.5) }]}>
       {body}
     </Pressable>
   );
@@ -258,10 +283,18 @@ function BannerMutesRow() {
                 accessibilityState={{ selected: !off }}
                 accessibilityLabel={`${label} banners ${off ? "muted" : "on"}`}
                 onPress={() => toggleToastKindMuted(kind)}
-                style={[styles.chip, { backgroundColor: off ? c.secondary : c.alpha(c.primary, 0.14), borderColor: off ? c.border : c.alpha(c.primary, 0.5), opacity: off ? 0.6 : 1 }]}
+                style={({ pressed }) => [{ opacity: off ? 0.58 : pressed ? 0.8 : 1 }]}
               >
-                <MaterialCommunityIcons name={off ? "bell-off-outline" : icon} size={14} color={off ? c.mutedForeground : c.primary} />
-                <Text style={[styles.chipText, { color: off ? c.mutedForeground : c.foreground }]}>{label}</Text>
+                <LiquidGlass
+                  variant="pill"
+                  interactive
+                  tintColor={off ? undefined : c.alpha(c.primary, 0.16)}
+                  borderColor={off ? undefined : c.alpha(c.primary, 0.55)}
+                  contentStyle={styles.chip}
+                >
+                  <MaterialCommunityIcons name={off ? "bell-off-outline" : icon} size={14} color={off ? c.mutedForeground : c.primary} />
+                  <Text style={[styles.chipText, { color: off ? c.mutedForeground : c.foreground }]}>{label}</Text>
+                </LiquidGlass>
               </Pressable>
             );
           })}
@@ -273,8 +306,16 @@ function BannerMutesRow() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  heroCard: { padding: 16, gap: 12 },
+  heroTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatarBadge: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  kicker: { fontSize: 10, fontFamily: "Inter_900Black", letterSpacing: 1.4 },
+  heroName: { fontSize: 20, fontFamily: "Inter_900Black", letterSpacing: -0.3 },
+  heroHandle: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  creditsBanner: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
+  creditsNote: { flex: 1, fontSize: 11, fontFamily: "Inter_500Medium", lineHeight: 15 },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11 },
+  chip: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 6, paddingHorizontal: 11 },
   chipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   content: { padding: 16, gap: 12 },
   card: { padding: 0, overflow: "hidden" },
