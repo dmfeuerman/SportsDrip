@@ -6,7 +6,7 @@ import { ONLINE_MS, setWatchingGame, usePresence } from "@/lib/presence";
 import { useFriends } from "@/hooks/useFriends";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
@@ -25,10 +25,12 @@ import {
   WinProbability,
 } from "@/components/insights";
 import { EmptyState, IconButton, Pill, ScreenHeader, TabStrip, useBottomPad, type Tone } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useApp } from "@/context/AppContext";
 import { useChallenges, viewOf, type ChallengeView } from "@/context/ChallengeContext";
 import { useGameLeagueSweat, useLeague } from "@/context/LeagueContext";
 import { useColors, type Colors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { useGame } from "@/hooks/useGame";
 import { hintProviderPath } from "@/lib/insights/onDevice";
 import { useGameInsights } from "@/hooks/useGameInsights";
@@ -60,7 +62,9 @@ export default function GameCenterScreen() {
   const live = game?.status === "live";
   const now = useNow(live ? 5_000 : 60_000);
 
+  const mounted = useDeferredMount();
   const [tab, setTab] = useState<Tab>(params.tab === "matchup" ? "matchup" : "live");
+  const deferredTab = useDeferredValue(tab);
   // Who else is on this game right now (friends with the game open).
   const { profile } = useApp();
   const { friends } = useFriends(profile?.uid ?? null);
@@ -103,7 +107,7 @@ export default function GameCenterScreen() {
   }, [scoreKey, live, positions.length]);
 
   const started = !!game && game.status !== "upcoming";
-  const shown: Tab = started ? tab : "matchup";
+  const shown: Tab = started ? deferredTab : "matchup";
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -121,6 +125,7 @@ export default function GameCenterScreen() {
     const settled = positions.find((p) => p.bet.finalHomeScore !== undefined && p.bet.finalAwayScore !== undefined);
     return (
       <View style={[styles.container, { backgroundColor: c.background }]}>
+        <ObsidianBackdrop />
         <ScreenHeader back title={title} />
         <View style={styles.body}>
           {loading ? (
@@ -147,6 +152,7 @@ export default function GameCenterScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader
         back
         title={title}
@@ -179,7 +185,9 @@ export default function GameCenterScreen() {
         {duels.length > 0 && <Duels game={game} duels={duels} c={c} fmt={fmt} />}
         {leagueSweats.length > 0 && <LeagueSweat game={game} sweats={leagueSweats} uid={uid} c={c} fmt={fmt} />}
 
-        {shown === "live" ? (
+        {!mounted ? (
+          <InsightsSkeleton rows={2} />
+        ) : shown === "live" ? (
           <Animated.View key="live" entering={FadeIn.duration(200)} style={styles.stack}>
             <SituationCard game={game} />
             <WinProbability game={game} insights={insights.data} />
@@ -222,11 +230,18 @@ function Scoreboard({ game, now, c, fmt }: { game: Game; now: number; c: Colors;
   const leader = game.homeScore !== null && game.awayScore !== null && game.homeScore !== game.awayScore ? (game.homeScore > game.awayScore ? "home" : "away") : null;
 
   return (
-    <View style={[styles.hero, { backgroundColor: c.card, borderColor: live ? c.alpha(c.live, 0.45) : c.border }]}>
+    <LiquidGlass
+      variant="hero"
+      radius={24}
+      borderColor={live ? c.alpha(c.live, 0.55) : undefined}
+      borderWidth={live ? 1.5 : 1}
+      contentStyle={styles.hero}
+    >
+      <GlassDomeSheen id="game_hero" glowColor={live ? c.live : game.homeTeam.color || c.primary} intensity={live ? 0.36 : 0.24} />
       <HeroTeam side="away" neutral={game.neutralSite} sport={game.sport} team={game.awayTeam} score={game.awayScore} dim={final && leader === "home"} c={c} fmt={fmt} />
       <View style={styles.heroMid}>
         {live ? (
-          <View style={[styles.livePill, { backgroundColor: c.alpha(c.live, 0.14) }]}>
+          <View style={[styles.livePill, { backgroundColor: c.alpha(c.live, 0.16) }]}>
             <LiveDot size={7} />
             <Text style={[styles.livePillText, { color: c.live }]}>LIVE</Text>
           </View>
@@ -237,7 +252,7 @@ function Scoreboard({ game, now, c, fmt }: { game: Game; now: number; c: Colors;
         {game.status === "upcoming" ? <Text style={[styles.heroSub, { color: c.subtleForeground }]}>{untilKickoff(game.startsAt, now)}</Text> : null}
       </View>
       <HeroTeam side="home" neutral={game.neutralSite} sport={game.sport} team={game.homeTeam} score={game.homeScore} dim={final && leader === "away"} c={c} fmt={fmt} />
-    </View>
+    </LiquidGlass>
   );
 }
 
@@ -486,9 +501,9 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   body: { padding: 16, gap: 18 },
   stack: { gap: 18 },
-  sectionTitle: { fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: -8 },
+  sectionTitle: { fontSize: 12, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.0, marginBottom: -8 },
 
-  hero: { flexDirection: "row", alignItems: "flex-start", borderWidth: 1, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 10 },
+  hero: { flexDirection: "row", alignItems: "flex-start", paddingVertical: 20, paddingHorizontal: 10 },
   heroTeam: { flex: 1, alignItems: "center", gap: 4 },
   heroMeta: { flexDirection: "row", alignItems: "center", gap: 5, flexWrap: "wrap", justifyContent: "center" },
   heroLogo: { width: 56, height: 56, borderRadius: 14 },
