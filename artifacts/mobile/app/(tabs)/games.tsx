@@ -81,6 +81,7 @@ export default function GamesScreen() {
   const [sport, setSport] = useState<string>(ALL);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [headerH, setHeaderH] = useState(124);
   const [pending, setPending] = useState<{
     game: Game;
     side: Side;
@@ -440,9 +441,16 @@ export default function GamesScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ObsidianBackdrop />
+      <View
+        style={styles.floatingHeader}
+        onLayout={(e) => {
+          const h = Math.round(e.nativeEvent.layout.height);
+          if (h > 0 && Math.abs(h - headerH) > 1) setHeaderH(h);
+        }}
+      >
       <LiquidGlass
         variant="bar"
-        borderColor={colors.isDark ? colors.alpha("#FFFFFF", 0.1) : colors.alpha(colors.foreground, 0.1)}
+        borderColor={colors.isDark ? colors.alpha("#FFFFFF", 0.14) : colors.alpha(colors.foreground, 0.1)}
         contentStyle={[styles.header, { paddingTop: topPad + 12 }]}
       >
         <View style={styles.headerRow}>
@@ -454,15 +462,16 @@ export default function GamesScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={`${openBets} open bets. Open My bets`}
                 onPress={() => router.push("/bets")}
-                style={[
-                  styles.pendingBadge,
-                  {
-                    backgroundColor: colors.alpha(colors.accent, colors.isDark ? 0.22 : 0.15),
-                    borderColor: colors.alpha(colors.accent, colors.isDark ? 0.55 : 0.45),
-                  },
-                ]}
               >
-                <Text style={[styles.pendingText, { color: colors.accent }]}>{openBets} open</Text>
+                <LiquidGlass
+                  variant="pill"
+                  interactive
+                  tintColor={colors.alpha(colors.accent, colors.isDark ? 0.24 : 0.16)}
+                  borderColor={colors.alpha(colors.accent, colors.isDark ? 0.6 : 0.45)}
+                  contentStyle={styles.pendingBadge}
+                >
+                  <Text style={[styles.pendingText, { color: colors.accent }]}>{openBets} open</Text>
+                </LiquidGlass>
               </Pressable>
             )}
             <Pressable
@@ -473,23 +482,16 @@ export default function GamesScreen() {
               accessibilityRole="button"
               accessibilityLabel={searchOpen ? "Close search" : "Search teams"}
               hitSlop={8}
-              style={[
-                styles.searchToggle,
-                {
-                  backgroundColor: searchOpen
-                    ? colors.alpha(colors.primary, 0.18)
-                    : colors.isDark
-                      ? colors.alpha(colors.secondary, 0.58)
-                      : colors.alpha(colors.card, 0.72),
-                  borderColor: searchOpen
-                    ? colors.alpha(colors.primary, 0.6)
-                    : colors.isDark
-                      ? colors.alpha("#FFFFFF", 0.15)
-                      : colors.alpha(colors.foreground, 0.12),
-                },
-              ]}
             >
-              <MaterialCommunityIcons name={searchOpen ? "close" : "magnify"} size={18} color={searchOpen ? colors.primary : colors.foreground} />
+              <LiquidGlass
+                variant="pill"
+                interactive
+                tintColor={searchOpen ? colors.alpha(colors.primary, 0.22) : undefined}
+                borderColor={searchOpen ? colors.alpha(colors.primary, 0.65) : undefined}
+                contentStyle={styles.searchToggle}
+              >
+                <MaterialCommunityIcons name={searchOpen ? "close" : "magnify"} size={18} color={searchOpen ? colors.primary : colors.foreground} />
+              </LiquidGlass>
             </Pressable>
             <TourTarget id="games.balance"><TokenBalance tokens={balance} earn glass /></TourTarget>
           </View>
@@ -508,14 +510,10 @@ export default function GamesScreen() {
         />
         </TourTarget>
         {searchOpen ? (
-        <View
-          style={[
-            styles.searchBox,
-            {
-              backgroundColor: colors.isDark ? colors.alpha(colors.secondary, 0.56) : colors.alpha(colors.card, 0.78),
-              borderColor: colors.isDark ? colors.alpha("#FFFFFF", 0.14) : colors.alpha(colors.foreground, 0.12),
-            },
-          ]}
+        <LiquidGlass
+          variant="tile"
+          style={styles.searchBoxWrap}
+          contentStyle={styles.searchBox}
         >
           <MaterialCommunityIcons name="magnify" size={18} color={colors.mutedForeground} />
           <TextInput
@@ -542,9 +540,10 @@ export default function GamesScreen() {
               <MaterialCommunityIcons name="close-circle" size={16} color={colors.mutedForeground} />
             </Pressable>
           ) : null}
-        </View>
+        </LiquidGlass>
         ) : null}
       </LiquidGlass>
+      </View>
 
       {target && (
         <View style={[styles.banner, { backgroundColor: colors.alpha(colors.accent, 0.12), borderColor: colors.alpha(colors.accent, 0.6) }]}>
@@ -570,7 +569,7 @@ export default function GamesScreen() {
       )}
 
       {loading ? (
-        <SkeletonList colors={colors} />
+        <SkeletonList colors={colors} topOffset={headerH} />
       ) : (
         <tourScroll.Provider>
         <FlatList
@@ -623,7 +622,7 @@ export default function GamesScreen() {
               />
             )
           }
-          contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
+          contentContainerStyle={[styles.listContent, { paddingTop: headerH + 12, paddingBottom: bottomPad }]}
           showsVerticalScrollIndicator={false}
           initialNumToRender={8}
           maxToRenderPerBatch={8}
@@ -741,9 +740,9 @@ function dayTitle(ms: number): string {
   return d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
 
-function SkeletonList({ colors }: { colors: ReturnType<typeof useColors> }) {
+function SkeletonList({ colors, topOffset = 0 }: { colors: ReturnType<typeof useColors>; topOffset?: number }) {
   return (
-    <View style={styles.listContent}>
+    <View style={[styles.listContent, { paddingTop: topOffset + 12 }]}>
       {[0, 1, 2, 3].map((i) => (
         <LiquidGlass key={i} variant="card" style={styles.skeletonWrap} contentStyle={styles.skeleton}>
           <View style={[styles.skelBar, { backgroundColor: colors.alpha(colors.foreground, 0.08), width: "35%" }]} />
@@ -807,9 +806,11 @@ function EmptyState({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8, marginTop: 10, marginHorizontal: 16 },
+  floatingHeader: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },
+  searchBoxWrap: { marginTop: 10, marginHorizontal: 16 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
   searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", padding: 0 },
-  searchToggle: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  searchToggle: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   header: { paddingBottom: 12 },
   headerRow: {
     flexDirection: "row",
@@ -820,7 +821,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 24, fontFamily: "Inter_900Black" },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pendingBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
+  pendingBadge: { paddingHorizontal: 10, paddingVertical: 5 },
   pendingText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   filterList: { paddingHorizontal: 16, gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },

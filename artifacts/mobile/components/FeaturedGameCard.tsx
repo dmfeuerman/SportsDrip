@@ -127,44 +127,30 @@ export default function FeaturedGameCard({
           />
         </View>
         {crowd ? (
-          <View
-            style={[
-              styles.crowd,
-              {
-                backgroundColor: c.alpha(c.league, c.isDark ? 0.2 : 0.13),
-                borderColor: c.alpha(c.league, c.isDark ? 0.38 : 0.26),
-              },
-            ]}
+          <LiquidGlass
+            variant="pill"
+            tintColor={c.alpha(c.league, c.isDark ? 0.26 : 0.16)}
+            borderColor={c.alpha(c.league, c.isDark ? 0.52 : 0.32)}
+            contentStyle={styles.crowd}
           >
             <MaterialCommunityIcons name="account-group" size={14} color={c.league} />
             <Text style={[styles.crowdText, { color: c.foreground }]} numberOfLines={1}>
               {crowd}
             </Text>
-          </View>
+          </LiquidGlass>
         ) : null}
-        <View
-          style={[
-            styles.cta,
-            {
-              backgroundColor: c.isDark ? c.alpha(c.secondary, 0.72) : c.primary,
-              borderColor: c.isDark ? c.alpha(c.primary, 0.45) : c.primary,
-            },
-          ]}
+        <LiquidGlass
+          variant="pill"
+          interactive
+          tintColor={c.isDark ? c.alpha(c.primary, 0.18) : c.primary}
+          borderColor={c.isDark ? c.alpha(c.primary, 0.58) : c.primary}
+          borderWidth={1.25}
+          contentStyle={styles.cta}
         >
-          <LinearGradient
-            pointerEvents="none"
-            colors={[
-              c.alpha("#FFFFFF", c.isDark ? 0.14 : 0.2),
-              c.alpha("#FFFFFF", 0),
-            ]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
           <Text style={[styles.ctaText, { color: c.isDark ? c.foreground : c.primaryForeground }]}>Make Your Pick</Text>
           <MaterialCommunityIcons name="chevron-right" size={18} color={c.isDark ? c.primary : c.primaryForeground} />
           <Shimmer every={3000} />
-        </View>
+        </LiquidGlass>
       </LiquidGlass>
     </PressableScale>
   );
@@ -209,8 +195,8 @@ const styles = StyleSheet.create({
   meta: { flexDirection: "row", alignItems: "center", gap: 5 },
   record: { fontSize: 12, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   at: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: 1, paddingHorizontal: 6 },
-  crowd: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1 },
+  crowd: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7 },
   crowdText: { flex: 1, fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  cta: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 12, borderRadius: 999, borderWidth: 1, overflow: "hidden" },
+  cta: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 12 },
   ctaText: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
 });

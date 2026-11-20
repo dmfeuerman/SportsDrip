@@ -328,16 +328,7 @@ function MarketGroup({ title, c, children }: { title: string; c: Colors; childre
 function MarketChip({ label, odds, selected, onPress, disabled = false, c }: { label: string; odds: string; selected: boolean; onPress: () => void; disabled?: boolean; c: Colors }) {
   return (
     <PressableScale
-      style={[
-        styles.marketChip,
-        selected
-          ? { backgroundColor: c.alpha(c.primary, c.isDark ? 0.2 : 0.14), borderColor: c.primary, borderWidth: 1.5 }
-          : {
-              backgroundColor: c.isDark ? c.alpha(c.secondary, 0.56) : c.alpha(c.foreground, 0.05),
-              borderColor: c.isDark ? c.alpha("#FFFFFF", 0.14) : c.alpha(c.foreground, 0.12),
-            },
-        disabled && { opacity: 0.55 },
-      ]}
+      style={[styles.marketChipWrap, disabled && { opacity: 0.55 }]}
       scaleTo={0.95}
       onPress={onPress}
       disabled={disabled}
@@ -345,8 +336,17 @@ function MarketChip({ label, odds, selected, onPress, disabled = false, c }: { l
       accessibilityState={{ selected }}
       accessibilityLabel={`${label} at ${odds}${selected ? ", selected" : ""}${disabled ? ", betting closed" : ""}`}
     >
-      <Text style={[styles.marketChipLabel, { color: c.foreground }]}>{label}</Text>
-      <Text style={[styles.marketChipOdds, { color: selected ? c.primary : c.mutedForeground }]}>{odds}</Text>
+      <LiquidGlass
+        variant="tile"
+        interactive
+        tintColor={selected ? c.alpha(c.primary, c.isDark ? 0.26 : 0.16) : undefined}
+        borderColor={selected ? c.primary : c.isDark ? c.alpha("#FFFFFF", 0.16) : c.alpha(c.foreground, 0.12)}
+        borderWidth={selected ? 1.5 : 1}
+        contentStyle={styles.marketChip}
+      >
+        <Text style={[styles.marketChipLabel, { color: c.foreground }]}>{label}</Text>
+        <Text style={[styles.marketChipOdds, { color: selected ? c.primary : c.mutedForeground }]}>{odds}</Text>
+      </LiquidGlass>
     </PressableScale>
   );
 }
@@ -512,23 +512,21 @@ function TeamRow({
 function NoLineTile({ locked, onPress, c }: { locked: boolean; onPress: () => void; c: Colors }) {
   return (
     <PressableScale
-      style={[
-        styles.oddsBtn,
-        {
-          backgroundColor: c.isDark ? c.alpha(c.secondary, 0.44) : c.alpha(c.foreground, 0.04),
-          borderColor: c.isDark ? c.alpha("#FFFFFF", 0.14) : c.border,
-          borderStyle: "dashed",
-          opacity: locked ? 0.55 : 1,
-        },
-      ]}
+      style={{ opacity: locked ? 0.55 : 1 }}
       scaleTo={0.96}
       onPress={onPress}
       disabled={locked}
       accessibilityRole="button"
       accessibilityLabel={locked ? "Lines closed" : `${NO_LINE}. Opens the game`}
     >
-      <Text style={[styles.noLine, { color: c.mutedForeground }]}>{locked ? "Lines" : "No Line"}</Text>
-      <Text style={[styles.oddsProb, { color: c.subtleForeground }]}>{locked ? "closed" : "yet"}</Text>
+      <LiquidGlass
+        variant="tile"
+        borderColor={c.isDark ? c.alpha("#FFFFFF", 0.14) : c.border}
+        contentStyle={styles.oddsBtn}
+      >
+        <Text style={[styles.noLine, { color: c.mutedForeground }]}>{locked ? "Lines" : "No Line"}</Text>
+        <Text style={[styles.oddsProb, { color: c.subtleForeground }]}>{locked ? "closed" : "yet"}</Text>
+      </LiquidGlass>
     </PressableScale>
   );
 }
@@ -564,26 +562,7 @@ function OddsButton({
   return (
     <Reanimated.View style={popStyle}>
       <PressableScale
-        style={[
-          styles.oddsBtn,
-          {
-            backgroundColor: backed
-              ? c.primary
-              : selected
-                ? c.alpha(c.primary, c.isDark ? 0.22 : 0.14)
-                : c.isDark
-                  ? c.alpha(c.primary, 0.08)
-                  : c.alpha(c.foreground, 0.05),
-            borderColor:
-              backed || selected
-                ? c.primary
-                : c.isDark
-                  ? c.alpha(c.primary, 0.28)
-                  : c.alpha(c.foreground, 0.13),
-            borderWidth: selected ? 1.5 : 1,
-            opacity: locked && !backed ? 0.55 : 1,
-          },
-        ]}
+        style={{ opacity: locked && !backed ? 0.55 : 1 }}
         scaleTo={0.93}
         onPress={onPress}
         disabled={locked}
@@ -591,16 +570,39 @@ function OddsButton({
         accessibilityState={{ selected }}
         accessibilityLabel={odds > 1 ? `Pick ${team.name} at ${formatOdds(odds, oddsFormat)}, ${formatPercent(probability)} chance` : `Your pick: ${team.name}`}
       >
-        <Reanimated.View pointerEvents="none" style={[styles.oddsFlash, flash.style]} />
-        <View style={styles.oddsLine}>
-          {flash.dir !== 0 ? (
-            <MaterialCommunityIcons name={flash.dir > 0 ? "menu-up" : "menu-down"} size={16} color={flash.dir > 0 ? c.positive : c.negative} style={{ marginHorizontal: -4 }} />
-          ) : null}
-          <Text style={[styles.oddsValue, { color: backed ? c.primaryForeground : odds > 1 ? c.primary : c.foreground }]}>
-            {odds > 1 ? formatOdds(odds, oddsFormat) : "—"}
-          </Text>
-        </View>
-        <Text style={[styles.oddsProb, { color: backed ? c.alpha(c.primaryForeground, 0.75) : c.mutedForeground }]}>{odds > 1 ? formatPercent(probability) : "your pick"}</Text>
+        <LiquidGlass
+          variant="tile"
+          interactive
+          tintColor={
+            backed
+              ? c.primary
+              : selected
+                ? c.alpha(c.primary, c.isDark ? 0.28 : 0.18)
+                : c.isDark
+                  ? c.alpha(c.primary, 0.12)
+                  : c.alpha(c.card, 0.72)
+          }
+          borderColor={
+            backed || selected
+              ? c.primary
+              : c.isDark
+                ? c.alpha(c.primary, 0.36)
+                : c.alpha(c.foreground, 0.14)
+          }
+          borderWidth={selected ? 1.5 : 1}
+          contentStyle={styles.oddsBtn}
+        >
+          <Reanimated.View pointerEvents="none" style={[styles.oddsFlash, flash.style]} />
+          <View style={styles.oddsLine}>
+            {flash.dir !== 0 ? (
+              <MaterialCommunityIcons name={flash.dir > 0 ? "menu-up" : "menu-down"} size={16} color={flash.dir > 0 ? c.positive : c.negative} style={{ marginHorizontal: -4 }} />
+            ) : null}
+            <Text style={[styles.oddsValue, { color: backed ? c.primaryForeground : odds > 1 ? c.primary : c.foreground }]}>
+              {odds > 1 ? formatOdds(odds, oddsFormat) : "—"}
+            </Text>
+          </View>
+          <Text style={[styles.oddsProb, { color: backed ? c.alpha(c.primaryForeground, 0.75) : c.mutedForeground }]}>{odds > 1 ? formatPercent(probability) : "your pick"}</Text>
+        </LiquidGlass>
       </PressableScale>
     </Reanimated.View>
   );
@@ -771,8 +773,8 @@ const styles = StyleSheet.create({
   teamName: { fontSize: 15, fontFamily: "Inter_700Bold", flexShrink: 1, letterSpacing: -0.2 },
   score: { fontSize: 22, fontFamily: "Inter_900Black", minWidth: 32, textAlign: "right", letterSpacing: -0.5 },
 
-  oddsBtn: { width: 80, borderWidth: 1, borderRadius: 12, paddingVertical: 8, alignItems: "center", gap: 1 },
-  oddsFlash: { position: "absolute", top: -1, left: -1, right: -1, bottom: -1, borderRadius: 12, borderWidth: 2 },
+  oddsBtn: { width: 80, paddingVertical: 8, alignItems: "center", gap: 1 },
+  oddsFlash: { position: "absolute", top: -1, left: -1, right: -1, bottom: -1, borderRadius: 13, borderWidth: 2 },
   oddsLine: { flexDirection: "row", alignItems: "center" },
   oddsValue: { fontSize: 15, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
   oddsProb: { fontSize: 11, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
@@ -785,7 +787,8 @@ const styles = StyleSheet.create({
   cta: { gap: 8, borderWidth: 1, borderRadius: 14, padding: 10 },
   ctaText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   ctaRow: { flexDirection: "row", gap: 8 },
-  marketChip: { flex: 1, minWidth: 74, borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 8, alignItems: "center", gap: 1 },
+  marketChipWrap: { flex: 1, minWidth: 74 },
+  marketChip: { paddingVertical: 8, paddingHorizontal: 8, alignItems: "center", gap: 1 },
   marketChipLabel: { fontSize: 13, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   marketChipOdds: { fontSize: 11, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
 

@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import PressableScale from "@/components/fx/PressableScale";
 import RollingNumber from "@/components/fx/RollingNumber";
 import Shimmer from "@/components/fx/Shimmer";
+import { LiquidGlass } from "@/components/ui/LiquidGlass";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { titleCase } from "@/lib/titleCase";
 
@@ -784,6 +785,49 @@ export function FilterPills<T extends string>({
           : on
             ? c.primaryForeground
             : (o.color ?? c.mutedForeground);
+        const pillContent = (
+          <>
+            {o.icon ? (
+              <View style={[styles.filterIcon, { backgroundColor: iconBg }]}>
+                <MaterialCommunityIcons name={o.icon} size={13} color={iconColor} />
+              </View>
+            ) : null}
+            <Text style={[styles.filterText, { color: fg }]} numberOfLines={1}>
+              {titleCase(o.label)}
+            </Text>
+            {o.badge ? <View style={[styles.dot, { backgroundColor: c.negative }]} /> : null}
+          </>
+        );
+        if (glass) {
+          return (
+            <Pressable
+              key={o.value}
+              onLayout={(e) => {
+                const { x, width } = e.nativeEvent.layout;
+                const had = pills.current.get(o.value);
+                pills.current.set(o.value, { x, w: width });
+                if (on && (!had || Math.abs(had.x - x) > 1 || Math.abs(had.w - width) > 1)) setMeasured((n) => n + 1);
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={titleCase(o.label)}
+              haptic="tick"
+              onPress={() => onChange(o.value)}
+              style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.96 : 1 }] })}
+            >
+              <LiquidGlass
+                variant="pill"
+                interactive
+                tintColor={on ? pillBg : undefined}
+                borderColor={pillBorder}
+                borderWidth={on ? 1.25 : 1}
+                contentStyle={[styles.filterPillGlass, !o.icon && { paddingLeft: 14 }]}
+              >
+                {pillContent}
+              </LiquidGlass>
+            </Pressable>
+          );
+        }
         return (
           <Pressable
             key={o.value}
@@ -808,15 +852,7 @@ export function FilterPills<T extends string>({
               },
             ]}
           >
-            {o.icon ? (
-              <View style={[styles.filterIcon, { backgroundColor: iconBg }]}>
-                <MaterialCommunityIcons name={o.icon} size={13} color={iconColor} />
-              </View>
-            ) : null}
-            <Text style={[styles.filterText, { color: fg }]} numberOfLines={1}>
-              {titleCase(o.label)}
-            </Text>
-            {o.badge ? <View style={[styles.dot, { backgroundColor: c.negative }]} /> : null}
+            {pillContent}
           </Pressable>
         );
       })}
@@ -1074,6 +1110,7 @@ const styles = StyleSheet.create({
   tabBar: { position: "absolute", left: 0, bottom: 0, height: 3, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
   pillsRow: { gap: 8, alignItems: "center" },
   filterPill: { flexDirection: "row", alignItems: "center", gap: 7, minHeight: 36, paddingLeft: 6, paddingRight: 14, borderRadius: 999, borderWidth: 1 },
+  filterPillGlass: { flexDirection: "row", alignItems: "center", gap: 7, minHeight: 36, paddingLeft: 6, paddingRight: 14 },
   filterIcon: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   filterText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   dot: { width: 7, height: 7, borderRadius: 4, marginLeft: -2 },
