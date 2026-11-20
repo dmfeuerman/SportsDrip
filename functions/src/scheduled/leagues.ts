@@ -6,6 +6,7 @@ import { cancelUnstartedLeague, finalizeLeague, payoutLeague } from "../lib/leag
 import { MIN_LEAGUE_PLAYERS } from "../lib/leagueConfig";
 import { expirePunishments } from "../lib/awards";
 import { closeMatchups } from "./weekly";
+import { chooseDailyPick } from "../callable/dailyPick";
 
 /**
  * Ends leagues whose season is over and pays out anything still owed. Before
@@ -53,7 +54,13 @@ export async function sweepLeagues(now: number): Promise<{ ended: number; paid: 
 export const leagueSweep = onSchedule(
   { schedule: "every 60 minutes", region: "us-central1", timeoutSeconds: 540 },
   async () => {
-    const r = await sweepLeagues(Date.now());
+    const now = Date.now();
+    const r = await sweepLeagues(now);
     if (r.ended || r.paid || r.cancelled) logger.info("leagueSweep", r);
+    const day = await chooseDailyPick(now).catch((err) => {
+      logger.warn("chooseDailyPick failed", { error: String(err) });
+      return null;
+    });
+    if (day) logger.info("daily pick ready", { day });
   }
 );

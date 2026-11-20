@@ -105,7 +105,7 @@ export function randomAvatar(): AvatarConfig {
     eyebrows: pick(EYEBROWS).id,
     eyeShape: pick(EYE_SHAPES).id,
     noseShape: pick(NOSE_SHAPES).id,
-    mouthShape: pick(MOUTH_SHAPES).id,
+    mouthShape: "neutral",
     // Mostly clean-shaven: a random look shouldn't usually come with a beard.
     facialHair: Math.random() < 0.7 ? "none" : pick(FACIAL_HAIR.slice(1)).id,
     faceStyle: "features",

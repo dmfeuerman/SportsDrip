@@ -5,6 +5,7 @@ import { useUnseenCount } from "@/lib/settings";
 import React, { useMemo, useState } from "react";
 import ParlayTicket from "@/components/ParlayTicket";
 import ChallengeCard from "@/components/ChallengeCard";
+import BetRecordPanel, { betNet } from "@/components/BetRecordPanel";
 import { useNow } from "@/hooks/useNow";
 import { useMyParlays } from "@/hooks/useMyParlays";
 import { useToast } from "@/context/ToastContext";
@@ -13,7 +14,7 @@ import { FlatList, StyleSheet, Text, View } from "react-native";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import GameQuickView from "@/components/GameQuickView";
-import { ActionChip, Amount, ConfirmDialog, EmptyState, FilterPills, LoadingState, ScreenHeader, StatTile, TabStrip, useBottomPad } from "@/components/ui";
+import { ActionChip, Amount, Card, ConfirmDialog, EmptyState, FilterPills, LoadingState, ScreenHeader, TabStrip, useBottomPad } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
 import { useChallenges, viewOf } from "@/context/ChallengeContext";
 import { useLeague } from "@/context/LeagueContext";
@@ -29,15 +30,15 @@ type Row = { bet: TicketBet; key: string; placed: number; wallet: string | null;
 export default function MyBetsScreen() {
   const c = useColors();
   const bottomPad = useBottomPad(false);
-  const params = useLocalSearchParams<{ wallet?: string }>();
-  const { bets, betsLoaded, balance, totalWon, totalStaked, cancelBet, profile } = useApp();
+  const params = useLocalSearchParams<{ wallet?: string; tab?: Tab }>();
+  const { bets, betsLoaded, balance, cancelBet, profile } = useApp();
   const parlays = useMyParlays(profile?.uid);
   const { show } = useToast();
   const { leagues, myLeagueBets } = useLeague();
   const { games } = useGames();
   const gameById = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
 
-  const [tab, setTab] = useState<Tab>("open");
+  const [tab, setTab] = useState<Tab>(params.tab === "settled" ? "settled" : "open");
   const [wallet, setWallet] = useState<string>(params.wallet ?? "all");
   const [busy, setBusy] = useState<string | null>(null);
   // Parlays cancelled on this screen: gone from Open at once, before the listener reports it.
@@ -90,6 +91,35 @@ export default function MyBetsScreen() {
   const lost = settled.filter((r) => r.bet.status === "lost").length;
   const pushes = settled.filter((r) => r.bet.status === "push").length;
   const winRate = won + lost > 0 ? Math.round((won / (won + lost)) * 100) : null;
+  const walletCurrency: "credits" | "league" = leagueFilter ? "league" : "credits";
+
+  const walletStats = useMemo(() => {
+    const decided = settled.filter((r) => r.bet.status === "won" || r.bet.status === "lost");
+    let streak = 0;
+    const first = decided[0]?.bet.status;
+    for (const r of decided) {
+      if (r.bet.status !== first) break;
+      streak++;
+    }
+    const net = settled.reduce((s, r) => s + betNet(r.bet), 0);
+    const bestHit = settled
+      .filter((r) => r.bet.status === "won")
+      .reduce((m, r) => Math.max(m, r.bet.potentialPayout - r.bet.stake), 0);
+    const staked = rows.reduce((s, r) => s + r.bet.stake, 0);
+    return {
+      streakLabel: first ? `${first === "won" ? "W" : "L"}${streak}` : null,
+      streakWin: first === "won",
+      net,
+      bestHit,
+      staked,
+      recordBets: settled.map((r) => ({
+        status: r.bet.status,
+        stake: r.bet.stake,
+        potentialPayout: r.bet.potentialPayout,
+        t: r.placed,
+      })),
+    };
+  }, [rows, settled]);
 
   const wallets = [
     { id: "all", label: "All" },
@@ -105,13 +135,34 @@ export default function MyBetsScreen() {
         subtitle={`${won}W · ${lost}L${pushes ? ` · ${pushes}P` : ""}${winRate !== null ? ` · ${winRate}% hit rate` : ""}`}
         right={<Amount value={balance} animate />}
       >
-        <View style={styles.stats}>
-          <StatTile label="Staked" hint="credits, all time">
-            <Amount value={totalStaked} size="sm" tone="neutral" />
-          </StatTile>
-          <StatTile label="Net From Wins" hint="credits">
-            <Amount value={totalWon} size="sm" tone={totalWon > 0 ? "positive" : "neutral"} signed />
-          </StatTile>
+        <View style={styles.statsDrawer}>
+          <BetRecordPanel bets={walletStats.recordBets} compact currency={walletCurrency} />
+          <Card style={styles.summaryBar}>
+            <View style={styles.summaryCol}>
+              <Text style={[styles.summaryLabel, { color: c.mutedForeground }]}>Staked</Text>
+              <Amount value={walletStats.staked} currency={walletCurrency} size="sm" tone="neutral" />
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: c.border }]} />
+            <View style={styles.summaryCol}>
+              <Text style={[styles.summaryLabel, { color: c.mutedForeground }]}>Net</Text>
+              <Amount
+                value={walletStats.net}
+                currency={walletCurrency}
+                size="sm"
+                signed
+                tone={walletStats.net > 0 ? "positive" : walletStats.net < 0 ? "negative" : "neutral"}
+              />
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: c.border }]} />
+            <View style={styles.summaryCol}>
+              <Text style={[styles.summaryLabel, { color: c.mutedForeground }]}>Best Hit</Text>
+              {walletStats.bestHit > 0 ? (
+                <Amount value={walletStats.bestHit} currency={walletCurrency} size="sm" signed tone="positive" />
+              ) : (
+                <Text style={[styles.summaryDash, { color: c.foreground }]}>—</Text>
+              )}
+            </View>
+          </Card>
         </View>
         {openChallenges > 0 && (
           <ActionChip
@@ -323,6 +374,12 @@ export default function MyBetsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   stats: { flexDirection: "row", gap: 8 },
+  statsDrawer: { gap: 8 },
+  summaryBar: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 8 },
+  summaryCol: { flex: 1, alignItems: "center", gap: 4 },
+  summaryDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", marginVertical: 2 },
+  summaryLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  summaryDash: { fontSize: 15, fontFamily: "Inter_700Bold" },
   chips: { gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, maxWidth: 180 },
   chipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },

@@ -10,6 +10,7 @@ const leagueLifecycle_1 = require("../lib/leagueLifecycle");
 const leagueConfig_1 = require("../lib/leagueConfig");
 const awards_1 = require("../lib/awards");
 const weekly_1 = require("./weekly");
+const dailyPick_1 = require("../callable/dailyPick");
 /**
  * Ends leagues whose season is over and pays out anything still owed. Before
  * this a league only ended if someone pressed the button, and pressing it
@@ -58,8 +59,15 @@ async function sweepLeagues(now) {
     return { ended, paid, cancelled };
 }
 exports.leagueSweep = (0, onlineSchedule_1.onSchedule)({ schedule: "every 60 minutes", region: "us-central1", timeoutSeconds: 540 }, async () => {
-    const r = await sweepLeagues(Date.now());
+    const now = Date.now();
+    const r = await sweepLeagues(now);
     if (r.ended || r.paid || r.cancelled)
         firebase_functions_1.logger.info("leagueSweep", r);
+    const day = await (0, dailyPick_1.chooseDailyPick)(now).catch((err) => {
+        firebase_functions_1.logger.warn("chooseDailyPick failed", { error: String(err) });
+        return null;
+    });
+    if (day)
+        firebase_functions_1.logger.info("daily pick ready", { day });
 });
 //# sourceMappingURL=leagues.js.map

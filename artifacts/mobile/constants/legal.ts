@@ -33,7 +33,7 @@ export const TERMS: LegalSection[] = [
   },
   {
     heading: "3. Virtual credits and items",
-    body: "Credits, prize-box rewards, clothing, moves, backgrounds and other in-app items (\"virtual items\") have no monetary value and are not your property. We grant you a limited, revocable, non-transferable licence to use them inside On The House only. You may not sell, buy, trade, transfer or offer virtual items or accounts for money or anything of value outside the app. We may change, rebalance or remove virtual items, and may remove credits or items obtained through bugs, cheating, automation, account sharing or any sale or trade outside the app, and may suspend the accounts involved.",
+    body: "Credits, prize-box rewards, clothing, moves, backgrounds and other in-app items (\"virtual items\") have no monetary value and are not your property. We grant you a limited, revocable, non-transferable license to use them inside On The House only. You may not sell, buy, trade, transfer or offer virtual items or accounts for money or anything of value outside the app. We may change, rebalance or remove virtual items, and may remove credits or items obtained through bugs, cheating, automation, account sharing or any sale or trade outside the app, and may suspend the accounts involved.",
   },
   {
     heading: "4. Transfers and league loans",

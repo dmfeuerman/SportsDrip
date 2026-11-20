@@ -21,9 +21,11 @@ export function torsoWeights(p) {
   w = mix(w, { Spine: 1 }, smoothstep(0.96, 1.04, y));
   w = mix(w, { Spine1: 1 }, smoothstep(1.06, 1.14, y));
   w = mix(w, { Spine2: 1 }, smoothstep(1.17, 1.25, y));
-  // Collarbone/trapezius band rides the shoulder; the deltoid follows the arm.
+  // Collarbone/trapezius band rides the shoulder; the outer deltoid transitions smoothly to the arm.
   const sh = smoothstep(0.075, 0.17, ax) * smoothstep(1.3, 1.4, y);
-  if (sh > 0) w = mix(w, { [B("Shoulder", side)]: 0.7, [B("Arm", side)]: 0.3 }, sh * 0.75);
+  if (sh > 0) w = mix(w, { [B("Shoulder", side)]: 0.6, [B("Arm", side)]: 0.4 }, sh * 0.8);
+  const delt = smoothstep(0.14, 0.21, ax) * smoothstep(1.26, 1.38, y);
+  if (delt > 0) w = mix(w, { [B("Shoulder", side)]: 0.25, [B("Arm", side)]: 0.75 }, delt);
   const nk = smoothstep(1.43, 1.5, y) * (1 - smoothstep(0.05, 0.11, ax));
   if (nk > 0) w = mix(w, { Neck: 1 }, nk);
   const lg = smoothstep(0.03, 0.1, ax) * smoothstep(0.95, 0.85, y) * 0.8;
@@ -72,8 +74,8 @@ export function arm(side, build = 0, frame = 0) {
   const pts = [[0.155 * s, 1.424, -0.012], U, [(U[0] + E[0]) / 2, (U[1] + E[1]) / 2, (U[2] + E[2]) / 2 + 0.002], E, W];
   const k = (1 + 0.11 * build) * (1 - 0.14 * frame) * 0.93;
   return (ARM_CACHE[key] = limb(pts, E, (tE) => [
-    scaleKeys([[0, 0.06], [0.06, 0.061], [0.28, 0.057], [tE - 0.03, 0.045], [tE + 0.06, 0.046], [0.75, 0.042], [0.93, 0.032], [1, 0.03]], k),
-    scaleKeys([[0, 0.06], [0.06, 0.059], [0.28, 0.056], [tE - 0.03, 0.044], [tE + 0.06, 0.044], [0.75, 0.037], [0.93, 0.025], [1, 0.023]], k),
+    scaleKeys([[0, 0.06], [0.06, 0.062], [0.28, 0.058], [tE - 0.03, 0.044], [tE + 0.06, 0.0475], [0.75, 0.041], [0.93, 0.029], [1, 0.027]], k),
+    scaleKeys([[0, 0.06], [0.06, 0.06], [0.28, 0.057], [tE - 0.03, 0.043], [tE + 0.06, 0.0455], [0.75, 0.036], [0.93, 0.023], [1, 0.021]], k),
     (t) => {
       let w = mix({ [B("Shoulder", side)]: 0.3, [B("Arm", side)]: 0.7 }, { [B("Arm", side)]: 1 }, smoothstep(0, 0.1, t));
       w = mix(w, { [B("ForeArm", side)]: 1 }, smoothstep(tE - 0.06, tE + 0.06, t));
@@ -95,8 +97,8 @@ export function leg(side, build = 0, frame = 0) {
   const k = (1 + 0.1 * build) * (1 - 0.07 * frame) * 0.95;
   return (LEG_CACHE[key] = limb(pts, K, (tK) => [
     // Feminine frame: full, round thigh tops (narrowed with the hips by character.mjs hipIn).
-    scaleKeys([[0, 0.066 + 0.0216 * frame], [0.08, 0.07 + 0.0218 * frame], [0.3, 0.07 + 0.0124 * frame], [tK - 0.05, 0.06], [tK, 0.057], [tK + 0.07, 0.057], [0.7, 0.056], [0.88, 0.043], [1, 0.037]], k),
-    scaleKeys([[0, 0.08], [0.08, 0.086], [0.3, 0.08], [tK - 0.05, 0.06], [tK, 0.058], [tK + 0.07, 0.059], [0.7, 0.06], [0.88, 0.042], [1, 0.038]], k),
+    scaleKeys([[0, 0.066 + 0.0216 * frame], [0.08, 0.071 + 0.0218 * frame], [0.3, 0.072 + 0.0124 * frame], [tK - 0.05, 0.059], [tK, 0.056], [tK + 0.07, 0.059], [0.7, 0.058], [0.88, 0.04], [1, 0.035]], k),
+    scaleKeys([[0, 0.08], [0.08, 0.087], [0.3, 0.082], [tK - 0.05, 0.059], [tK, 0.057], [tK + 0.07, 0.061], [0.7, 0.062], [0.88, 0.04], [1, 0.036]], k),
     (t) => {
       let w = mix({ Hips: 1 }, { [B("UpLeg", side)]: 1 }, smoothstep(0.0, 0.13, t));
       w = mix(w, { [B("Leg", side)]: 1 }, smoothstep(tK - 0.05, tK + 0.05, t));

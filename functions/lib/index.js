@@ -1,24 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.claimAdReward = exports.admobReward = exports.resetPrizeBox = exports.claimPrizeBox = exports.openPrizeBox = exports.syncProgression = exports.checkReferralCode = exports.getReferralCode = exports.setBackground = exports.purchaseBackground = exports.setMoveLoadout = exports.purchaseMove = exports.streakWager = exports.makeFlashPick = exports.claimTutorialGift = exports.claimWinBackBox = exports.sendCredits = exports.respondFriendLoan = exports.requestFriendLoan = exports.repayFriendLoan = exports.offerFriendLoan = exports.giftItem = exports.equipItem = exports.purchaseItem = exports.cancelChallenge = exports.respondChallenge = exports.createChallenge = exports.cancelBet = exports.placeBet = exports.listFriends = exports.removeFriend = exports.respondFriendRequest = exports.sendFriendRequest = exports.acceptTerms = exports.reportContent = exports.unblockUser = exports.blockUser = exports.deleteAccount = exports.registerPushToken = exports.getGameInsights = exports.setAlertPrefs = exports.setPlayLimits = exports.updateFavoriteTeams = exports.setFeaturedTrophy = exports.getPlayerProfile = exports.saveAppearance = exports.searchUsers = exports.updateAvatar = exports.checkUsername = exports.createProfile = void 0;
-exports.moderateBetComment = exports.notifyOnDmReaction = exports.pushOnLeagueMessage = exports.pushOnDirectMessage = exports.pushOnNotification = exports.leagueMatchupJobs = exports.mondayLeagueJobs = exports.tuesdayLeagueReport = exports.birthdayGifts = exports.winBack = exports.lockReminders = exports.leagueSweep = exports.refundStaleBets = exports.settleBetsSweep = exports.onGameFinal = exports.syncLiveGames = exports.pruneGames = exports.syncGames = exports.cancelParlay = exports.placeParlay = exports.rideParlay = exports.lockParlay = exports.addParlayLeg = exports.createGroupParlay = exports.recordChallengeAction = exports.claimLevelChallenge = exports.getLevelChallenges = exports.claimQuest = exports.getWeeklyQuests = exports.scheduleDailyPick = exports.placeFreeBet = exports.makeDailyPick = exports.makePick = exports.reactToItem = exports.leagueStimulus = exports.voidLeagueBet = exports.reportResult = exports.voteEndLeague = exports.peerLoanAction = exports.requestReset = exports.requestPeerLoan = exports.repayLoan = exports.takeBankLoan = exports.placeLeagueBet = exports.endLeague = exports.inviteToLeague = exports.updateLeagueSettings = exports.leaveLeague = exports.joinLeague = exports.createLeague = void 0;
-exports.submitBracket = exports.weeklyLiveOps = exports.ladderClose = exports.ladderOpen = exports.claimSeasonTier = exports.achievementStats = exports.yearWrapped = exports.setMuteTaunts = exports.sendTaunt = exports.devTools = exports.bundleBackgrounds = exports.bundleMoves = exports.bundleCatalog = exports.friendStreakOnPick = exports.challengesOnParlay = exports.challengesOnBet = exports.xpOnFriendship = exports.xpOnLeagueBet = exports.xpOnLedger = void 0;
+exports.requestPeerLoan = exports.repayLoan = exports.takeBankLoan = exports.placeLeagueBet = exports.endLeague = exports.inviteToLeague = exports.updateLeagueSettings = exports.leaveLeague = exports.joinLeague = exports.createLeague = exports.claimAdReward = exports.admobReward = exports.resetPrizeBox = exports.claimPrizeBox = exports.openPrizeBox = exports.syncProgression = exports.checkReferralCode = exports.getReferralCode = exports.purchaseBackground = exports.purchaseMove = exports.streakWager = exports.makeFlashPick = exports.claimTutorialGift = exports.claimWinBackBox = exports.sendCredits = exports.respondFriendLoan = exports.requestFriendLoan = exports.repayFriendLoan = exports.offerFriendLoan = exports.giftItem = exports.equipItem = exports.purchaseItem = exports.cancelChallenge = exports.respondChallenge = exports.createChallenge = exports.cancelBet = exports.placeBet = exports.removeFriend = exports.respondFriendRequest = exports.sendFriendRequest = exports.reportContent = exports.blockUser = exports.deleteAccount = exports.registerPushToken = exports.getGameInsights = exports.getPlayerProfile = exports.saveAppearance = exports.searchUsers = exports.updateAvatar = exports.createProfile = void 0;
+exports.submitBracket = exports.claimSeasonTier = exports.sendTaunt = exports.devTools = exports.bundleBackgrounds = exports.bundleMoves = exports.bundleCatalog = exports.friendStreakOnPick = exports.xpOnFriendship = exports.xpOnLeagueBet = exports.xpOnLedger = exports.moderateBetComment = exports.notifyOnDmReaction = exports.pushOnLeagueMessage = exports.pushOnDirectMessage = exports.pushOnNotification = exports.dailyMaintenance = exports.lockReminders = exports.leagueSweep = exports.settleBetsSweep = exports.syncGames = exports.cancelParlay = exports.placeParlay = exports.rideParlay = exports.lockParlay = exports.addParlayLeg = exports.createGroupParlay = exports.recordChallengeAction = exports.claimLevelChallenge = exports.getLevelChallenges = exports.claimQuest = exports.getWeeklyQuests = exports.placeFreeBet = exports.makeDailyPick = exports.makePick = exports.reactToItem = exports.leagueStimulus = exports.voidLeagueBet = exports.reportResult = exports.voteEndLeague = exports.peerLoanAction = exports.requestReset = void 0;
 const v2_1 = require("firebase-functions/v2");
 (0, v2_1.setGlobalOptions)({ region: "us-central1", maxInstances: 20 });
 // Profile / identity
+// Moved on-device (direct Firestore + firestore.rules):
+//   checkUsername, setFeaturedTrophy, updateFavoriteTeams, setPlayLimits,
+//   setAlertPrefs, unblockUser, acceptTerms, setMoveLoadout, setBackground,
+//   setMuteTaunts, listFriends
 var profile_1 = require("./callable/profile");
 Object.defineProperty(exports, "createProfile", { enumerable: true, get: function () { return profile_1.createProfile; } });
-Object.defineProperty(exports, "checkUsername", { enumerable: true, get: function () { return profile_1.checkUsername; } });
 Object.defineProperty(exports, "updateAvatar", { enumerable: true, get: function () { return profile_1.updateAvatar; } });
 Object.defineProperty(exports, "searchUsers", { enumerable: true, get: function () { return profile_1.searchUsers; } });
 var avatar_1 = require("./callable/avatar");
 Object.defineProperty(exports, "saveAppearance", { enumerable: true, get: function () { return avatar_1.saveAppearance; } });
 var players_1 = require("./callable/players");
 Object.defineProperty(exports, "getPlayerProfile", { enumerable: true, get: function () { return players_1.getPlayerProfile; } });
-Object.defineProperty(exports, "setFeaturedTrophy", { enumerable: true, get: function () { return players_1.setFeaturedTrophy; } });
-Object.defineProperty(exports, "updateFavoriteTeams", { enumerable: true, get: function () { return players_1.updateFavoriteTeams; } });
-Object.defineProperty(exports, "setPlayLimits", { enumerable: true, get: function () { return players_1.setPlayLimits; } });
-Object.defineProperty(exports, "setAlertPrefs", { enumerable: true, get: function () { return players_1.setAlertPrefs; } });
 var insights_1 = require("./callable/insights");
 Object.defineProperty(exports, "getGameInsights", { enumerable: true, get: function () { return insights_1.getGameInsights; } });
 var push_1 = require("./callable/push");
@@ -26,15 +24,12 @@ Object.defineProperty(exports, "registerPushToken", { enumerable: true, get: fun
 var account_1 = require("./callable/account");
 Object.defineProperty(exports, "deleteAccount", { enumerable: true, get: function () { return account_1.deleteAccount; } });
 Object.defineProperty(exports, "blockUser", { enumerable: true, get: function () { return account_1.blockUser; } });
-Object.defineProperty(exports, "unblockUser", { enumerable: true, get: function () { return account_1.unblockUser; } });
 Object.defineProperty(exports, "reportContent", { enumerable: true, get: function () { return account_1.reportContent; } });
-Object.defineProperty(exports, "acceptTerms", { enumerable: true, get: function () { return account_1.acceptTerms; } });
 // Social graph
 var friends_1 = require("./callable/friends");
 Object.defineProperty(exports, "sendFriendRequest", { enumerable: true, get: function () { return friends_1.sendFriendRequest; } });
 Object.defineProperty(exports, "respondFriendRequest", { enumerable: true, get: function () { return friends_1.respondFriendRequest; } });
 Object.defineProperty(exports, "removeFriend", { enumerable: true, get: function () { return friends_1.removeFriend; } });
-Object.defineProperty(exports, "listFriends", { enumerable: true, get: function () { return friends_1.listFriends; } });
 // Economy
 var bets_1 = require("./callable/bets");
 Object.defineProperty(exports, "placeBet", { enumerable: true, get: function () { return bets_1.placeBet; } });
@@ -64,10 +59,8 @@ var streakWager_1 = require("./callable/streakWager");
 Object.defineProperty(exports, "streakWager", { enumerable: true, get: function () { return streakWager_1.streakWager; } });
 var moves_1 = require("./callable/moves");
 Object.defineProperty(exports, "purchaseMove", { enumerable: true, get: function () { return moves_1.purchaseMove; } });
-Object.defineProperty(exports, "setMoveLoadout", { enumerable: true, get: function () { return moves_1.setMoveLoadout; } });
 var backgrounds_1 = require("./callable/backgrounds");
 Object.defineProperty(exports, "purchaseBackground", { enumerable: true, get: function () { return backgrounds_1.purchaseBackground; } });
-Object.defineProperty(exports, "setBackground", { enumerable: true, get: function () { return backgrounds_1.setBackground; } });
 var referrals_1 = require("./callable/referrals");
 Object.defineProperty(exports, "getReferralCode", { enumerable: true, get: function () { return referrals_1.getReferralCode; } });
 Object.defineProperty(exports, "checkReferralCode", { enumerable: true, get: function () { return referrals_1.checkReferralCode; } });
@@ -104,7 +97,6 @@ Object.defineProperty(exports, "makePick", { enumerable: true, get: function () 
 var dailyPick_1 = require("./callable/dailyPick");
 Object.defineProperty(exports, "makeDailyPick", { enumerable: true, get: function () { return dailyPick_1.makeDailyPick; } });
 Object.defineProperty(exports, "placeFreeBet", { enumerable: true, get: function () { return dailyPick_1.placeFreeBet; } });
-Object.defineProperty(exports, "scheduleDailyPick", { enumerable: true, get: function () { return dailyPick_1.scheduleDailyPick; } });
 var quests_1 = require("./callable/quests");
 Object.defineProperty(exports, "getWeeklyQuests", { enumerable: true, get: function () { return quests_1.getWeeklyQuests; } });
 Object.defineProperty(exports, "claimQuest", { enumerable: true, get: function () { return quests_1.claimQuest; } });
@@ -120,31 +112,24 @@ Object.defineProperty(exports, "rideParlay", { enumerable: true, get: function (
 var slipParlays_1 = require("./callable/slipParlays");
 Object.defineProperty(exports, "placeParlay", { enumerable: true, get: function () { return slipParlays_1.placeParlay; } });
 Object.defineProperty(exports, "cancelParlay", { enumerable: true, get: function () { return slipParlays_1.cancelParlay; } });
-// Background jobs
+// Background jobs (consolidated from 17 crons down to 5)
+// - syncLiveGames removed (eliminates 45s idle sleep billing every minute)
+// - onGameFinal trigger removed (syncGames calls handleGameTransition directly)
+// - scheduleDailyPick folded into leagueSweep
+// - 12 daily/weekly/monthly/yearly jobs consolidated into dailyMaintenance
 var syncGames_1 = require("./scheduled/syncGames");
 Object.defineProperty(exports, "syncGames", { enumerable: true, get: function () { return syncGames_1.syncGames; } });
-Object.defineProperty(exports, "pruneGames", { enumerable: true, get: function () { return syncGames_1.pruneGames; } });
-Object.defineProperty(exports, "syncLiveGames", { enumerable: true, get: function () { return syncGames_1.syncLiveGames; } });
 var settleBets_1 = require("./scheduled/settleBets");
-Object.defineProperty(exports, "onGameFinal", { enumerable: true, get: function () { return settleBets_1.onGameFinal; } });
 Object.defineProperty(exports, "settleBetsSweep", { enumerable: true, get: function () { return settleBets_1.settleBetsSweep; } });
-Object.defineProperty(exports, "refundStaleBets", { enumerable: true, get: function () { return settleBets_1.refundStaleBets; } });
 var leagues_2 = require("./scheduled/leagues");
 Object.defineProperty(exports, "leagueSweep", { enumerable: true, get: function () { return leagues_2.leagueSweep; } });
-// teamReminders moved on-device (artifacts/mobile/lib/localReminders.ts schedules it locally),
-// which removes a job that ran every 5 minutes. Re-enable by restoring the export below.
-// export { lockReminders, teamReminders } from "./scheduled/reminders";
+// teamReminders moved on-device (artifacts/mobile/lib/localReminders.ts schedules it locally).
 var reminders_1 = require("./scheduled/reminders");
 Object.defineProperty(exports, "lockReminders", { enumerable: true, get: function () { return reminders_1.lockReminders; } });
-var winBack_2 = require("./scheduled/winBack");
-Object.defineProperty(exports, "winBack", { enumerable: true, get: function () { return winBack_2.winBack; } });
-var birthdays_1 = require("./scheduled/birthdays");
-Object.defineProperty(exports, "birthdayGifts", { enumerable: true, get: function () { return birthdays_1.birthdayGifts; } });
-var weekly_1 = require("./scheduled/weekly");
-Object.defineProperty(exports, "tuesdayLeagueReport", { enumerable: true, get: function () { return weekly_1.tuesdayLeagueReport; } });
-Object.defineProperty(exports, "mondayLeagueJobs", { enumerable: true, get: function () { return weekly_1.mondayLeagueJobs; } });
-Object.defineProperty(exports, "leagueMatchupJobs", { enumerable: true, get: function () { return weekly_1.leagueMatchupJobs; } });
+var maintenance_1 = require("./scheduled/maintenance");
+Object.defineProperty(exports, "dailyMaintenance", { enumerable: true, get: function () { return maintenance_1.dailyMaintenance; } });
 // Side effects of committed writes (never inside a money transaction)
+// challengesOnBet and challengesOnParlay removed (xpOnLedger + placeFreeBet already run autoClaimSoon)
 var push_2 = require("./triggers/push");
 Object.defineProperty(exports, "pushOnNotification", { enumerable: true, get: function () { return push_2.pushOnNotification; } });
 var chatPush_1 = require("./triggers/chatPush");
@@ -156,8 +141,6 @@ var xp_1 = require("./triggers/xp");
 Object.defineProperty(exports, "xpOnLedger", { enumerable: true, get: function () { return xp_1.xpOnLedger; } });
 Object.defineProperty(exports, "xpOnLeagueBet", { enumerable: true, get: function () { return xp_1.xpOnLeagueBet; } });
 Object.defineProperty(exports, "xpOnFriendship", { enumerable: true, get: function () { return xp_1.xpOnFriendship; } });
-Object.defineProperty(exports, "challengesOnBet", { enumerable: true, get: function () { return xp_1.challengesOnBet; } });
-Object.defineProperty(exports, "challengesOnParlay", { enumerable: true, get: function () { return xp_1.challengesOnParlay; } });
 var friendStreak_1 = require("./triggers/friendStreak");
 Object.defineProperty(exports, "friendStreakOnPick", { enumerable: true, get: function () { return friendStreak_1.friendStreakOnPick; } });
 var bundles_1 = require("./triggers/bundles");
@@ -169,18 +152,8 @@ var dev_1 = require("./callable/dev");
 Object.defineProperty(exports, "devTools", { enumerable: true, get: function () { return dev_1.devTools; } });
 var taunts_1 = require("./callable/taunts");
 Object.defineProperty(exports, "sendTaunt", { enumerable: true, get: function () { return taunts_1.sendTaunt; } });
-Object.defineProperty(exports, "setMuteTaunts", { enumerable: true, get: function () { return taunts_1.setMuteTaunts; } });
-var wrapped_1 = require("./scheduled/wrapped");
-Object.defineProperty(exports, "yearWrapped", { enumerable: true, get: function () { return wrapped_1.yearWrapped; } });
-var achievementStats_1 = require("./scheduled/achievementStats");
-Object.defineProperty(exports, "achievementStats", { enumerable: true, get: function () { return achievementStats_1.achievementStats; } });
 var seasonPass_1 = require("./callable/seasonPass");
 Object.defineProperty(exports, "claimSeasonTier", { enumerable: true, get: function () { return seasonPass_1.claimSeasonTier; } });
-var ladder_1 = require("./scheduled/ladder");
-Object.defineProperty(exports, "ladderOpen", { enumerable: true, get: function () { return ladder_1.ladderOpen; } });
-Object.defineProperty(exports, "ladderClose", { enumerable: true, get: function () { return ladder_1.ladderClose; } });
-var liveOps_1 = require("./scheduled/liveOps");
-Object.defineProperty(exports, "weeklyLiveOps", { enumerable: true, get: function () { return liveOps_1.weeklyLiveOps; } });
 var brackets_1 = require("./callable/brackets");
 Object.defineProperty(exports, "submitBracket", { enumerable: true, get: function () { return brackets_1.submitBracket; } });
 // Apple Live Activities: off until there's an Apple Developer account and APNs key.

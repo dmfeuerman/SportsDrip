@@ -12,6 +12,7 @@ const economy_1 = require("../lib/economy");
 const streak_1 = require("../lib/streak");
 const streakDays_1 = require("../lib/streakDays");
 const achievements_1 = require("../lib/achievements");
+const levelChallenges_1 = require("./levelChallenges");
 const pricing_1 = require("../lib/pricing");
 const playLimits_1 = require("../lib/playLimits");
 /**
@@ -236,8 +237,9 @@ exports.placeFreeBet = (0, https_1.onCall)({ region: "us-central1" }, async (req
         const milestone = (prev?.count ?? 0) !== streak.count && streak_1.STREAK_MILESTONES.includes(streak.count) ? streak.count : null;
         return { duplicate: false, first: true, winnings, streak, milestone };
     });
-    if (out.first)
-        await (0, achievements_1.checkAchievements)(uid).catch(() => []);
+    if (out.first) {
+        await Promise.all([(0, achievements_1.checkAchievements)(uid).catch(() => []), (0, levelChallenges_1.autoClaimSoon)(uid)]);
+    }
     return { ok: true, betId, day, winnings: out.winnings, duplicate: out.duplicate, streak: out.streak?.count ?? null, milestone: out.milestone };
 });
 //# sourceMappingURL=dailyPick.js.map

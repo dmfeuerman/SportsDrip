@@ -121,7 +121,7 @@ export default function ParlayScreen() {
                   {[
                     ["numeric-1-circle", "Pick from different games", "Tap a price on a game, then “+ Parlay”. One pick per game, 2 to 10 legs."],
                     ["numeric-2-circle", "The prices multiply", "Two 2.00x legs make a 4.00x ticket. More legs, bigger payout — and harder to hit."],
-                    ["numeric-3-circle", "Every leg has to win", "One losing leg loses the whole parlay. A push or a cancelled game drops that leg and the price shrinks."],
+                    ["numeric-3-circle", "Every leg has to win", "One losing leg loses the whole parlay. A push or a canceled game drops that leg and the price shrinks."],
                   ].map(([icon, t, d]) => (
                     <View key={t} style={styles.howRow}>
                       <MaterialCommunityIcons name={icon as never} size={20} color={c.primary} />

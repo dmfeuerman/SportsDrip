@@ -111,9 +111,9 @@ export default function CheckoutScreen() {
     const saved = draft && equipped ? await saveLook(draft.avatar, equipped) : true;
     cart.checkedOut();
     buzz.success();
-    // Purchase showcase: the new fit on stage, then "Show the league".
     setLookSaved(saved);
     setPhase("done");
+    router.dismissTo("/(tabs)/avatar");
   };
 
   const top = (Platform.OS === "web" ? 12 : insets.top) + 6;
@@ -200,7 +200,7 @@ export default function CheckoutScreen() {
           ) : null}
           <Button label={continueLabel} variant="secondary" onPress={continueShopping} style={styles.stretch} />
         </ScrollView>
-      ) : count === 0 ? (
+      ) : count === 0 && phase !== "paying" ? (
         <View style={styles.empty}>
           <View style={[styles.emptyIcon, { backgroundColor: c.secondary }]}>
             <MaterialCommunityIcons name="cart-outline" size={34} color={c.mutedForeground} />

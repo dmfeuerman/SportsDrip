@@ -15,7 +15,6 @@ import {
   FACIAL_HAIR,
   HAIR_COLORS,
   HAIR_STYLES,
-  MOUTH_SHAPES,
   NOSE_SHAPES,
   SKIN_TONES,
   randomAvatar,
@@ -27,7 +26,7 @@ import { haptic as buzz } from "@/lib/motion";
 import type { AvatarConfig } from "@/types/avatar";
 import type { CatalogItem } from "@/types/catalog";
 
-type Key = "bodyFrame" | "skinTone" | "height" | "bodyType" | "faceShape" | "eyeShape" | "eyeColor" | "eyebrows" | "noseShape" | "mouthShape" | "hairStyle" | "hairColor" | "facialHair";
+type Key = "bodyFrame" | "skinTone" | "height" | "bodyType" | "faceShape" | "eyeShape" | "eyeColor" | "eyebrows" | "noseShape" | "hairStyle" | "hairColor" | "facialHair";
 
 type StepDef = { key: Key; title: string; sub: string; label: string; focus: Focus } & (
   | { kind: "swatch"; options: string[]; fallback: string }
@@ -43,12 +42,11 @@ const STEPS: StepDef[] = [
   { key: "bodyType", title: "Build", sub: "Slim, broad or somewhere between.", label: "Build", focus: "full", kind: "stops", ends: ["Slim", "Broad"] },
   { key: "faceShape", title: "Face Shape", sub: "Let's get a closer look.", label: "Face shape", focus: "head", kind: "chips", options: FACE_SHAPES, fallback: "oval" },
   { key: "eyeShape", title: "Eye Shape", sub: "The look in your eyes.", label: "Eye shape", focus: "head", kind: "chips", options: EYE_SHAPES, fallback: "round" },
-  { key: "eyeColor", title: "Eye Colour", sub: "Pick a preset or go custom.", label: "Eye colour", focus: "head", kind: "swatch", options: EYE_COLORS, fallback: EYE_COLORS[0]! },
+  { key: "eyeColor", title: "Eye Color", sub: "Pick a preset or go custom.", label: "Eye color", focus: "head", kind: "swatch", options: EYE_COLORS, fallback: EYE_COLORS[0]! },
   { key: "eyebrows", title: "Brows", sub: "Every reaction starts here.", label: "Brows", focus: "head", kind: "chips", options: EYEBROWS, fallback: "soft" },
   { key: "noseShape", title: "Nose", sub: "Pick a profile.", label: "Nose", focus: "head", kind: "chips", options: NOSE_SHAPES, fallback: "button" },
-  { key: "mouthShape", title: "Mouth", sub: "For all the trash talk.", label: "Mouth", focus: "head", kind: "chips", options: MOUTH_SHAPES, fallback: "neutral" },
   { key: "hairStyle", title: "Hairstyle", sub: "Fresh cut or nothing at all.", label: "Hairstyle", focus: "hairSide", kind: "chips", options: HAIR_STYLES, fallback: "bald" },
-  { key: "hairColor", title: "Hair Colour", sub: "Natural or loud.", label: "Hair colour", focus: "hairSide", kind: "swatch", options: HAIR_COLORS, fallback: HAIR_COLORS[0]! },
+  { key: "hairColor", title: "Hair Color", sub: "Natural or loud.", label: "Hair color", focus: "hairSide", kind: "swatch", options: HAIR_COLORS, fallback: HAIR_COLORS[0]! },
   { key: "facialHair", title: "Facial Hair", sub: "Last detail.", label: "Facial hair", focus: "head", kind: "chips", options: FACIAL_HAIR, fallback: "none" },
 ];
 
@@ -198,7 +196,15 @@ export default function CharacterDesigner({ avatar, onChange, catalog, displayNa
             {step.kind === "swatch" ? (
               <Swatches label={step.label} options={step.options} value={String(avatar[step.key] ?? step.fallback)} onChange={(v) => set(step.key, v)} />
             ) : step.kind === "chips" ? (
-              <Chips label={step.label} options={step.options} value={String(avatar[step.key] ?? step.fallback)} onChange={(v) => set(step.key, v)} />
+              <Chips
+                label={step.label}
+                options={step.options}
+                value={String(avatar[step.key] ?? step.fallback)}
+                onChange={(v) => set(step.key, v)}
+                color={step.key === "eyebrows" ? (avatar.eyebrowColor ?? avatar.hairColor) : step.key === "facialHair" ? (avatar.facialHairColor ?? avatar.hairColor) : undefined}
+                onColorChange={step.key === "eyebrows" ? (eyebrowColor) => onChange({ ...avatar, eyebrowColor }) : step.key === "facialHair" ? (facialHairColor) => onChange({ ...avatar, facialHairColor }) : undefined}
+                colorTitle={step.key === "eyebrows" ? "Eyebrow Color" : step.key === "facialHair" ? "Facial Hair Color" : undefined}
+              />
             ) : (
               <Stops label={step.label} value={Number(avatar[step.key] ?? 0.5)} ends={step.ends} onChange={(v) => set(step.key, v)} />
             )}

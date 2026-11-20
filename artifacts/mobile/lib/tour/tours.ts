@@ -193,7 +193,7 @@ export const GAMES_TOUR: Tour = {
     { route: "/games", target: "game.second.odds", glow: ["game.second.odds.away"], press: true, pressLabel: "Tap a team", title: "Leg 2 · Another game", body: "Now pick a side on a different game. One pick per game.", advanceOn: "pick:selected" },
     { target: "game.second.parlay", press: true, pressLabel: "Tap Add to Parlay", title: "Add leg 2", body: "Once a parlay has started, picks can only go on it. Press Add to Parlay.", advanceOn: "parlay:add" },
     { target: "parlay.pill", press: true, pressLabel: "Open your parlay", title: "Open the slip", body: "Two legs — the button now shows the combined odds. Press it to see the whole ticket.", doneWhen: at("/parlay") },
-    { route: "/parlay", target: "parlay.how", title: "The rules", body: "Pick from different games, the prices multiply, every leg has to win. A push or cancelled game just drops that leg." },
+    { route: "/parlay", target: "parlay.how", title: "The rules", body: "Pick from different games, the prices multiply, every leg has to win. A push or canceled game just drops that leg." },
     { route: "/parlay", target: "parlay.legs", title: "Every leg", body: "Each pick with its market, game, kickoff and odds. Tap ✕ to drop one, or add more (up to 10)." },
     { route: "/parlay", target: "parlay.math", title: "The math", body: "Each leg's odds multiplied together. That's the price your whole ticket pays at." },
     { route: "/parlay", target: "parlay.stake", press: true, pressLabel: "Enter a stake", title: "One stake for the ticket", body: "Type an amount or tap a chip.", advanceOn: "parlay:stake" },

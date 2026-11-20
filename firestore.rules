@@ -52,10 +52,84 @@ service cloud.firestore {
     // ---------------------------------------------------------------------
     // users/{uid}
     // ---------------------------------------------------------------------
+    function ownsMove(uid, moveId) {
+      return moveId is string &&
+             (moveId in ['cheer', 'fist_pump'] ||
+              exists(/databases/$(database)/documents/users/$(uid)/moves/$(moveId)));
+    }
+
+    function validMoveLoadout(uid, moves) {
+      return moves is list &&
+             moves.size() >= 1 &&
+             moves.size() <= 4 &&
+             ownsMove(uid, moves[0]) &&
+             (moves.size() < 2 || ownsMove(uid, moves[1])) &&
+             (moves.size() < 3 || ownsMove(uid, moves[2])) &&
+             (moves.size() < 4 || ownsMove(uid, moves[3]));
+    }
+
+    function validBackground(uid, bg) {
+      return bg is string &&
+             (bg == 'locker_room' ||
+              exists(/databases/$(database)/documents/users/$(uid)/backgrounds/$(bg)));
+    }
+
+    function validFeaturedTrophy(uid, trophyId) {
+      return trophyId == null ||
+             (trophyId is string &&
+              trophyId.size() >= 1 &&
+              trophyId.size() <= 80 &&
+              exists(/databases/$(database)/documents/users/$(uid)/trophies/$(trophyId)));
+    }
+
+    function validPlayLimits(limits) {
+      return limits is map &&
+             limits.keys().hasOnly(['dailyPicks', 'breakUntil']) &&
+             (!('dailyPicks' in limits) || limits.dailyPicks == null ||
+              (limits.dailyPicks is int && limits.dailyPicks >= 1 && limits.dailyPicks <= 100)) &&
+             (!('breakUntil' in limits) || limits.breakUntil == null || limits.breakUntil is int);
+    }
+
     match /users/{uid} {
       allow get: if signedIn();
       allow list: if false;
-      allow create, update, delete: if false;
+      allow create, delete: if false;
+      // Direct self-updates for non-economy preferences and owned cosmetics.
+      // Economy fields (balance, xp, stats, streak, punishment, equipped) stay server-only.
+      allow update: if isSelf(uid) &&
+                    onlyChanging([
+                      'favoriteTeams', 'favoriteTeamKeys', 'teamReminders',
+                      'featuredTrophy', 'limits',
+                      'sweatAlerts', 'quietHours', 'tz',
+                      'muteTaunts', 'termsVersion', 'termsAcceptedAt',
+                      'background', 'moves', 'updatedAt'
+                    ]) &&
+                    (!('favoriteTeams' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     (request.resource.data.favoriteTeams is list && request.resource.data.favoriteTeams.size() <= 5)) &&
+                    (!('favoriteTeamKeys' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     (request.resource.data.favoriteTeamKeys is list && request.resource.data.favoriteTeamKeys.size() <= 5)) &&
+                    (!('teamReminders' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     request.resource.data.teamReminders is bool) &&
+                    (!('featuredTrophy' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     validFeaturedTrophy(uid, request.resource.data.featuredTrophy)) &&
+                    (!('limits' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     validPlayLimits(request.resource.data.limits)) &&
+                    (!('sweatAlerts' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     request.resource.data.sweatAlerts is bool) &&
+                    (!('quietHours' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     request.resource.data.quietHours is bool) &&
+                    (!('tz' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     (request.resource.data.tz is string && request.resource.data.tz.size() <= 64)) &&
+                    (!('muteTaunts' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     request.resource.data.muteTaunts is bool) &&
+                    (!('termsVersion' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     request.resource.data.termsVersion == 1) &&
+                    (!('termsAcceptedAt' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     request.resource.data.termsAcceptedAt == request.time) &&
+                    (!('background' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     validBackground(uid, request.resource.data.background)) &&
+                    (!('moves' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                     validMoveLoadout(uid, request.resource.data.moves));
 
       match /inventory/{itemId} {
         allow read: if isSelf(uid) || isFriend(uid);
@@ -118,10 +192,10 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // Players this user blocked (callable/account.ts). Owner reads; server writes.
+      // Players this user blocked (callable/account.ts). Owner reads & unblocks; server blocks (unfriending atomically).
       match /blocks/{otherUid} {
-        allow read: if isSelf(uid);
-        allow write: if false;
+        allow read, delete: if isSelf(uid);
+        allow create, update: if false;
       }
 
       // Private subdoc for anything that must not be visible to other users.

@@ -361,19 +361,18 @@ const THE_DAB: MoveSpec = {
     k.rot(p, "Spine", 0.06 * w, -0.05 * dir * w, 0.05 * dir * w);
     k.rot(p, "Spine1", 0.08 * w, -0.06 * dir * w, 0.06 * dir * w);
     k.rot(p, "Spine2", 0.08 * w, -0.06 * dir * w, 0.06 * dir * w);
-    // Head dips toward the elbow but stays behind the forearm.
-    k.rot(p, "Neck", 0.2 * w + 0.06 * bounce, 0.22 * dir * w, 0.1 * dir * w);
-    k.rot(p, "Head", 0.26 * w + 0.06 * bounce, 0.26 * dir * w, 0.1 * dir * w);
+    // Head dips toward the elbow while staying well behind the raised forearm.
+    k.rot(p, "Neck", 0.14 * w + 0.06 * bounce, 0.2 * dir * w, 0.08 * dir * w);
+    k.rot(p, "Head", 0.18 * w + 0.06 * bounce, 0.24 * dir * w, 0.08 * dir * w);
     for (const { s } of SIDE) {
       const tucked = (dir > 0 && s === "Left") || (dir < 0 && s === "Right");
-      const relaxedOff = V(-0.02, -0.3, 0.2);
+      const relaxedOff = V(0.06, -0.3, 0.22);
       if (tucked) {
-        // Elbow up in front of the face, forearm across it, hand past the far shoulder.
-        // Hand stays well forward of the face so the forearm crosses in front, never through the head.
-        k.hand(p, s, swing(relaxedOff, V(-0.34, 0.26, 0.36), w), V(0.35, 0.5, 1).lerp(V(0.6, -1, -0.5), 1 - w), on);
+        // Forearm sweeps cleanly in front of the chest and face with generous forward clearance.
+        k.hand(p, s, swing(relaxedOff, V(-0.24, 0.22, 0.46), w), V(0.7, 0.35, 1).lerp(V(0.6, -1, -0.5), 1 - w), on);
       } else {
-        // Straight out and up to the side.
-        k.hand(p, s, swing(relaxedOff, V(0.43, 0.3, 0.1), w), V(0, -0.3, -1).lerp(V(0.6, -1, -0.5), 1 - w), on);
+        // Straight out and up to the side, angled slightly forward to clear the shoulder.
+        k.hand(p, s, swing(relaxedOff, V(0.46, 0.3, 0.14), w), V(0.2, -0.3, -1).lerp(V(0.6, -1, -0.5), 1 - w), on);
       }
     }
     return p;

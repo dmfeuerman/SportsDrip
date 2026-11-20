@@ -30,6 +30,7 @@ import { Chips, Field, Stops, Swatches } from "@/components/avatar/EditorControl
 import ItemIcon from "@/components/avatar/ItemIcon";
 import CartButton from "@/components/CartButton";
 import CartExitDialog from "@/components/CartExitDialog";
+import ThemePicker from "@/components/ThemePicker";
 import { Button, ChoiceDialog, ErrorBanner } from "@/components/ui";
 import {
   EYE_COLORS,
@@ -40,7 +41,6 @@ import {
   FACIAL_HAIR,
   HAIR_COLORS,
   HAIR_STYLES,
-  MOUTH_SHAPES,
   normalizeAvatar,
   NOSE_SHAPES,
   SKIN_TONES,
@@ -57,7 +57,7 @@ import type { AvatarConfig, Equipped, Slot } from "@/types/avatar";
 import { RARITY_COLORS, SLOT_LABELS, type CatalogItem } from "@/types/catalog";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
-type CatId = "body" | "face" | "hair" | Slot | "moves" | "scenes";
+type CatId = "body" | "face" | "hair" | Slot | "moves" | "scenes" | "theme";
 
 const CATS: Array<{ id: CatId; label: string; icon: IconName; focus: Focus }> = [
   { id: "body", label: "Body", icon: "human", focus: "full" },
@@ -72,8 +72,9 @@ const CATS: Array<{ id: CatId; label: string; icon: IconName; focus: Focus }> = 
   { id: "accessory", label: "Extras", icon: "watch-variant", focus: "torso" },
   { id: "moves", label: "Moves", icon: "human-handsup", focus: "full" },
   { id: "scenes", label: "Scenes", icon: "image-filter-hdr", focus: "full" },
+  { id: "theme", label: "Theme", icon: "palette-outline", focus: "full" },
 ];
-const isSlot = (c: CatId): c is Slot => !["body", "face", "hair", "moves", "scenes"].includes(c);
+const isSlot = (c: CatId): c is Slot => !["body", "face", "hair", "moves", "scenes", "theme"].includes(c);
 /** Old /shop?tab= values map onto these. */
 const TAB_CAT: Record<string, CatId> = { moves: "moves", backgrounds: "scenes" };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -578,21 +579,42 @@ export default function CustomizeScreen() {
             <Chips label="Face Shape" options={FACE_SHAPES} value={avatar.faceShape ?? "oval"} onChange={(faceShape) => edit({ faceShape })} />
             <Chips label="Eye Shape" options={EYE_SHAPES} value={avatar.eyeShape ?? "round"} onChange={(eyeShape) => edit({ eyeShape })} />
             <Swatches label="Eyes" options={EYE_COLORS} value={avatar.eyeColor ?? EYE_COLORS[0]!} onChange={(eyeColor) => edit({ eyeColor })} />
-            <Chips label="Brows" options={EYEBROWS} value={avatar.eyebrows ?? "soft"} onChange={(eyebrows) => edit({ eyebrows })} />
+            <Chips
+              label="Brows"
+              options={EYEBROWS}
+              value={avatar.eyebrows ?? "soft"}
+              onChange={(eyebrows) => edit({ eyebrows })}
+              color={avatar.eyebrowColor ?? avatar.hairColor}
+              customColor={!!avatar.eyebrowColor}
+              onColorChange={(eyebrowColor) => edit({ eyebrowColor })}
+              colorTitle="Eyebrow Color"
+            />
             <Chips label="Nose" options={NOSE_SHAPES} value={avatar.noseShape ?? "button"} onChange={(noseShape) => edit({ noseShape })} />
-            <Chips label="Mouth" options={MOUTH_SHAPES} value={avatar.mouthShape ?? "neutral"} onChange={(mouthShape) => edit({ mouthShape })} />
-            <Chips label="Facial Hair" options={FACIAL_HAIR} value={avatar.facialHair ?? "none"} onChange={(facialHair) => edit({ facialHair })} />
           </>
         )}
 
         {cat === "hair" && (
           <>
             <Chips label="Style" options={HAIR_STYLES} value={avatar.hairStyle} onChange={(hairStyle) => edit({ hairStyle })} />
-            <Swatches label="Colour" options={HAIR_COLORS} value={avatar.hairColor} onChange={(hairColor) => edit({ hairColor })} />
+            <Swatches label="Color" options={HAIR_COLORS} value={avatar.hairColor} onChange={(hairColor) => edit({ hairColor })} />
+            <Chips
+              label="Facial Hair"
+              options={FACIAL_HAIR}
+              value={avatar.facialHair ?? "none"}
+              onChange={(facialHair) => edit({ facialHair })}
+              color={avatar.facialHairColor ?? avatar.hairColor}
+              customColor={!!avatar.facialHairColor}
+              onColorChange={(facialHairColor) => edit({ facialHairColor })}
+              colorTitle="Facial Hair Color"
+            />
             {equipped.hat ? (
               <Text style={[styles.note, { color: c.mutedForeground }]}>Your hat trims the hair to fit. Take it off to see the full style.</Text>
             ) : null}
           </>
+        )}
+
+        {cat === "theme" && (
+          <ThemePicker />
         )}
 
         {isSlot(cat) && starterMissing.length ? (

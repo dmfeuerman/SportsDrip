@@ -79,14 +79,16 @@ export const createProfile = callable<
 // ── account & safety (App Review 5.1.1(v), 1.2) ─────────────────────────────
 export const deleteAccount = callable<{ confirm: "DELETE" }, { ok: true }>("deleteAccount");
 export const blockUser = callable<{ otherUid: string }, { ok: true }>("blockUser");
-export const unblockUser = callable<{ otherUid: string }, { ok: true }>("unblockUser");
+export const unblockUser = (args: { otherUid: string }) =>
+  import("@/lib/onDevice").then((m) => m.unblockUser(args));
 export type ReportKind = "user" | "league_message" | "dm" | "bet_comment";
 export type ReportReason = "harassment" | "hate" | "sexual" | "spam" | "threat" | "other";
 export const reportContent = callable<
   { kind: ReportKind; targetUid: string; reason: ReportReason; path?: string; text?: string; details?: string },
   { ok: true; reportId: string }
 >("reportContent");
-export const acceptTerms = callable<{ version: number }, { ok: true; version: number }>("acceptTerms");
+export const acceptTerms = (args: { version: number }) =>
+  import("@/lib/onDevice").then((m) => m.acceptTerms(args));
 
 const checkUsernameRemote = callable<
   { username: string },
@@ -100,7 +102,8 @@ export const updateAvatar = callable<{ avatar: AvatarConfig }, { ok: true }>("up
 
 export const searchUsers = callable<{ q: string }, { results: PublicUser[] }>("searchUsers");
 
-export const setPlayLimits = callable<{ dailyPicks?: number | null; breakDays?: 1 | 7 | 30 }, { ok: true }>("setPlayLimits");
+export const setPlayLimits = (args: { dailyPicks?: number | null; breakDays?: 1 | 7 | 30 }) =>
+  import("@/lib/onDevice").then((m) => m.setPlayLimits(args));
 
 export interface WeeklyQuest {
   id: string;
@@ -146,7 +149,8 @@ export function reportChallengeAction(action: ChallengeAction) {
   recordChallengeActionRemote({ action }).catch(() => {});
 }
 
-export const setAlertPrefs = callable<{ sweat?: boolean; quietHours?: boolean; tz?: string }, { ok: true }>("setAlertPrefs");
+export const setAlertPrefs = (args: { sweat?: boolean; quietHours?: boolean; tz?: string }) =>
+  import("@/lib/onDevice").then((m) => m.setAlertPrefs(args));
 
 export const makeDailyPick = callable<
   { side: "home" | "away" },
@@ -166,9 +170,8 @@ export const placeFreeBet = callable<
   { ok: true; betId: string; day: string; winnings: number; duplicate: boolean; streak: number | null; milestone: number | null }
 >("placeFreeBet");
 
-export const updateFavoriteTeams = callable<{ teams: FavoriteTeam[]; reminders?: boolean }, { ok: true; teams: FavoriteTeam[] }>(
-  "updateFavoriteTeams"
-);
+export const updateFavoriteTeams = (args: { teams: FavoriteTeam[]; reminders?: boolean }) =>
+  import("@/lib/onDevice").then((m) => m.updateFavoriteTeams(args));
 
 // ── player profiles ────────────────────────────────────────────────────────
 export interface ProfileBet {
@@ -238,7 +241,8 @@ export interface PlayerProfile {
 }
 
 export const getPlayerProfile = callable<{ uid: string; leagueId?: string }, PlayerProfile>("getPlayerProfile");
-export const setFeaturedTrophy = callable<{ trophyId: string | null }, { ok: true; trophyId: string | null }>("setFeaturedTrophy");
+export const setFeaturedTrophy = (args: { trophyId: string | null }) =>
+  import("@/lib/onDevice").then((m) => m.setFeaturedTrophy(args));
 
 // ── push ───────────────────────────────────────────────────────────────────
 export const registerPushToken = callable<
@@ -470,7 +474,8 @@ export const purchaseMove = callable<
   { ok: true; balance: number | null; moveId: string; equipped: boolean }
 >("purchaseMove");
 
-export const setMoveLoadout = callable<{ moves: string[] }, { ok: true; moves: string[] }>("setMoveLoadout");
+export const setMoveLoadout = (args: { moves: string[] }) =>
+  import("@/lib/onDevice").then((m) => m.setMoveLoadout(args));
 
 // ── backgrounds ────────────────────────────────────────────────────────────
 export const purchaseBackground = callable<
@@ -478,7 +483,8 @@ export const purchaseBackground = callable<
   { ok: true; balance: number | null; backgroundId: string }
 >("purchaseBackground");
 
-export const setBackground = callable<{ backgroundId: string | null }, { ok: true; backgroundId: string }>("setBackground");
+export const setBackground = (args: { backgroundId: string | null }) =>
+  import("@/lib/onDevice").then((m) => m.setBackground(args));
 
 // ── levels & invites ───────────────────────────────────────────────────────
 export interface ReferralSummary {
@@ -717,7 +723,8 @@ export type TauntInput =
   | { scope: "league"; leagueId: string; matchupId: string; receiverUid: string; moveId: string }
   | { scope: "dm"; receiverUid: string; matchupId: string; moveId: string };
 export const sendTaunt = callable<TauntInput, { ok: true; id: string }>("sendTaunt");
-export const setMuteTaunts = callable<{ mute: boolean }, { ok: true }>("setMuteTaunts");
+export const setMuteTaunts = (args: { mute: boolean }) =>
+  import("@/lib/onDevice").then((m) => m.setMuteTaunts(args));
 
 export const registerLiveActivity = callable<{ gameId: string; token: string; side: "home" | "away" }, { ok: true }>("registerLiveActivity");
 

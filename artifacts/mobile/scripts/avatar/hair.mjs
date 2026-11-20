@@ -82,7 +82,7 @@ function clearOfBody(d, x, y, z, gap = 0.004) {
 const front = (phi) => Math.max(0, Math.cos(phi));
 
 export const HAIR = {
-  buzz: (x, y, z) => shell(x, y, z, { front: 0.98, side: 1.5, back: 2.36, burn: 0.12 }, () => 0.0026, 0.0018),
+  buzz: (x, y, z) => shell(x, y, z, { front: 0.96, side: 1.5, back: 2.34, burn: 0.1 }, (_th, _ph, v) => 0.0015 * (1 - 0.35 * v * v), 0.0012),
 
   short_crop: (x, y, z) =>
     shell(
@@ -158,35 +158,39 @@ export const HAIR = {
   long: (x, y, z) => {
     const ax = Math.abs(x);
     const top = (th, ph) => {
-      let t = 0.0145 + 0.0045 * Math.abs(Math.sin(ph)) * sstep(0.6, 1.2, th);
+      let t = 0.0155 + 0.006 * Math.abs(Math.sin(ph)) * sstep(0.55, 1.2, th);
       // Middle part.
-      t -= 0.004 * gauss(Math.sin(ph) * Math.sin(th), 0, 0.012) * sstep(0.8, 0.3, th) * front(ph);
-      t -= combed(th, ph, 34, 0.0025, 3);
+      t -= 0.0038 * gauss(Math.sin(ph) * Math.sin(th), 0, 0.012) * sstep(0.8, 0.3, th) * front(ph);
+      t -= combed(th, ph, 34, 0.0022, 3);
       return t;
     };
-    let d = shell(x, y, z, { front: 0.92, side: 1.62, back: 2.4, burn: 0.0 }, top, 0.004);
-    // A full bob: the head's widest section dropped straight down the back and
-    // sides, flaring a little, ends turned under at the jaw / nape.
-    const Y0 = 1.65;
-    if (y < Y0 + 0.01 && y > 1.47 && z < 0.1) {
+    let d = shell(x, y, z, { front: 0.92, side: 1.62, back: 2.4, burn: 0.0 }, top, 0.005);
+    // A full bob: flows continuously from the crown down the back and sides
+    // with a smooth top cap so there is no horizontal seam at eye level.
+    const Y0 = 1.66;
+    if (y < Y0 + 0.06 && y > 1.47 && z < 0.12) {
       const a = Math.atan2(x, -(z - CZ)); // 0 at the back
-      const yBot = 1.505 + 0.032 * Math.sin(a) ** 2 * sstep(0.4, 1.2, Math.abs(a));
+      const yBot = 1.505 + 0.03 * Math.sin(a) ** 2 * sstep(0.4, 1.2, Math.abs(a));
       const k = sstep(Y0, yBot, y);
-      const T = 0.0185 + 0.009 * k - 0.007 * sstep(yBot + 0.025, yBot, y);
-      const s0 = scalpD(x, Y0, z);
+      // Extra lateral fullness over the ears (centered at z = -0.008) so ear tips never poke through.
+      const earClear = 0.014 * gauss(z, -0.008, 0.045) * sstep(0.055, 0.09, ax);
+      const T = 0.017 + 0.0085 * k + earClear - 0.0065 * sstep(yBot + 0.025, yBot, y);
+      // Sample the scalp at the current height above Y0 so the curtain tapers cleanly into the crown.
+      const s0 = scalpD(x, Math.max(y, Y0), z);
       let fall = s0 - T;
-      fall = smax(fall, -(s0 - T + 0.026), 0.008); // hollow inside
+      fall = smax(fall, -(s0 - T + 0.028), 0.008); // hollow inside
+      fall = smax(fall, y - (Y0 + 0.012), 0.026); // smooth blend into crown cap
       fall = smax(fall, yBot - y, 0.012);
       // Open at the front for the face; side locks reach forward past the ears.
-      const open = z - (0.02 + 0.075 * sstep(0.05, 0.1, ax) * sstep(1.51, 1.6, y));
-      fall = smax(fall, open, 0.012);
+      const open = z - (0.018 + 0.072 * sstep(0.05, 0.1, ax) * sstep(1.51, 1.61, y));
+      fall = smax(fall, open, 0.014);
       // Strands running down.
-      fall -= 0.0022 * Math.abs(Math.sin(a * 18 + noise3(x * 60, y * 15, z * 60) * 1.4)) * sstep(Y0, Y0 - 0.03, y);
-      d = smin(d, fall, 0.012);
+      fall -= 0.002 * Math.abs(Math.sin(a * 18 + noise3(x * 60, y * 15, z * 60) * 1.4)) * sstep(Y0 + 0.01, Y0 - 0.03, y);
+      d = smin(d, fall, 0.018);
     }
-    // Not over the face, the ears' fronts or the body.
+    // Keep clear of the scalp and front face (z > 0.025 avoids carving holes around the ears).
     d = smax(d, -(scalpD(x, y, z) - 0.0012), 0.003);
-    if (y < 1.66 && z > 0.0) d = smax(d, -(headD("round", x, y, z) - 0.003), 0.004);
+    if (y < 1.66 && z > 0.025) d = smax(d, -(headD("round", x, y, z) - 0.003), 0.004);
     return clearOfBody(d, x, y, z, 0.005);
   },
 
@@ -333,7 +337,7 @@ const NAPE = [CX, CY - 0.075, CZ];
  * [dx, dy, dz, anisotropy strength] for the anisotropic highlight.
  */
 export const HAIR_DETAIL = {
-  buzz: (x, y, z) => 0.00025 * noise3(x * 500, y * 500, z * 500),
+  buzz: (x, y, z) => 0.00032 * noise3(x * 750, y * 750, z * 750),
   short_crop: (x, y, z) => combedStrands(x, y, z, 170, 0.0006),
   fade: (x, y, z) => combedStrands(x, y, z, 170, 0.0006) * sstep(1.62, 1.68, y) + 0.0002 * noise3(x * 500, y * 500, z * 500),
   curls: (x, y, z) => coils(x, y, z, 380, 0.0009),
@@ -343,7 +347,10 @@ export const HAIR_DETAIL = {
     const a = Math.atan2(x - NAPE[0], y - NAPE[1]);
     return y > 1.6 ? strands(a, 260, 0.0004, x, y, z, 0.1) : fallingStrands(x, y, z, 260, 0.0004);
   },
-  long: (x, y, z) => (y > LONG_Y0 + 0.01 ? combedStrands(x, y, z, 180, 0.0006) : fallingStrands(x, y, z, 200, 0.0007)) ,
+  long: (x, y, z) => {
+    const k = sstep(LONG_Y0 + 0.025, LONG_Y0 - 0.025, y);
+    return combedStrands(x, y, z, 180, 0.0006) * (1 - k) + fallingStrands(x, y, z, 200, 0.0007) * k;
+  },
   ponytail: (x, y, z) => {
     if (z < -0.13 && y < 1.68) return fallingStrands(x, y, z, 120, 0.0006);
     return strands(azimuth(x, y, z, [CX, CY, CZ], [TIE[0] - CX, TIE[1] - CY, TIE[2] - CZ]), 200, 0.0005, x, y, z, 0.2);
@@ -351,7 +358,7 @@ export const HAIR_DETAIL = {
 };
 
 export const HAIR_FLOW = {
-  buzz: (x, y, z) => [...fromPole(x, y, z), 0.25],
+  buzz: (x, y, z) => [...fromPole(x, y, z), 0.0],
   short_crop: (x, y, z) => [...fromPole(x, y, z), 0.7],
   fade: (x, y, z) => [...fromPole(x, y, z), 0.6],
   curls: (x, y, z) => {

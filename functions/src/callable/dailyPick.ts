@@ -7,6 +7,7 @@ import { db, FieldValue, requireAuth } from "../lib/economy";
 import { activeStreakCount, advanceStreak, freeBetStreakBonus, nyDay, STREAK_MILESTONES, type StreakState } from "../lib/streak";
 import { recentEmptyDays } from "../lib/streakDays";
 import { checkAchievements } from "../lib/achievements";
+import { autoClaimSoon } from "./levelChallenges";
 import { requirePricedMarket } from "../lib/pricing";
 import { checkPlayLimits } from "../lib/playLimits";
 
@@ -238,6 +239,8 @@ export const placeFreeBet = onCall({ region: "us-central1" }, async (req) => {
     return { duplicate: false, first: true, winnings, streak, milestone };
   });
 
-  if (out.first) await checkAchievements(uid).catch(() => []);
+  if (out.first) {
+    await Promise.all([checkAchievements(uid).catch(() => []), autoClaimSoon(uid)]);
+  }
   return { ok: true, betId, day, winnings: out.winnings, duplicate: out.duplicate, streak: out.streak?.count ?? null, milestone: out.milestone };
 });

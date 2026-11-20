@@ -2,7 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.syncLiveGames = exports.pruneGames = exports.syncGames = void 0;
 exports.sendClutchAlerts = sendClutchAlerts;
+exports.writeChangedGamesWithTransitions = writeChangedGamesWithTransitions;
 exports.writeChangedGames = writeChangedGames;
+exports.runPruneGames = runPruneGames;
 exports.liveGamesWithStakes = liveGamesWithStakes;
 exports.refreshLiveGames = refreshLiveGames;
 const node_crypto_1 = require("node:crypto");
@@ -15,6 +17,7 @@ const gameState_1 = require("../lib/gameState");
 const notify_1 = require("../lib/notify");
 const notifyModel_1 = require("../lib/notifyModel");
 const sportsProvider_1 = require("../lib/sportsProvider");
+const settleBets_1 = require("./settleBets");
 const sweat_1 = require("./sweat");
 /**
  * Sends a one-time clutch alert to everyone with league stakes on a live game
@@ -113,8 +116,12 @@ function gameHash(g) {
     const stable = { ...rest, model: model ? { ...model, pricedAt: 0 } : model };
     return (0, node_crypto_1.createHash)("sha1").update(JSON.stringify(stable)).digest("base64").slice(0, 12);
 }
-/** Writes the games whose content changed; returns how many were written. `prune` drops fingerprints of games no longer in the feed. */
-async function writeChangedGames(games, prune, now = Date.now()) {
+/**
+ * Writes the games whose content changed, capturing previous status/score
+ * snapshots for changed games so syncGames can run kickoff/flash/final
+ * settlement directly without an onDocumentUpdated trigger on games/{id}.
+ */
+async function writeChangedGamesWithTransitions(games, prune, now = Date.now()) {
     const snap = await HASHES().get();
     const known = (snap.get("h") ?? {});
     const changed = [];
@@ -126,6 +133,22 @@ async function writeChangedGames(games, prune, now = Date.now()) {
             changed.push(g);
             nextHashes[g.id] = h;
         }
+    }
+    // Only fetch prior docs for games that are non-upcoming (kickoff/live/final transitions).
+    const candidatePrev = changed.filter((g) => g.status !== "upcoming");
+    const prevById = new Map();
+    if (candidatePrev.length > 0) {
+        const prevSnaps = await economy_1.db.getAll(...candidatePrev.map((g) => economy_1.db.collection("games").doc(g.id)));
+        candidatePrev.forEach((g, i) => {
+            const doc = prevSnaps[i];
+            prevById.set(g.id, doc?.exists
+                ? {
+                    status: doc.get("status"),
+                    homeScore: doc.get("homeScore") ?? null,
+                    awayScore: doc.get("awayScore") ?? null,
+                }
+                : null);
+        });
     }
     for (let i = 0; i < changed.length; i += 400) {
         const batch = economy_1.db.batch();
@@ -149,14 +172,34 @@ async function writeChangedGames(games, prune, now = Date.now()) {
         else
             await HASHES().set({ h: nextHashes });
     }
-    return changed.length;
+    const transitions = [];
+    for (const g of candidatePrev) {
+        const prev = prevById.get(g.id) ?? null;
+        const next = {
+            status: g.status,
+            homeScore: g.homeScore ?? null,
+            awayScore: g.awayScore ?? null,
+        };
+        const statusChanged = prev?.status !== next.status;
+        const scoreChanged = (prev?.homeScore ?? null) !== next.homeScore || (prev?.awayScore ?? null) !== next.awayScore;
+        if (statusChanged || scoreChanged) {
+            transitions.push({ gameId: g.id, prev, next });
+        }
+    }
+    return { written: changed.length, transitions };
+}
+/** Writes the games whose content changed; returns how many were written. `prune` drops fingerprints of games no longer in the feed. */
+async function writeChangedGames(games, prune, now = Date.now()) {
+    const { written } = await writeChangedGamesWithTransitions(games, prune, now);
+    return written;
 }
 /**
- * Pulls the scoreboard for every configured sport and writes it to games/{id}.
- * Tightened to a 1-minute schedule so games within 30 minutes of kickoff carry
- * fresh prices.
+ * Pulls the scoreboard for every configured sport and writes changed games to
+ * games/{id}, then directly runs kickoff/flash/final settlement for any game
+ * that transitioned (replacing the onGameFinal document trigger and the
+ * 1-minute syncLiveGames sleep loop).
  */
-exports.syncGames = (0, onlineSchedule_1.onSchedule)({ schedule: "*/1 * * * *", region: "us-central1", timeoutSeconds: 120, retryCount: 1 }, async () => {
+exports.syncGames = (0, onlineSchedule_1.onSchedule)({ schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180, retryCount: 1 }, async () => {
     const fetched = await (0, sportsProvider_1.fetchGames)();
     const failures = fetched.failures;
     // Unpriced upcoming games get the shared model line (same for every user).
@@ -167,7 +210,10 @@ exports.syncGames = (0, onlineSchedule_1.onSchedule)({ schedule: "*/1 * * * *", 
         firebase_functions_1.logger.error("sportsProvider returned nothing — leaving previous cache in place");
         return;
     }
-    const written = await writeChangedGames(games, true);
+    const { written, transitions } = await writeChangedGamesWithTransitions(games, true);
+    for (const t of transitions) {
+        await (0, settleBets_1.handleGameTransition)(t.gameId, t.prev, t.next).catch((err) => firebase_functions_1.logger.error("handleGameTransition failed", { gameId: t.gameId, error: String(err) }));
+    }
     const expired = await expireMissing(new Set(games.map((g) => g.id)));
     const clutch = await sendClutchAlerts(games, Date.now());
     const sweat = await (0, sweat_1.sendSweatAlerts)(games, Date.now()).catch((err) => {
@@ -178,12 +224,13 @@ exports.syncGames = (0, onlineSchedule_1.onSchedule)({ schedule: "*/1 * * * *", 
         lastRunAt: economy_1.FieldValue.serverTimestamp(),
         gameCount: games.length,
         written,
+        transitions: transitions.length,
         expired,
         clutch,
         sweat,
         failures,
     }, { merge: true });
-    firebase_functions_1.logger.info("syncGames complete", { count: games.length, written, clutch });
+    firebase_functions_1.logger.info("syncGames complete", { count: games.length, written, transitions: transitions.length, clutch });
 });
 async function expireMissing(seen) {
     const cutoff = Date.now() - 6 * 3_600_000;
@@ -208,9 +255,9 @@ async function expireMissing(seen) {
         firebase_functions_1.logger.info("expired stale games", { count: n });
     return n;
 }
-/** Sweeps games that finished more than 48h ago. */
-exports.pruneGames = (0, onlineSchedule_1.onSchedule)({ schedule: "0 5 * * *", region: "us-central1", timeoutSeconds: 300 }, async () => {
-    const cutoff = Date.now() - 48 * 3_600_000;
+/** Sweeps games that finished more than 48h ago. Called by dailyMaintenance. */
+async function runPruneGames(now = Date.now()) {
+    const cutoff = now - 48 * 3_600_000;
     const stale = await economy_1.db
         .collection("games")
         .where("status", "==", "final")
@@ -218,7 +265,7 @@ exports.pruneGames = (0, onlineSchedule_1.onSchedule)({ schedule: "0 5 * * *", r
         .limit(400)
         .get();
     if (stale.empty)
-        return;
+        return 0;
     const batch = economy_1.db.batch();
     let deleted = 0;
     for (const d of stale.docs) {
@@ -237,9 +284,14 @@ exports.pruneGames = (0, onlineSchedule_1.onSchedule)({ schedule: "0 5 * * *", r
         deleted++;
     }
     if (deleted === 0)
-        return;
+        return 0;
     await batch.commit();
     firebase_functions_1.logger.info("pruneGames", { deleted });
+    return deleted;
+}
+/** Legacy standalone cron — consolidated into dailyMaintenance in index.ts. */
+exports.pruneGames = (0, onlineSchedule_1.onSchedule)({ schedule: "0 5 * * *", region: "us-central1", timeoutSeconds: 300 }, async () => {
+    await runPruneGames();
 });
 /** Live games someone has something riding on: a sweat doc, a pending global bet, a pending league bet, or an open flash pick. */
 async function liveGamesWithStakes() {

@@ -141,12 +141,13 @@ export function chainFits() {
       out[key] = { hidden: true };
       continue;
     }
-    // Spread the path outward: horizontal scale about the socket, plus a little lift at the back of the neck.
+    // Push forward cleanly over thicker tops (hoodies, jerseys, jackets) while keeping sides snug.
     let mean = 0;
     for (const p of path) mean += Math.hypot(p[0] - S[0], p[2] - S[2]);
     mean /= path.length;
-    const k = 1 + (need * 1.15) / mean;
-    out[key] = { scale: [r4(k), 1, r4(k)], position: [0, r4(need * 0.35), r4(need * 0.25)] };
+    const kz = 1 + (need * 1.15) / mean;
+    const kx = 1 + (need * 0.65) / mean;
+    out[key] = { scale: [r4(kx), 1, r4(kz)], position: [0, r4(need * 0.2), r4(need * 0.55)] };
   }
   return out;
 }

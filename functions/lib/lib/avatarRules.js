@@ -286,8 +286,12 @@ function appearanceErrors(a) {
         errs.push("eyeShape");
     if (x.eyebrows !== undefined && !inList(x.eyebrows, exports.EYEBROW_IDS))
         errs.push("eyebrows");
+    if (x.eyebrowColor !== undefined && !colorIn(x.eyebrowColor, exports.HAIR_COLORS))
+        errs.push("eyebrowColor");
     if (x.facialHair !== undefined && !inList(x.facialHair, exports.FACIAL_HAIR_IDS))
         errs.push("facialHair");
+    if (x.facialHairColor !== undefined && !colorIn(x.facialHairColor, exports.HAIR_COLORS))
+        errs.push("facialHairColor");
     if (x.noseShape !== undefined && !inList(x.noseShape, exports.NOSE_SHAPE_IDS))
         errs.push("noseShape");
     if (x.mouthShape !== undefined && !inList(x.mouthShape, exports.MOUTH_SHAPE_IDS))
@@ -296,7 +300,7 @@ function appearanceErrors(a) {
         errs.push("faceStyle");
     if (x.base !== undefined && !inList(x.base, exports.BASE_MODELS))
         errs.push("base");
-    const known = ["height", "bodyType", "bodyFrame", "skinTone", "hairStyle", "hairColor", "faceShape", "eyeColor", "eyeShape", "eyebrows", "facialHair", "noseShape", "mouthShape", "faceStyle", "base"];
+    const known = ["height", "bodyType", "bodyFrame", "skinTone", "hairStyle", "hairColor", "faceShape", "eyeColor", "eyeShape", "eyebrows", "eyebrowColor", "facialHair", "facialHairColor", "noseShape", "mouthShape", "faceStyle", "base"];
     for (const k of Object.keys(x))
         if (!known.includes(k))
             errs.push(k);
@@ -310,6 +314,8 @@ function appearanceErrors(a) {
 function sanitizeAppearance(a) {
     const x = (a && typeof a === "object" ? a : {});
     const d = exports.DEFAULT_AVATAR;
+    const eyebrowColor = colorIn(x.eyebrowColor, exports.HAIR_COLORS);
+    const facialHairColor = colorIn(x.facialHairColor, exports.HAIR_COLORS);
     return {
         height: unit(x.height) ?? d.height,
         bodyType: unit(x.bodyType) ?? d.bodyType,
@@ -321,7 +327,9 @@ function sanitizeAppearance(a) {
         eyeColor: colorIn(x.eyeColor, exports.EYE_COLORS) ?? d.eyeColor,
         eyeShape: inList(x.eyeShape, exports.EYE_SHAPE_IDS) ?? d.eyeShape,
         eyebrows: inList(x.eyebrows, exports.EYEBROW_IDS) ?? d.eyebrows,
+        ...(eyebrowColor ? { eyebrowColor } : {}),
         facialHair: inList(x.facialHair, exports.FACIAL_HAIR_IDS) ?? d.facialHair,
+        ...(facialHairColor ? { facialHairColor } : {}),
         noseShape: inList(x.noseShape, exports.NOSE_SHAPE_IDS) ?? d.noseShape,
         mouthShape: inList(x.mouthShape, exports.MOUTH_SHAPE_IDS) ?? d.mouthShape,
         faceStyle: inList(x.faceStyle, exports.FACE_STYLE_IDS) ?? d.faceStyle,

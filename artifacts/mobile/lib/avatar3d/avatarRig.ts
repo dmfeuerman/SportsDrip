@@ -157,25 +157,47 @@ interface GarmentMeta {
 const SOCKET_PREFIX = "Socket_";
 const hasMorphs = (m: THREE.Mesh) => !!m.morphTargetDictionary && Object.keys(m.morphTargetDictionary).length > 0;
 
-/** Small, cheap upgrades over the exported materials: glossy eyes, warm skin, combed hair. */
+/**
+ * Stylized-realistic subsurface scattering (Fortnite-style warm wrap lighting)
+ * injected into the skin fragment shader: warms the shadow terminator and adds
+ * soft grazing translucency without washing out dark skin tones.
+ */
+function applySkinSSS(shader: THREE.WebGLProgramParametersWithUniforms) {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    "#include <lights_fragment_end>",
+    `#include <lights_fragment_end>
+    {
+      float sssNdotV = clamp( dot( normal, normalize( vViewPosition ) ), 0.0, 1.0 );
+      float sssRim = pow( 1.0 - sssNdotV, 2.2 ) * 0.22;
+      float sssLum = dot( reflectedLight.directDiffuse, vec3( 0.299, 0.587, 0.114 ) );
+      float sssTerm = smoothstep( 0.0, 0.35, sssLum ) * ( 1.0 - smoothstep( 0.2, 0.75, sssLum ) );
+      vec3 sssTint = diffuseColor.rgb * vec3( 1.0, 0.38, 0.22 );
+      reflectedLight.indirectDiffuse += sssTint * ( sssTerm * 0.32 + sssRim * 0.45 );
+    }`
+  );
+}
+
+/** Small, cheap upgrades over the exported materials: glossy eyes, warm SSS skin, combed hair. */
 function upgradeMaterial(src: THREE.MeshStandardMaterial, opts: { strands?: boolean } = {}): THREE.MeshStandardMaterial {
   if (src.name === "eye_white" || src.name === "iris" || src.name === "pupil" || src.name === "lens") {
     const m = new THREE.MeshPhysicalMaterial();
     THREE.MeshStandardMaterial.prototype.copy.call(m, src);
     m.clearcoat = 1;
-    m.clearcoatRoughness = src.name === "lens" ? 0.02 : 0.06;
+    m.clearcoatRoughness = src.name === "lens" ? 0.02 : 0.05;
     m.name = src.name;
     return m;
   }
   const m = src.clone();
   if (m.name === "skin") {
-    // A little warm self-light stands in for subsurface scattering in the shadows.
+    // Subtle ambient warmth paired with terminator/rim subsurface scattering.
     m.emissive = new THREE.Color("#3a1408");
-    m.emissiveIntensity = 0.18;
+    m.emissiveIntensity = 0.04;
+    m.onBeforeCompile = applySkinSSS;
+    m.customProgramCacheKey = () => "skinSSS";
   }
   if (m.name === "hair" && opts.strands && (m as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) {
-    // The hair's TANGENT runs along the strands: a stretched highlight across them.
-    (m as THREE.MeshPhysicalMaterial).anisotropy = 0.55;
+    // The hair's TANGENT runs along the strands: a crisp stylized highlight band across them.
+    (m as THREE.MeshPhysicalMaterial).anisotropy = 0.72;
   }
   if (m.name === "beard") {
     // A thin shell over the skin at its edges.
@@ -278,7 +300,7 @@ export class AvatarRig {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
         m.material = this.material(m.material as THREE.MeshStandardMaterial);
-        m.castShadow = true;
+        m.castShadow = !m.name.startsWith("Brows_") && !m.name.startsWith("Lashes_");
         m.receiveShadow = true;
         if ((m as THREE.SkinnedMesh).isSkinnedMesh) m.frustumCulled = false;
         this.baseMeshes.push(m);
@@ -327,14 +349,16 @@ export class AvatarRig {
     }
     const skin = new THREE.Color(a.skinTone);
     const hair = new THREE.Color(a.hairColor);
+    const brow = a.eyebrowColor ? new THREE.Color(a.eyebrowColor) : hair.clone().multiplyScalar(0.78);
+    const beard = a.facialHairColor ? new THREE.Color(a.facialHairColor) : hair;
     this.tint("skin", (c) => c.copy(skin), (c, out) => out.copy(c).lerp(SKIN_SHEEN, 0.4));
     this.tint("hair", (c) => c.copy(hair));
-    this.tint("brow", (c) => c.copy(hair).multiplyScalar(0.78));
-    this.tint("lash", (c) => c.copy(hair).multiplyScalar(0.35));
-    // Stubble reads as shadow on the skin, so it's a blend, not the hair colour.
-    this.tint("stubble", (c) => c.copy(skin).lerp(hair, 0.55).multiplyScalar(0.85));
+    this.tint("brow", (c) => c.copy(brow));
+    this.tint("lash", (c) => c.copy(brow).multiplyScalar(0.45));
+    // Stubble reads as shadow on the skin, so it's a blend, not the hair color.
+    this.tint("stubble", (c) => c.copy(skin).lerp(beard, 0.55).multiplyScalar(0.85));
     // Facial hair a shade lighter than the head hair: it's finer and catches more light.
-    this.tint("beard", (c) => c.copy(hair).lerp(skin, 0.12), (c, out) => out.copy(c));
+    this.tint("beard", (c) => c.copy(beard).lerp(skin, 0.12), (c, out) => out.copy(c));
     if (a.eyeColor) this.tint("iris", (c) => c.set(a.eyeColor!));
 
     // Build is a blendshape pair on everything skinned; height a uniform scale.
@@ -342,7 +366,8 @@ export class AvatarRig {
     this.shape = { buildSlim: Math.max(0, -b), buildBroad: Math.max(0, b), frameFem: a.bodyFrame === "fem" ? 1 : 0 };
     this.applyFrame(a.bodyFrame === "fem" ? "fem" : "masc");
     for (const [field, values] of Object.entries(FACE_OPTIONS)) {
-      const chosen = a[field as keyof typeof FACE_OPTIONS];
+      // Always use the sculpted default mouth; ignore legacy full/wide mouthShape values.
+      const chosen = field === "mouthShape" ? "neutral" : a[field as keyof typeof FACE_OPTIONS];
       for (const [value, morph] of Object.entries(values)) this.shape[morph] = chosen === value ? 1 : 0;
     }
     this.root.scale.setScalar(0.93 + a.height * 0.14);
@@ -419,14 +444,15 @@ export class AvatarRig {
           return out.applyMatrix4(fromWorld);
         };
         s = { geo: m.geometry, mat: m.material as THREE.Material, softGeo: smoothAbsShading(m.geometry, place), softMat: (m.material as THREE.MeshStandardMaterial).clone() };
-        // The copy's vertex alpha (set by smoothAbsShading) scales the normal map per vertex.
+        // The copy's vertex alpha (set by smoothAbsShading) scales the normal map per vertex, keeping skin SSS.
         s.softMat.onBeforeCompile = (shader) => {
+          applySkinSSS(shader);
           shader.fragmentShader = shader.fragmentShader.replace(
             "#include <normal_fragment_maps>",
             "#include <normal_fragment_maps>\n#if defined( USE_COLOR_ALPHA ) && defined( USE_NORMALMAP_TANGENTSPACE )\n  normal = normalize( mix( nonPerturbedNormal, normal, vColor.a ) );\n#endif"
           );
         };
-        s.softMat.customProgramCacheKey = () => "softAbs";
+        s.softMat.customProgramCacheKey = () => "skinSSS_softAbs";
         // Registered with the instance's materials so skin-tone changes reach it.
         this.mats.set(s.softMat, s.softMat);
         this.absSoft.set(m, s);
@@ -449,8 +475,10 @@ export class AvatarRig {
       const bone = src.parent && this.bones.get(src.parent.name);
       if (!bone) return;
       const m = src.clone() as THREE.Mesh;
-      m.material = this.material(src.material as THREE.MeshStandardMaterial, { strands: !!src.geometry.attributes.tangent });
-      m.castShadow = true;
+      const mat = this.material(src.material as THREE.MeshStandardMaterial, { strands: !!src.geometry.attributes.tangent });
+      m.material = mat;
+      // Stubble and beard edge shadows sit flush on the skin; casting shadows creates floating dark bands.
+      m.castShadow = mat.name !== "stubble" && !m.name.startsWith("BeardShadow_");
       m.receiveShadow = true;
       bone.add(m);
       meshes.push(m);
@@ -516,7 +544,7 @@ export class AvatarRig {
           (c as THREE.MeshStandardMaterial).color.copy(tint(p, s));
           // Fabric sheen takes the cloth's own colour (a white sheen washes dark cloth out).
           const ph = c as THREE.MeshPhysicalMaterial;
-          if (ph.isMeshPhysicalMaterial && ph.sheen > 0) ph.sheenColor.copy(ph.color).lerp(new THREE.Color("#ffffff"), 0.35);
+          if (ph.isMeshPhysicalMaterial && ph.sheen > 0) ph.sheenColor.copy(ph.color).lerp(new THREE.Color("#ffffff"), 0.42);
         }
         if (metal && srcMat.name === "metal") (c as THREE.MeshStandardMaterial).color.copy(metal);
         const dark = PATTERN_MATERIALS[srcMat.name];
@@ -644,6 +672,11 @@ export class AvatarRig {
     const w = { ...this.face };
     for (const [k, v] of Object.entries(this.faceOverride)) w[k as Expression] = v!;
     const apply = (m: THREE.Mesh) => {
+      if (m.name === "Teeth") {
+        // Hide teeth unless the jaw actually opens (e.g. cheer or open-mouth dance grins).
+        m.visible = this.baseVisible && w.jawOpen > 0.08;
+        return;
+      }
       if (!m.visible || !hasMorphs(m)) return;
       const dict = m.morphTargetDictionary!;
       for (const e of EXPRESSIONS) {
@@ -1159,8 +1192,8 @@ function studioEnvironment(gl: THREE.WebGLRenderer | undefined): THREE.Texture |
 export function addStudioLights(scene: THREE.Scene | THREE.Object3D, gl?: THREE.WebGLRenderer, { shadows = false } = {}) {
   const g = new THREE.Group();
   g.add(new THREE.HemisphereLight("#f1f5f2", "#3b423e", 0.75));
-  const key = new THREE.DirectionalLight("#fff3e6", 2.1);
-  key.position.set(2.2, 4.2, 3.2);
+  const key = new THREE.DirectionalLight("#fff3e6", 2.15);
+  key.position.set(2.0, 3.5, 3.6);
   if (shadows) {
     key.castShadow = true;
     key.shadow.mapSize.set(1024, 1024);
@@ -1177,11 +1210,11 @@ export function addStudioLights(scene: THREE.Scene | THREE.Object3D, gl?: THREE.
     key.target.position.set(0, 0.9, 0);
     g.add(key.target);
   }
-  const fill = new THREE.DirectionalLight("#dfe8ff", 0.55);
-  fill.position.set(-2.6, 1.2, 3.2);
-  const rim = new THREE.DirectionalLight("#ffb547", 1.25);
+  const fill = new THREE.DirectionalLight("#dfe8ff", 0.72);
+  fill.position.set(-2.6, 1.4, 3.4);
+  const rim = new THREE.DirectionalLight("#ffb547", 1.3);
   rim.position.set(-3, 2.4, -2.6);
-  const rim2 = new THREE.DirectionalLight("#a9d4ff", 0.8);
+  const rim2 = new THREE.DirectionalLight("#a9d4ff", 0.85);
   rim2.position.set(3, 1.8, -3);
   g.add(key, fill, rim, rim2);
   scene.add(g);
@@ -1189,7 +1222,7 @@ export function addStudioLights(scene: THREE.Scene | THREE.Object3D, gl?: THREE.
   const s = scene as THREE.Scene;
   if (env && s.isScene) {
     s.environment = env;
-    s.environmentIntensity = 0.42;
+    s.environmentIntensity = 0.5;
   }
   return g;
 }

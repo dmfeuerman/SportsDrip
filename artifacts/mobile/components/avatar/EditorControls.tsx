@@ -85,7 +85,7 @@ export function Swatches({ label, options, value, onChange, custom = true }: { l
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ selected: !preset }}
-            accessibilityLabel={`${label}: pick a custom colour`}
+            accessibilityLabel={`${label}: pick a custom color`}
             onPress={() => {
               tick();
               setWheel(true);
@@ -121,8 +121,28 @@ const RAINBOW = Array.from({ length: 24 }, (_, i) => {
   return { d: `M ${R} ${R} L ${p(a0)} A ${R} ${R} 0 0 1 ${p(a1)} Z`, fill: hsvToHex({ h: (i / 24) * 360, s: 0.85, v: 1 }) };
 });
 
-export function Chips<T extends string>({ label, options, value, onChange }: { label: string; options: Array<{ id: T; label: string }>; value: T; onChange: (v: T) => void }) {
+export function Chips<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  color,
+  customColor,
+  onColorChange,
+  colorTitle,
+}: {
+  label: string;
+  options: Array<{ id: T; label: string }>;
+  value: T;
+  onChange: (v: T) => void;
+  color?: string;
+  customColor?: boolean;
+  onColorChange?: (hex: string) => void;
+  colorTitle?: string;
+}) {
   const c = useColors();
+  const [wheel, setWheel] = useState(false);
+  const wheelColor = color ?? "#2B1B12";
   return (
     <Field label={label}>
       <View style={styles.wrap}>
@@ -143,7 +163,34 @@ export function Chips<T extends string>({ label, options, value, onChange }: { l
             </Pressable>
           );
         })}
+        {onColorChange ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: !!customColor }}
+            accessibilityLabel={`${colorTitle ?? label}: pick a custom color`}
+            onPress={() => {
+              tick();
+              setWheel(true);
+            }}
+            style={[styles.swatchRing, { borderColor: customColor ? c.primary : "transparent" }]}
+          >
+            <View style={styles.swatch}>
+              <Svg width={34} height={34} pointerEvents="none">
+                {RAINBOW.map((w, i) => (
+                  <Path key={i} d={w.d} fill={w.fill} />
+                ))}
+                <Circle cx={17} cy={17} r={10} fill={customColor ? wheelColor : c.card} stroke="#FFFFFF" strokeWidth={1.5} />
+              </Svg>
+              {!customColor ? (
+                <View style={styles.plus} pointerEvents="none">
+                  <MaterialCommunityIcons name="plus" size={14} color={c.foreground} />
+                </View>
+              ) : null}
+            </View>
+          </Pressable>
+        ) : null}
       </View>
+      {onColorChange ? <ColorWheelSheet visible={wheel} title={colorTitle ?? `${label} Color`} value={wheelColor} onClose={() => setWheel(false)} onPick={onColorChange} /> : null}
     </Field>
   );
 }
@@ -155,7 +202,7 @@ const styles = StyleSheet.create({
   stop: { flex: 1, borderRadius: 8, borderWidth: 1 },
   ends: { flexDirection: "row", justifyContent: "space-between" },
   endText: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  wrap: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   swatchRing: { padding: 3, borderRadius: 24, borderWidth: 2 },
   swatch: { width: 34, height: 34, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth },
   plus: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },

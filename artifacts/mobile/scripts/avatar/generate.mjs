@@ -113,41 +113,41 @@ const OWN_LOOK = { metal: null, lens: null, laces: null, sole: "rubber" };
  * load as MeshPhysicalMaterial.
  */
 const MATERIAL_LOOK = {
-  skin: { color: "#e5b18c", roughness: 0.5, vertexColors: true, sheen: 0.25, sheenColor: "#ff9a7a", sheenRoughness: 0.6 },
-  eye_white: { color: "#f4f1ea", roughness: 0.12 },
+  skin: { color: "#e5b18c", roughness: 0.52, vertexColors: true, sheen: 0.22, sheenColor: "#ff9a7a", sheenRoughness: 0.68 },
+  eye_white: { color: "#f4f1ea", roughness: 0.12, vertexColors: true },
   iris: { color: "#3b2415", roughness: 0.1, vertexColors: true },
   pupil: { color: "#08080a", roughness: 0.1 },
-  teeth: { color: "#f3efe6", roughness: 0.3 },
-  brow: { color: "#2b1b12", roughness: 0.85 },
-  hair: { color: "#2b1b12", roughness: 0.56, vertexColors: true, sheen: 0.35, sheenColor: "#ffffff", sheenRoughness: 0.45 },
-  stubble: { color: "#6b5040", roughness: 0.9, vertexColors: true, transparent: true },
-  beard: { color: "#2b1b12", roughness: 0.75, vertexColors: true, sheen: 0.4, sheenColor: "#ffffff", sheenRoughness: 0.6 },
-  hair_tie: { color: "#e2564a", roughness: 0.55 },
-  lash: { color: "#120c09", roughness: 0.7 },
-  base_layer: { color: "#2f3a35", roughness: 0.82, vertexColors: true, sheen: 0.5, sheenRoughness: 0.8 },
-  primary: { color: "#f5f5f5", roughness: 0.82, vertexColors: true },
-  primary_dark: { color: "#cfcfcf", roughness: 0.86, vertexColors: true },
-  secondary: { color: "#1a237e", roughness: 0.78, vertexColors: true },
-  secondary_dark: { color: "#101656", roughness: 0.82, vertexColors: true },
-  metal: { color: "#d8d8dc", roughness: 0.22, metalness: 1.0, vertexColors: true },
-  lens: { color: "#101418", roughness: 0.05, metalness: 0.3, clearcoat: 1 },
-  sole: { color: "#f2f2f2", roughness: 0.72, vertexColors: true },
-  laces: { color: "#ffffff", roughness: 0.8, vertexColors: true },
+  teeth: { color: "#f3efe6", roughness: 0.26 },
+  brow: { color: "#2b1b12", roughness: 0.72 },
+  hair: { color: "#2b1b12", roughness: 0.44, vertexColors: true, sheen: 0.45, sheenColor: "#ffffff", sheenRoughness: 0.38 },
+  stubble: { color: "#6b5040", roughness: 0.88, vertexColors: true, transparent: true },
+  beard: { color: "#2b1b12", roughness: 0.62, vertexColors: true, sheen: 0.38, sheenColor: "#ffffff", sheenRoughness: 0.52 },
+  hair_tie: { color: "#e2564a", roughness: 0.48 },
+  lash: { color: "#120c09", roughness: 0.65 },
+  base_layer: { color: "#2f3a35", roughness: 0.76, vertexColors: true, sheen: 0.55, sheenRoughness: 0.76 },
+  primary: { color: "#f5f5f5", roughness: 0.76, vertexColors: true },
+  primary_dark: { color: "#cfcfcf", roughness: 0.8, vertexColors: true },
+  secondary: { color: "#1a237e", roughness: 0.72, vertexColors: true },
+  secondary_dark: { color: "#101656", roughness: 0.76, vertexColors: true },
+  metal: { color: "#d8d8dc", roughness: 0.18, metalness: 1.0, vertexColors: true },
+  lens: { color: "#101418", roughness: 0.04, metalness: 0.3, clearcoat: 1 },
+  sole: { color: "#f2f2f2", roughness: 0.64, vertexColors: true },
+  laces: { color: "#ffffff", roughness: 0.76, vertexColors: true },
 };
 
 /** Fabric presets a template part can ask for (`look` in templates.mjs). */
 export const FABRIC = {
-  cotton: { roughness: 0.86, sheen: 0.55, sheenRoughness: 0.75 },
-  fleece: { roughness: 0.92, sheen: 0.55, sheenRoughness: 0.85 },
-  mesh: { roughness: 0.62, sheen: 0.35, sheenRoughness: 0.5 },
-  nylon: { roughness: 0.38, sheen: 0.3, sheenRoughness: 0.3, clearcoat: 0.25, clearcoatRoughness: 0.4 },
-  denim: { roughness: 0.9, sheen: 0.4, sheenRoughness: 0.9 },
-  leather: { roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.35 },
-  knit: { roughness: 0.95, sheen: 0.5, sheenRoughness: 0.9 },
-  canvas: { roughness: 0.88, sheen: 0.3, sheenRoughness: 0.8 },
-  plastic: { roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.08 },
-  rubber: { roughness: 0.75 },
-  suede: { roughness: 0.95, sheen: 0.7, sheenRoughness: 0.9 },
+  cotton: { roughness: 0.8, sheen: 0.62, sheenRoughness: 0.72 },
+  fleece: { roughness: 0.88, sheen: 0.65, sheenRoughness: 0.8 },
+  mesh: { roughness: 0.55, sheen: 0.42, sheenRoughness: 0.45 },
+  nylon: { roughness: 0.32, sheen: 0.35, sheenRoughness: 0.28, clearcoat: 0.35, clearcoatRoughness: 0.35 },
+  denim: { roughness: 0.85, sheen: 0.48, sheenRoughness: 0.82 },
+  leather: { roughness: 0.38, clearcoat: 0.45, clearcoatRoughness: 0.28 },
+  knit: { roughness: 0.9, sheen: 0.58, sheenRoughness: 0.85 },
+  canvas: { roughness: 0.82, sheen: 0.38, sheenRoughness: 0.75 },
+  plastic: { roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.06 },
+  rubber: { roughness: 0.65, clearcoat: 0.12, clearcoatRoughness: 0.55 },
+  suede: { roughness: 0.92, sheen: 0.78, sheenRoughness: 0.85 },
 };
 
 function material(name, { doubleSided = false, vertexColors = null, look = null } = {}) {
@@ -339,7 +339,7 @@ function regionWeights(x, y, z, tau = 0.008) {
 function onBody(x, y, z) {
   const e = 0.001;
   let p = [x, y, z];
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 10; i++) {
     const d = C.bodyD(p[0], p[1], p[2]);
     if (Math.abs(d) < 0.0005) break;
     const g = [
@@ -463,7 +463,7 @@ function projectOnto(f, p, iters = 6) {
  * the base surface (clothes, facial hair): they move with the nearest base
  * surface point.
  */
-function fieldMorph(md, baseF, variantF, { weight = () => 1, transfer = false, normals = true, maxMove = 0.03, premap = null } = {}) {
+function fieldMorph(md, baseF, variantF, { weight = () => 1, transfer = false, normals = true, maxMove = 0.03, premap = null, isoOffset = false } = {}) {
   const n = md.positions.length / 3;
   const dpos = new Float32Array(n * 3);
   const dnrm = normals ? new Float32Array(n * 3) : null;
@@ -471,9 +471,20 @@ function fieldMorph(md, baseF, variantF, { weight = () => 1, transfer = false, n
     const p = [md.positions[v * 3], md.positions[v * 3 + 1], md.positions[v * 3 + 2]];
     const w = weight(p);
     if (w <= 0) continue;
-    const p0 = transfer ? projectOnto(baseF, p) : p;
-    // premap: a one-to-one first guess at where the point lands (see femPremap), refined by projection.
-    const q = projectOnto(variantF, premap ? premap(p0) : p0);
+    let p0 = p;
+    let q;
+    if (isoOffset) {
+      // Level-set transfer for layered garments: preserve each vertex's signed distance
+      // `h = baseF(p)` onto `variantF(q) = h`, so stacked layers (top < outer) stay strictly
+      // nested across bust, waist, and shoulder curvature changes (especially frameFem).
+      const h = Math.max(0.002, baseF(p[0], p[1], p[2]));
+      const init = premap ? premap(p) : p;
+      q = projectOnto((x, y, z) => variantF(x, y, z) - h, init, 8);
+    } else {
+      p0 = transfer ? projectOnto(baseF, p) : p;
+      // premap: a one-to-one first guess at where the point lands (see femPremap), refined by projection.
+      q = projectOnto(variantF, premap ? premap(p0) : p0);
+    }
     const d = [q[0] - p0[0], q[1] - p0[1], q[2] - p0[2]];
     const len = Math.hypot(...d);
     if (len > maxMove || !Number.isFinite(len)) continue;
@@ -613,18 +624,25 @@ const atMorph = (name, f) => (name === "frameFem" ? atFrame(1, f) : atBuild(BUIL
  * scaling the point first lands it where it belongs, one to one.
  */
 function femPremap(p) {
-  const part = C.bodyPart(p[0], p[1], p[2]).name;
+  const p0 = projectOnto(bodyField, p, 4);
+  const part = C.bodyPart(p0[0], p0[1], p0[2]).name;
   const s = part === "torso" ? C.femTorsoIn(p[1]) : part === "leg" ? 1 + C.hipIn(p[1]) : 1;
   // Down the middle of the front the scale eases off, so the navel isn't squeezed into a slit.
   const ease = part === "torso" ? sstep(0.008, 0.04, Math.abs(p[0])) : 1;
   return [p[0] - (p[0] - p[0] / s) * ease, p[1], p[2]];
 }
 
-function addBuildMorphs(md, { transfer = false, weight = () => 1 } = {}) {
+function addBuildMorphs(md, { transfer = false, weight = () => 1, isoOffset = false } = {}) {
   for (const name of BUILD_MORPHS) {
-    // The feminine frame's waist comes in ~5 cm at the sides: past the 4 cm cap, those vertices were skipped and left flaps.
+    // The feminine frame's waist/shoulders move up to ~7 cm: allow headroom so no garment vertices are skipped.
     const fem = name === "frameFem";
-    md.morphs[name] = fieldMorph(md, bodyField, atMorph(name, bodyField), { transfer, weight, maxMove: fem ? 0.065 : 0.04, premap: fem ? femPremap : null });
+    md.morphs[name] = fieldMorph(md, bodyField, atMorph(name, bodyField), {
+      transfer,
+      isoOffset,
+      weight,
+      maxMove: fem ? 0.085 : 0.045,
+      premap: fem ? femPremap : null,
+    });
   }
 }
 
@@ -795,7 +813,7 @@ function halfSize(img, size) {
  * normal map: returns the meshes with UVs (same order) and the image (JPEG).
  * items: [{ md, field, detail? }].
  */
-function bakeSet(items, size, { quality = 92 } = {}) {
+function bakeSet(items, size, { quality = 88 } = {}) {
   const t0 = Date.now();
   const lay = atlas(items.map((it) => ({ P: it.md.positions, I: it.md.indices, weight: it.weight })), size);
   const mds = items.map((it, i) => withUVs(it.md, lay.entries[i].triChart, lay.entries[i].uv));
@@ -821,16 +839,99 @@ async function buildBody() {
   const m = await fieldMesh(bodyField, [[-0.5, -0.004, -0.17], [0.5, 1.62, 0.22]], 0.0021, {
     targetTris: TRIS.body,
     keep: (x, y, z) => !inNeckColumn(x, y, z),
-    error: 0.004,
+    error: 0.0016,
   });
   const md = meshData(m);
   const n = m.positions.length / 3;
   const P = m.positions;
+  // Build unique neighbor adjacency for mesh relaxation, weight smoothing, and morph regularization.
+  const nbrSets = Array.from({ length: n }, () => new Set());
+  for (let t = 0; t < m.indices.length; t += 3) {
+    const a = m.indices[t], b = m.indices[t + 1], c = m.indices[t + 2];
+    nbrSets[a].add(b); nbrSets[a].add(c);
+    nbrSets[b].add(a); nbrSets[b].add(c);
+    nbrSets[c].add(a); nbrSets[c].add(b);
+  }
+  const nbrs = nbrSets.map((s) => [...s]);
+  // Relax base vertices in the shoulder/upper-arm zone and re-project onto bodyField so 0 triangles fold.
+  for (let iter = 0; iter < 3; iter++) {
+    const copy = new Float32Array(P);
+    for (let v = 0; v < n; v++) {
+      const y = copy[v * 3 + 1], ax = Math.abs(copy[v * 3]);
+      if (y < 1.18 || y > 1.48 || ax < 0.10 || !nbrs[v].length) continue;
+      let mx = 0, my = 0, mz = 0;
+      for (const u of nbrs[v]) { mx += copy[u * 3]; my += copy[u * 3 + 1]; mz += copy[u * 3 + 2]; }
+      const inv = 1 / nbrs[v].length;
+      const q = projectOnto(bodyField, [
+        copy[v * 3] * 0.65 + mx * inv * 0.35,
+        copy[v * 3 + 1] * 0.65 + my * inv * 0.35,
+        copy[v * 3 + 2] * 0.65 + mz * inv * 0.35,
+      ], 4);
+      P[v * 3] = q[0]; P[v * 3 + 1] = q[1]; P[v * 3 + 2] = q[2];
+    }
+  }
+  for (let v = 0; v < n; v++) {
+    const g = gradient(bodyField, P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+    md.normals[v * 3] = g[0]; md.normals[v * 3 + 1] = g[1]; md.normals[v * 3 + 2] = g[2];
+  }
   md.weights = Array.from({ length: n }, (_, v) => regionWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  // Smooth skin weights across neighbors in the shoulder/deltoid zone so arm rotation never pinches dimples.
+  for (let iter = 0; iter < 5; iter++) {
+    const next = md.weights.slice();
+    for (let v = 0; v < n; v++) {
+      const ax = Math.abs(P[v * 3]), y = P[v * 3 + 1];
+      if (y < 1.24 || y > 1.46 || ax < 0.11 || !nbrs[v].length) continue;
+      const acc = {};
+      const add = (w, k) => { for (const [bn, val] of Object.entries(w)) acc[bn] = (acc[bn] ?? 0) + val * k; };
+      add(md.weights[v], 0.5);
+      const nk = 0.5 / nbrs[v].length;
+      for (const u of nbrs[v]) add(md.weights[u], nk);
+      next[v] = acc;
+    }
+    md.weights = next;
+  }
   const both = (x, y, z) => Math.min(C.bodyD(x, y, z), y > 1.47 ? C.headD("oval", x, y, z) : 1);
-  const ao = bakeAO(both, m, { step: 0.007, strength: 1.2 });
+  const ao = bakeAO(both, m, { step: 0.007, strength: 1.15, min: 0.58 });
   md.colors = rgba(ao, (v) => C.bodyTint(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
   addBuildMorphs(md);
+  // Smooth deformed shoulder/upper-arm vertices for every build/frame morph and re-project onto the
+  // target SDF so frameFem/buildSlim/buildBroad never fold triangles into crater marks on the deltoids.
+  for (const name of BUILD_MORPHS) {
+    const morph = md.morphs[name];
+    const variantF = atMorph(name, bodyField);
+    const Q = new Float32Array(n * 3);
+    for (let i = 0; i < n * 3; i++) Q[i] = P[i] + morph.dpos[i];
+    for (let iter = 0; iter < 6; iter++) {
+      const prev = new Float32Array(Q);
+      for (let v = 0; v < n; v++) {
+        const y = P[v * 3 + 1], ax = Math.abs(P[v * 3]);
+        if (y < 1.18 || y > 1.48 || ax < 0.10 || !nbrs[v].length) continue;
+        let mx = 0, my = 0, mz = 0;
+        for (const u of nbrs[v]) { mx += prev[u * 3]; my += prev[u * 3 + 1]; mz += prev[u * 3 + 2]; }
+        const inv = 1 / nbrs[v].length;
+        const q = projectOnto(variantF, [
+          prev[v * 3] * 0.55 + mx * inv * 0.45,
+          prev[v * 3 + 1] * 0.55 + my * inv * 0.45,
+          prev[v * 3 + 2] * 0.55 + mz * inv * 0.45,
+        ], 4);
+        Q[v * 3] = q[0]; Q[v * 3 + 1] = q[1]; Q[v * 3 + 2] = q[2];
+      }
+    }
+    for (let v = 0; v < n; v++) {
+      const y = P[v * 3 + 1], ax = Math.abs(P[v * 3]);
+      if (y < 1.18 || y > 1.48 || ax < 0.10) continue;
+      morph.dpos[v * 3] = Q[v * 3] - P[v * 3];
+      morph.dpos[v * 3 + 1] = Q[v * 3 + 1] - P[v * 3 + 1];
+      morph.dpos[v * 3 + 2] = Q[v * 3 + 2] - P[v * 3 + 2];
+      if (morph.dnrm) {
+        const a = gradient(bodyField, P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+        const b = gradient(variantF, Q[v * 3], Q[v * 3 + 1], Q[v * 3 + 2]);
+        morph.dnrm[v * 3] = b[0] - a[0];
+        morph.dnrm[v * 3 + 1] = b[1] - a[1];
+        morph.dnrm[v * 3 + 2] = b[2] - a[2];
+      }
+    }
+  }
   // The hide region of every triangle (the body ships as one mesh per region).
   const region = new Array(m.indices.length / 3);
   for (let t = 0; t < region.length; t++) {
@@ -957,7 +1058,7 @@ async function buildHead(face, nose = "button") {
   const md = meshData(m);
   const P = m.positions;
   const n = P.length / 3;
-  const ao = bakeAO((x, y, z) => Math.min(f(x, y, z), y < 1.6 ? C.bodyD(x, y, z) : 1), m, { step: 0.005, strength: 0.7, min: 0.62 });
+  const ao = bakeAO((x, y, z) => Math.min(f(x, y, z), y < 1.6 ? C.bodyD(x, y, z) : 1), m, { step: 0.0045, strength: 0.65, min: 0.68 });
   md.colors = rgba(ao, (v) => C.headTint(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
   md.weights = Array.from({ length: n }, (_, v) => headWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
   // The neck at the bottom follows the body build; the feminine frame also reshapes the face
@@ -1112,11 +1213,11 @@ async function hairAsset(style) {
     const m = await fieldMesh(g, box, 0.0013, { targetTris: mode ? TRIS.hairPressed : TRIS.hair, keep, error: 0.004, minPiece: 30 });
     if (!m) continue;
     const md = meshData(m);
-    const ao = bakeAO((x, y, z) => Math.min(g(x, y, z), C.headD("oval", x, y, z)), m, { step: 0.004, strength: 0.9, min: 0.5 });
+    const ao = bakeAO((x, y, z) => Math.min(g(x, y, z), C.headD("oval", x, y, z)), m, { step: 0.004, strength: 0.72, min: 0.62 });
     // Roots a touch darker than the tips.
     const P = m.positions;
     md.colors = rgba(ao, (v) => {
-      const k = 0.88 + 0.12 * sstep(-0.001, 0.014, scalpD(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+      const k = 0.84 + 0.16 * sstep(-0.001, 0.015, scalpD(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
       return [k, k, k];
     });
     variants.push({ name: mode ? `Hair_${mode}` : "Hair", md, field: g, detail: H.HAIR_DETAIL[style], flow: H.HAIR_FLOW[style], weight: mode ? 0.6 : 1 });
@@ -1125,7 +1226,8 @@ async function hairAsset(style) {
   // One atlas for every variant (the pressed ones at lower density: mostly under a hat).
   // Hair detail is fine noise: a lower JPEG quality costs nothing visible and keeps the file near 1 MB.
   const { mds, png, aniso } = bakeSet(variants, texSize("hair"), { quality: 85 });
-  variants.forEach((v, i) => addMesh(ctx, v.name, "hair", toGeometry(mds[i], REST.Head)));
+  const hairLook = style === "buzz" ? { roughness: 0.88, sheen: 0.18, sheenRoughness: 0.85 } : null;
+  variants.forEach((v, i) => addMesh(ctx, v.name, "hair", toGeometry(mds[i], REST.Head), { look: hairLook }));
   if (style === "ponytail") {
     for (const mode of [null, ...HAIR_MODES]) {
       const g = (x, y, z) => H.ponytailTieD(x, y, z, mode);
@@ -1133,7 +1235,7 @@ async function hairAsset(style) {
       if (m) addMesh(ctx, mode ? `HairTie_${mode}` : "HairTie", "hair_tie", toGeometry(meshData(m), REST.Head));
     }
   }
-  await write(ctx.scene, `hair_${style}.glb`, [], [{ png, aniso: aniso && { png: aniso, strength: 0.5 }, meshes: variants.map((v) => v.name) }]);
+  await write(ctx.scene, `hair_${style}.glb`, [], [{ png, aniso: aniso && { png: aniso, strength: 0.68 }, meshes: variants.map((v) => v.name) }]);
 }
 
 /* ── facial hair ─────────────────────────────────────────────────────────── */
@@ -1168,14 +1270,15 @@ async function stubbleMesh(face, style = "stubble", { grow = 0, fade = 0.009, al
   // shell read as a lighter, flat patch over the cheeks instead of a shadow.
   const shade = sm.colors;
   for (let v = 0; v < n; v++) {
-    for (let k = 0; k < 3; k++) sm.positions[v * 3 + k] += sm.normals[v * 3 + k] * 0.0006;
+    for (let k = 0; k < 3; k++) sm.positions[v * 3 + k] += sm.normals[v * 3 + k] * 0.0012;
     const r = H.beardRegion(style, sm.positions[v * 3], sm.positions[v * 3 + 1], sm.positions[v * 3 + 2]) - grow;
     const rgb = shade ? [shade[v * 4], shade[v * 4 + 1], shade[v * 4 + 2]] : [255, 255, 255];
     colors.set([...rgb, Math.round(255 * alpha * sstep(0, -fade, r) * sstep(NECK_CUT - 0.004, NECK_CUT + 0.006, sm.positions[v * 3 + 1]))], v * 4);
   }
   sm.colors = colors;
   sm.weights = null;
-  for (const k of BUILD_MORPHS) delete sm.morphs[k];
+  // Keep frameFem so stubble tracks the feminine jaw/cheek shape without Z-fighting patches.
+  for (const k of BUILD_MORPHS) if (k !== "frameFem") delete sm.morphs[k];
   // The heads mesh each nose separately; the shell follows the chosen nose like the beards do.
   const hs = headSkin(face);
   for (const [name, detail] of Object.entries(NOSE_MORPHS)) sm.morphs[name] = noseMorph(sm, hs, atFace(detail, hs), { transfer: true, normals: false });
@@ -1201,9 +1304,10 @@ async function beardAsset(style) {
     });
     if (!m) continue;
     const md = meshData(m);
-    md.colors = rgba(bakeAO((x, y, z) => Math.min(f(x, y, z), C.headD(face, x, y, z)), m, { step: 0.003, strength: 0.6, min: 0.65 }));
+    md.colors = rgba(bakeAO((x, y, z) => Math.min(f(x, y, z), C.headD(face, x, y, z)), m, { step: 0.003, strength: 0.5, min: 0.72 }));
     // Facial hair moves with the face: shape options carried from the head surface, expressions sampled directly.
     const hs = headSkin(face);
+    md.morphs.frameFem = fieldMorph(md, hs, atFrame(1, hs), { transfer: true, maxMove: 0.03, normals: false });
     for (const [name, detail] of Object.entries(NOSE_MORPHS)) md.morphs[name] = noseMorph(md, hs, atFace(detail, hs), { transfer: true, normals: false });
     for (const [name, detail] of Object.entries(MOUTH_MORPHS)) {
       md.morphs[name] = fieldMorph(md, hs, atFace(detail, hs), { transfer: true, weight: mouthBox, maxMove: 0.012, normals: false });
@@ -1326,7 +1430,7 @@ async function garment(key, t) {
       if (p.skinned) {
         const g = b.toGeometry({ skinned: true });
         const md = { positions: g.attributes.position.array, normals: g.attributes.normal.array, indices: g.index.array, colors: null, weights: null, morphs: {} };
-        addBuildMorphs(md, { transfer: true });
+        addBuildMorphs(md, { transfer: true, isoOffset: true });
         g.morphTargetsRelative = true;
         g.morphAttributes.position = BUILD_MORPHS.map((k) => new THREE.BufferAttribute(md.morphs[k].dpos, 3));
         g.userData.morphList = BUILD_MORPHS;
@@ -1339,12 +1443,12 @@ async function garment(key, t) {
     const md = meshData(m);
     if (p.ao) {
       const ctxField = p.kind === "skinned" ? (x, y, z) => Math.min(p.field(x, y, z), C.bodyD(x, y, z)) : (x, y, z) => Math.min(p.field(x, y, z), y > 1.45 ? C.headD("oval", x, y, z) : C.bodyD(x, y, z));
-      md.colors = rgba(bakeAO(ctxField, m, { step: 0.004, strength: 0.8, min: 0.6 }));
+      md.colors = rgba(bakeAO(ctxField, m, { step: 0.004, strength: 0.68, min: 0.66 }));
     }
     if (p.kind === "skinned") {
       const P = m.positions;
       md.weights = Array.from({ length: P.length / 3 }, (_, v) => clothWeights(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
-      addBuildMorphs(md, { transfer: true });
+      addBuildMorphs(md, { transfer: true, isoOffset: true });
       // Cloth only grows or shrinks with the build, so its shading barely turns: positions alone (a third of the file).
       for (const k of BUILD_MORPHS) md.morphs[k].dnrm = null;
     }

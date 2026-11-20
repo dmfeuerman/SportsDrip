@@ -5,7 +5,9 @@ exports.settleBetsForGame = settleBetsForGame;
 exports.settleMainBet = settleMainBet;
 exports.settleLeagueBetsForGame = settleLeagueBetsForGame;
 exports.voidDisrupted = voidDisrupted;
+exports.handleGameTransition = handleGameTransition;
 exports.refundStale = refundStale;
+exports.runRefundStaleBets = runRefundStaleBets;
 // import { onSchedule } from "firebase-functions/v2/scheduler";
 const onlineSchedule_1 = require("../lib/onlineSchedule");
 const ratings_1 = require("../lib/ratings");
@@ -520,23 +522,24 @@ async function voidDisrupted(now = Date.now()) {
     return refunded;
 }
 /**
- * Fires the moment syncGames flips a game to final. This is the fast path —
- * users see results within a couple of minutes of the whistle.
+ * Handles kickoff challenge expiration, live flash-pick grading, and final
+ * bet/league/parlay/bracket settlement for one game transition. Called directly
+ * by syncGames whenever a game changes status or score (replacing the noisy
+ * onDocumentUpdated("games/{gameId}") trigger).
  */
-exports.onGameFinal = (0, firestore_1.onDocumentUpdated)({ document: "games/{gameId}", region: "us-central1" }, async (event) => {
-    const before = event.data?.before.get("status");
-    const after = event.data?.after.get("status");
-    const gameId = event.params.gameId;
+async function handleGameTransition(gameId, prev, next) {
+    const before = prev?.status;
+    const after = next.status;
     if (before === "upcoming" && after && after !== "upcoming") {
         const expired = await (0, challengeSettlement_1.expirePendingChallenges)(gameId);
         if (expired > 0)
             firebase_functions_1.logger.info("challenges expired at kickoff", { gameId, expired });
     }
     // Flash picks grade whenever the scoreboard moves, and once more at the final whistle.
-    const d = event.data;
-    const scoreMoved = d?.before.get("homeScore") !== d?.after.get("homeScore") || d?.before.get("awayScore") !== d?.after.get("awayScore");
+    const scoreMoved = (prev?.homeScore ?? null) !== (next.homeScore ?? null) ||
+        (prev?.awayScore ?? null) !== (next.awayScore ?? null);
     if (before !== "upcoming" && (scoreMoved || (before !== "final" && after === "final"))) {
-        await (0, flash_1.settleFlashForGame)(gameId, d?.after.get("homeScore") ?? null, d?.after.get("awayScore") ?? null, String(after ?? "")).catch((err) => firebase_functions_1.logger.warn("flash picks failed", { gameId, error: String(err) }));
+        await (0, flash_1.settleFlashForGame)(gameId, next.homeScore ?? null, next.awayScore ?? null, String(after ?? "")).catch((err) => firebase_functions_1.logger.warn("flash picks failed", { gameId, error: String(err) }));
     }
     if (before === "final" || after !== "final")
         return;
@@ -550,13 +553,32 @@ exports.onGameFinal = (0, firestore_1.onDocumentUpdated)({ document: "games/{gam
     const daily = await (0, dailyPick_1.settleDailyPicksForGame)(gameId).catch(() => 0);
     const slips = await (0, slipParlays_1.settleSlipParlaysForGame)(gameId).catch((err) => (firebase_functions_1.logger.warn("slip parlays failed", { gameId, error: String(err) }), 0));
     await (0, brackets_1.settleBracketsForGame)(gameId).catch((err) => firebase_functions_1.logger.warn("brackets failed", { gameId, error: String(err) }));
-    firebase_functions_1.logger.info("onGameFinal settled", { gameId, settled, leagueSettled, challenges, picks, parlays, daily, slips });
+    firebase_functions_1.logger.info("game final settled", { gameId, settled, leagueSettled, challenges, picks, parlays, daily, slips });
+}
+/**
+ * Legacy Firestore trigger — no longer exported from index.ts because
+ * syncGames calls handleGameTransition directly (avoiding a function
+ * invocation on every clock/odds/score write).
+ */
+exports.onGameFinal = (0, firestore_1.onDocumentUpdated)({ document: "games/{gameId}", region: "us-central1" }, async (event) => {
+    const d = event.data;
+    await handleGameTransition(event.params.gameId, d?.before
+        ? {
+            status: d.before.get("status"),
+            homeScore: d.before.get("homeScore") ?? null,
+            awayScore: d.before.get("awayScore") ?? null,
+        }
+        : null, {
+        status: d?.after.get("status"),
+        homeScore: d?.after.get("homeScore") ?? null,
+        awayScore: d?.after.get("awayScore") ?? null,
+    });
 });
 /**
- * Safety net. Catches anything the trigger missed — a cold deploy, a dropped
- * event, a bet placed after the game already went final.
+ * Safety net. Catches anything direct settlement missed — a cold deploy, a
+ * timeout, or a bet placed just before a game went final.
  */
-exports.settleBetsSweep = (0, onlineSchedule_1.onSchedule)({ schedule: "*/15 * * * *", region: "us-central1", timeoutSeconds: 540 }, async () => {
+exports.settleBetsSweep = (0, onlineSchedule_1.onSchedule)({ schedule: "*/30 * * * *", region: "us-central1", timeoutSeconds: 540 }, async () => {
     const [pending, leaguePending] = await Promise.all([
         economy_1.db.collection("bets").where("status", "==", "pending").limit(1000).get(),
         economy_1.db.collectionGroup("leagueBets").where("status", "==", "pending").limit(1000).get(),
@@ -665,17 +687,21 @@ async function refundStale(cutoff) {
     }
     return refunded;
 }
-/**
- * Refunds bets on games that vanished from the provider (postponed, cancelled,
- * or pruned) and have been pending well past their start time.
- */
-exports.refundStaleBets = (0, onlineSchedule_1.onSchedule)({ schedule: "30 6 * * *", region: "us-central1", timeoutSeconds: 540 }, async () => {
-    const now = Date.now();
+/** Runs daily stale/disrupted bet refunds. Called by dailyMaintenance. */
+async function runRefundStaleBets(now = Date.now()) {
     const cutoff = now - 72 * 3_600_000;
     const n = (await voidDisrupted(now)) +
         (await refundStale(cutoff)) +
         (await (0, challengeSettlement_1.refundStaleChallenges)(cutoff));
     if (n > 0)
         firebase_functions_1.logger.info("refundStaleBets", { refunded: n });
+    return n;
+}
+/**
+ * Refunds bets on games that vanished from the provider (postponed, cancelled,
+ * or pruned) and have been pending well past their start time.
+ */
+exports.refundStaleBets = (0, onlineSchedule_1.onSchedule)({ schedule: "30 6 * * *", region: "us-central1", timeoutSeconds: 540 }, async () => {
+    await runRefundStaleBets();
 });
 //# sourceMappingURL=settleBets.js.map

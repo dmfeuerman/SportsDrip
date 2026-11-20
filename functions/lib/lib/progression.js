@@ -88,7 +88,7 @@ exports.XP = {
     purchaseMax: 400,
     prizeBox: 10,
     adReward: 5,
-    /** First change of the app color in Settings (functions/src/lib/levelChallenges.ts x_theme). */
+    /** First change of the app color in the Locker (functions/src/lib/levelChallenges.ts x_theme). */
     themeChange: 20,
     newFriend: 25,
     /** Someone joined with your invite code. */

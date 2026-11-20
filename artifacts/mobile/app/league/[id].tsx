@@ -309,10 +309,10 @@ export default function LeagueDetailScreen() {
               <Card style={styles.closedBanner} accessibilityLabel="This league is closed. You can view its history, but nothing can be changed.">
                 <MaterialCommunityIcons name="lock-outline" size={18} color={c.mutedForeground} />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={[styles.cardTitle, { color: c.foreground }]}>{league.cancelled ? "League Cancelled" : "League Closed"}</Text>
+                  <Text style={[styles.cardTitle, { color: c.foreground }]}>{league.cancelled ? "League Canceled" : "League Closed"}</Text>
                   <Text style={[styles.muted, { color: c.mutedForeground }]}>
                     {league.cancelled
-                      ? "Nobody accepted the invite before the start date, so it was cancelled and any buy-in was refunded."
+                      ? "Nobody accepted the invite before the start date, so it was canceled and any buy-in was refunded."
                       : `${ended ? "The season is over." : "The season is over — final results are being tallied."} Standings, bets, loans and the feed are view-only.`}
                   </Text>
                 </View>

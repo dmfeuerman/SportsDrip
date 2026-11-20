@@ -16,7 +16,7 @@ export default function ParlayTicket({ p, onCancel, onOpen, busy }: { p: ParlayD
   const c = useColors();
   const fmt = useOddsFormat();
   const tone = p.status === "won" ? c.positive : p.status === "lost" ? c.negative : p.status === "pending" ? c.primary : c.push;
-  const label = p.status === "pending" ? (p.legs.some((l) => l.status !== "pending") ? "Live" : "Open") : p.status === "won" ? "Won" : p.status === "lost" ? "Lost" : p.status === "push" ? "Push" : "Cancelled";
+  const label = p.status === "pending" ? (p.legs.some((l) => l.status !== "pending") ? "Live" : "Open") : p.status === "won" ? "Won" : p.status === "lost" ? "Lost" : p.status === "push" ? "Push" : "Canceled";
   const canCancel = p.status === "pending" && p.firstStartsAt > Date.now() && !!onCancel;
   return (
     <Pressable

@@ -256,8 +256,8 @@ export default function HomeScreen() {
         <TourTarget id="home.bets">
         <SectionHeader
           title="My Bets"
-          action={openTotal > 0 ? "See All" : undefined}
-          onAction={() => router.push("/bets")}
+          action="See All"
+          onAction={() => router.push(openTotal > 0 ? "/bets" : { pathname: "/bets", params: { tab: "settled" } })}
         />
         </TourTarget>
         {openTotal === 0 && !betsLoaded ? (

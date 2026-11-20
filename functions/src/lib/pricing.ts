@@ -40,9 +40,9 @@ export const MAX_ADVERSE_DRIFT = 0.05;
 /** Maximum spread or total points a line may move from expectedLine before freezing/rejecting. */
 export const MAX_LINE_DRIFT = 0.5;
 
-/** Within 30 minutes of kickoff, reject bets if an explicit updatedAt timestamp is stale (> 2 min). */
+/** Within 30 minutes of kickoff, reject bets if an explicit updatedAt timestamp is stale (> 7 min). */
 export const NEAR_KICKOFF_WINDOW_MS = 30 * 60_000;
-export const MAX_NEAR_KICKOFF_STALE_MS = 2 * 60_000;
+export const MAX_NEAR_KICKOFF_STALE_MS = 7 * 60_000;
 
 interface GameDoc {
   get(field: string): unknown;

@@ -178,7 +178,7 @@ export const teamReminders = onSchedule(
 );
 
 export const lockReminders = onSchedule(
-  { schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180 },
+  { schedule: "*/10 * * * *", region: "us-central1", timeoutSeconds: 180 },
   async () => {
     const n = await sendLockReminders(Date.now());
     if (n > 0) logger.info("lockReminders sent", { count: n });

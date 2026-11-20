@@ -43,7 +43,7 @@ const SLIDES: Slide[] = [
       {
         icon: "ticket-confirmation-outline",
         title: "Result Breakdowns",
-        desc: "Tap any bet on Home, Activity or a Player Profile for the full ticket. Open bets can be cancelled there until kickoff.",
+        desc: "Tap any bet on Home, Activity or a Player Profile for the full ticket. Open bets can be canceled there until kickoff.",
       },
     ],
   },

@@ -159,7 +159,7 @@ exports.teamReminders = (0, onlineSchedule_1.onSchedule)({ schedule: "*/5 * * * 
     if (n > 0)
         firebase_functions_1.logger.info("teamReminders sent", { count: n });
 });
-exports.lockReminders = (0, onlineSchedule_1.onSchedule)({ schedule: "*/5 * * * *", region: "us-central1", timeoutSeconds: 180 }, async () => {
+exports.lockReminders = (0, onlineSchedule_1.onSchedule)({ schedule: "*/10 * * * *", region: "us-central1", timeoutSeconds: 180 }, async () => {
     const n = await sendLockReminders(Date.now());
     if (n > 0)
         firebase_functions_1.logger.info("lockReminders sent", { count: n });

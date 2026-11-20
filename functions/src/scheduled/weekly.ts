@@ -348,22 +348,26 @@ export async function sweepMissedSurvivorWeek(leagueId: string, completedWeek: s
   });
 }
 
+export async function runTuesdayLeagueReport(now = Date.now()): Promise<number> {
+  const active = await db.collection("leagues").where("status", "==", "active").limit(200).get();
+  let count = 0;
+  for (const d of active.docs) {
+    try {
+      if (!leagueStarted(d, now)) continue;
+      const rep = await generateTuesdayReport(d.id, now);
+      if (rep) count++;
+    } catch (err) {
+      logger.error("tuesdayLeagueReport failed", { leagueId: d.id, err });
+    }
+  }
+  if (count > 0) logger.info("tuesdayLeagueReport complete", { count });
+  return count;
+}
+
 export const tuesdayLeagueReport = onSchedule(
   { schedule: "0 9 * * 2", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 },
   async () => {
-    const now = Date.now();
-    const active = await db.collection("leagues").where("status", "==", "active").limit(200).get();
-    let count = 0;
-    for (const d of active.docs) {
-      try {
-        if (!leagueStarted(d, now)) continue;
-        const rep = await generateTuesdayReport(d.id, now);
-        if (rep) count++;
-      } catch (err) {
-        logger.error("tuesdayLeagueReport failed", { leagueId: d.id, err });
-      }
-    }
-    if (count > 0) logger.info("tuesdayLeagueReport complete", { count });
+    await runTuesdayLeagueReport();
   }
 );
 
@@ -372,48 +376,54 @@ export const tuesdayLeagueReport = onSchedule(
  * it's over, and opens the next on its first day (Mondays for weekly leagues,
  * Mondays and Thursdays for twice-weekly, every day for daily).
  */
+export async function runLeagueMatchupJobs(now = Date.now()): Promise<void> {
+  const active = await db.collection("leagues").where("status", "==", "active").limit(500).get();
+  for (const d of active.docs) {
+    try {
+      // Matchups begin once the league has started.
+      if (!leagueStarted(d, now)) continue;
+      const cadence = (d.get("matchupCadence") as MatchupCadence | undefined) ?? "weekly";
+      const key = matchupPeriodKey(cadence, now);
+      const open = d.get("openMatchupWeek") as string | null | undefined;
+      const rolled = !!open && open !== key;
+      if (rolled) await closeMatchups(d.id, now);
+      if (d.get("matchupsEnabled") && open !== key && isPeriodStart(cadence, now)) {
+        await openWeekMatchups(d.id, now, key);
+      }
+      // H2H changed: wake members' apps to refresh the home-screen widget.
+      if (rolled) await sendWidgetRefresh((d.get("memberIds") as string[]) ?? []).catch(() => 0);
+    } catch (err) {
+      logger.error("leagueMatchupJobs failed", { leagueId: d.id, err });
+    }
+  }
+}
+
 export const leagueMatchupJobs = onSchedule(
   { schedule: "0 9 * * *", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 },
   async () => {
-    const now = Date.now();
-    const active = await db.collection("leagues").where("status", "==", "active").limit(500).get();
-    for (const d of active.docs) {
-      try {
-        // Matchups begin once the league has started.
-        if (!leagueStarted(d, now)) continue;
-        const cadence = (d.get("matchupCadence") as MatchupCadence | undefined) ?? "weekly";
-        const key = matchupPeriodKey(cadence, now);
-        const open = d.get("openMatchupWeek") as string | null | undefined;
-        const rolled = !!open && open !== key;
-        if (rolled) await closeMatchups(d.id, now);
-        if (d.get("matchupsEnabled") && open !== key && isPeriodStart(cadence, now)) {
-          await openWeekMatchups(d.id, now, key);
-        }
-        // H2H changed: wake members' apps to refresh the home-screen widget.
-        if (rolled) await sendWidgetRefresh((d.get("memberIds") as string[]) ?? []).catch(() => 0);
-      } catch (err) {
-        logger.error("leagueMatchupJobs failed", { leagueId: d.id, err });
-      }
-    }
+    await runLeagueMatchupJobs();
   }
 );
+
+export async function runMondayLeagueJobs(now = Date.now()): Promise<void> {
+  const prevWeek = weekKey(now - 2 * 86_400_000);
+  const active = await db.collection("leagues").where("status", "==", "active").limit(200).get();
+  for (const d of active.docs) {
+    try {
+      if (!leagueStarted(d, now)) continue;
+      // Head-to-head periods turn over in leagueMatchupJobs.
+      if (d.get("mode") === "survivor") {
+        await sweepMissedSurvivorWeek(d.id, prevWeek, now);
+      }
+    } catch (err) {
+      logger.error("mondayLeagueJobs failed", { leagueId: d.id, err });
+    }
+  }
+}
 
 export const mondayLeagueJobs = onSchedule(
   { schedule: "0 9 * * 1", timeZone: "America/New_York", region: "us-central1", timeoutSeconds: 540 },
   async () => {
-    const now = Date.now();
-    const prevWeek = weekKey(now - 2 * 86_400_000);
-    const active = await db.collection("leagues").where("status", "==", "active").limit(200).get();
-    for (const d of active.docs) {
-      try {
-        if (!leagueStarted(d, now)) continue;
-        // Head-to-head periods turn over in leagueMatchupJobs.
-        if (d.get("mode") === "survivor") {
-          await sweepMissedSurvivorWeek(d.id, prevWeek, now);
-        }
-      } catch (err) {
-        logger.error("mondayLeagueJobs failed", { leagueId: d.id, err });
-      }
-    }
+    await runMondayLeagueJobs();
   }
 );

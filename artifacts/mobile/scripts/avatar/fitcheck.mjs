@@ -24,6 +24,7 @@
  */
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { readGlb, restMeshes, writeGlb } from "./glb.mjs";
 import { TEMPLATES } from "./templates.mjs";
 import { assetDir } from "./validate.mjs";
@@ -174,25 +175,40 @@ export function boundary(meshes, cell = 0.02) {
   };
 }
 
-export function fitCheck(baseFile, garmentFile, { face = "oval", edgeMargin = 0.015 } = {}) {
-  const base = parseGlb(baseFile).meshes.filter((m) => m.name.startsWith("Body_") || m.name === `Head_${face}` || m.name === "Underwear");
-  const garment = parseGlb(garmentFile).meshes;
-  const grid = new TriGrid(garment);
-  const nearEdge = boundary(garment);
+/** Applies named morph target weights (e.g. { frameFem: 1, buildBroad: 1 }) to rest meshes. */
+export function applyMorphs(meshes, morphs) {
+  if (!morphs) return meshes;
+  const entries = Object.entries(morphs).filter(([, w]) => w);
+  if (!entries.length) return meshes;
+  return meshes.map((m) => {
+    const pos = new Float32Array(m.pos);
+    for (const [k, w] of entries) {
+      const d = m.targets?.[k];
+      if (!d) continue;
+      for (let i = 0; i < pos.length; i++) pos[i] += d[i] * w;
+    }
+    return { ...m, pos };
+  });
+}
+
+function meshPokeCheck(innerMeshes, outerMeshes, { edgeMargin = 0.015, inwardMax = 0.015, skip = null } = {}) {
+  const grid = new TriGrid(outerMeshes);
+  const nearEdge = boundary(outerMeshes);
   // Closed parts (headphone cups, lenses): anything inside one is hidden.
-  const closed = garment.filter((m) => !boundaryCount(m)).map((m) => new TriGrid([m], 0.01));
+  const closed = outerMeshes.filter((m) => !boundaryCount(m)).map((m) => new TriGrid([m], 0.01));
   const inside = (o) => closed.some((g) => g.crossings(o, [0.3, 0.9, 0.31].map((v) => v / Math.hypot(0.3, 0.9, 0.31)), 0.6) % 2 === 1);
   let covered = 0;
   let poke = 0;
   const where = [];
-  for (const m of base) {
+  for (const m of innerMeshes) {
     for (let v = 0; v < m.pos.length / 3; v++) {
       const o = [m.pos[v * 3], m.pos[v * 3 + 1], m.pos[v * 3 + 2]];
       const n = [m.nrm[v * 3], m.nrm[v * 3 + 1], m.nrm[v * 3 + 2]];
-      const below = grid.hit(o, [-n[0], -n[1], -n[2]], 0, 0.015);
+      if (skip && skip(o, n)) continue;
+      const below = grid.hit(o, [-n[0], -n[1], -n[2]], 0, inwardMax);
       const above = grid.hit(o, n, 0.0002, 0.2);
       if (above) covered++;
-      // Skin just past a hem, cuff or collar is meant to show.
+      // Surface just past a hem, cuff, collar, or open front is meant to show.
       if (below && !above && !nearEdge(o, edgeMargin) && !inside(o)) {
         poke++;
         if (where.length < 6) where.push(o.map((q) => +q.toFixed(3)));
@@ -200,6 +216,34 @@ export function fitCheck(baseFile, garmentFile, { face = "oval", edgeMargin = 0.
     }
   }
   return { covered, poke, where };
+}
+
+export function fitCheck(baseFile, garmentFile, { face = "oval", edgeMargin = 0.015, morphs = null } = {}) {
+  const base = applyMorphs(
+    parseGlb(baseFile).meshes.filter((m) => m.name.startsWith("Body_") || m.name === `Head_${face}` || m.name === "Underwear"),
+    morphs
+  );
+  const garment = applyMorphs(parseGlb(garmentFile).meshes, morphs);
+  return meshPokeCheck(base, garment, { edgeMargin, inwardMax: 0.015 });
+}
+
+export function layerCheck(innerFile, outerFile, { edgeMargin = 0.015, morphs = null } = {}) {
+  const inner = applyMorphs(parseGlb(innerFile).meshes, morphs);
+  const outer = applyMorphs(parseGlb(outerFile).meshes, morphs);
+  const isOpen = outerFile.includes("_open");
+  // Skip exposed inner collar/hood inside the jacket's neck opening, exposed chest/drawstrings inside open-front jackets, and inward-facing backs of 3D tubes.
+  const skip = (o, n) => {
+    if (o[1] > 1.405 && Math.hypot(o[0], (o[2] + 0.012) * 0.92) < 0.115) return true;
+    if (o[1] > 1.455 && o[2] < -0.02) return true; // hoodie hood resting over the back of the jacket collar
+    if (isOpen && o[2] > 0.04) {
+      const t = Math.max(0, Math.min(1, (1.38 - o[1]) / 0.4));
+      const gap = 0.034 + 0.026 * (t * t * (3 - 2 * t));
+      if (Math.abs(o[0]) < gap + 0.008) return true; // intentionally exposed inside open-front V-opening
+    }
+    if (Math.abs(o[0]) < 0.16 && o[0] * n[0] + o[2] * n[2] < -0.02) return true; // inward-facing back of a 3D tube/cord
+    return false;
+  };
+  return meshPokeCheck(inner, outer, { edgeMargin, inwardMax: 0.02, skip });
 }
 
 /** n tipped by small angles about two axes across it (renormalised). */
@@ -285,7 +329,7 @@ export const HIDE_CLEAR = 0.985;
 export const canHide = (c) => !!c && c.verts > 0 && c.covered === c.verts && c.clear >= HIDE_CLEAR * c.verts;
 export const hidable = (cov) => Object.entries(cov).filter(([, c]) => canHide(c)).map(([r]) => r);
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const dir = assetDir();
   const baseFile = readdirSync(dir).filter((f) => /^sd_base_v\d+\.glb$/.test(f)).sort().pop();
   const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
@@ -311,18 +355,47 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       }
       continue;
     }
-    const r = fitCheck(join(dir, baseFile), file);
-    const frac = r.covered ? r.poke / r.covered : 0;
-    let ok = frac <= (PER_GARMENT[k] ?? TOLERANCE);
-    const declared = parseGlb(file).json.scenes[0].extras?.sdAvatar?.hides ?? [];
-    let bad = [];
-    if (declared.length) {
-      const cov = hideCoverage(join(dir, baseFile), file);
-      bad = declared.filter((reg) => !canHide(cov[reg])).map((reg) => `${reg} ${cov[reg] ? `${cov[reg].verts - cov[reg].covered} uncovered, ${cov[reg].verts - cov[reg].clear} near an edge, of ${cov[reg].verts}` : "missing"}`);
-      if (bad.length) ok = false;
+    const parsed = parseGlb(file);
+    const hasFem = parsed.meshes.some((m) => m.targets?.frameFem);
+    const frames = hasFem ? [["masc", null], ["fem", { frameFem: 1 }]] : [["masc", null]];
+    const declared = parsed.json.scenes[0].extras?.sdAvatar?.hides ?? [];
+    for (const [label, morphs] of frames) {
+      const r = fitCheck(join(dir, baseFile), file, { morphs });
+      const frac = r.covered ? r.poke / r.covered : 0;
+      let ok = frac <= (PER_GARMENT[k] ?? TOLERANCE);
+      let bad = [];
+      if (label === "masc" && declared.length) {
+        const cov = hideCoverage(join(dir, baseFile), file);
+        bad = declared.filter((reg) => !canHide(cov[reg])).map((reg) => `${reg} ${cov[reg] ? `${cov[reg].verts - cov[reg].covered} uncovered, ${cov[reg].verts - cov[reg].clear} near an edge, of ${cov[reg].verts}` : "missing"}`);
+        if (bad.length) ok = false;
+      }
+      if (!ok) failed++;
+      console.log(`${ok ? "ok  " : "FAIL"} ${`${k} [${label}]`.padEnd(29)} ${String(r.poke).padStart(4)} skin verts over cloth / ${r.covered} covered (${(frac * 100).toFixed(2)}%) ${r.poke ? JSON.stringify(r.where) : ""}${label === "masc" && declared.length ? ` hides ${declared.length}` : ""}${bad.length ? ` — can't hide: ${bad.join(", ")}` : ""}`);
     }
-    if (!ok) failed++;
-    console.log(`${ok ? "ok  " : "FAIL"} ${k.padEnd(22)} ${String(r.poke).padStart(4)} skin verts over cloth / ${r.covered} covered (${(frac * 100).toFixed(2)}%) ${r.poke ? JSON.stringify(r.where) : ""}${declared.length ? ` hides ${declared.length}` : ""}${bad.length ? ` — can't hide: ${bad.join(", ")}` : ""}`);
+  }
+  if (!suggest) {
+    const tops = keys.filter((k) => k.startsWith("top_"));
+    const outers = keys.filter((k) => k.startsWith("outerwear_"));
+    if (tops.length && outers.length) {
+      console.log("\n── Layered fit check (top_* under outerwear_*) ──");
+      const combos = [
+        ["masc", null],
+        ["fem", { frameFem: 1 }],
+        ["fem+slim", { frameFem: 1, buildSlim: 1 }],
+        ["fem+broad", { frameFem: 1, buildBroad: 1 }],
+      ];
+      for (const top of tops) {
+        for (const out of outers) {
+          for (const [label, morphs] of combos) {
+            const r = layerCheck(join(dir, `${top}.glb`), join(dir, `${out}.glb`), { morphs });
+            const frac = r.covered ? r.poke / r.covered : 0;
+            const ok = frac <= TOLERANCE;
+            if (!ok) failed++;
+            console.log(`${ok ? "ok  " : "FAIL"} ${`${top} + ${out} [${label}]`.padEnd(50)} ${String(r.poke).padStart(4)} top verts over outer / ${r.covered} covered (${(frac * 100).toFixed(2)}%) ${r.poke ? JSON.stringify(r.where) : ""}`);
+          }
+        }
+      }
+    }
   }
   process.exit(failed ? 1 : 0);
 }

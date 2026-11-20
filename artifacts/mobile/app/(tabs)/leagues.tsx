@@ -206,7 +206,7 @@ function LeagueCard({ s, latest }: { s: LeagueSummary; latest?: string }) {
             {league.name}
           </Text>
           <View style={styles.pills}>
-            <Pill label={closed ? (league.cancelled ? "Cancelled" : "Closed") : `${s.daysLeft}d left`} tone={closed ? "neutral" : "accent"} icon={closed ? "lock-outline" : "clock-outline"} />
+            <Pill label={closed ? (league.cancelled ? "Canceled" : "Closed") : `${s.daysLeft}d left`} tone={closed ? "neutral" : "accent"} icon={closed ? "lock-outline" : "clock-outline"} />
             <Pill label={`${s.memberCount} ${s.memberCount === 1 ? "player" : "players"}`} icon="account-multiple" />
             {league.mode && league.mode !== "bankroll" ? (
               <Pill label={league.mode === "pickem" ? "Pick'em" : "Survivor"} tone="league" icon={league.mode === "pickem" ? "checkbox-marked-circle-outline" : "skull-outline"} />

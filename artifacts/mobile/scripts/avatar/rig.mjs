@@ -93,7 +93,7 @@ export const LAYER_OFFSET = {
   base: 0.004,
   bottom: 0.006,
   top: 0.015,
-  outer: 0.024,
+  outer: 0.028,
   shoes: 0.012,
   trim: 0.0035,
   waist: 0.006,

@@ -582,57 +582,93 @@ export async function voidDisrupted(now = Date.now()): Promise<number> {
   return refunded;
 }
 
+export interface GameSnapshotLite {
+  status?: string;
+  homeScore?: number | null;
+  awayScore?: number | null;
+}
+
 /**
- * Fires the moment syncGames flips a game to final. This is the fast path —
- * users see results within a couple of minutes of the whistle.
+ * Handles kickoff challenge expiration, live flash-pick grading, and final
+ * bet/league/parlay/bracket settlement for one game transition. Called directly
+ * by syncGames whenever a game changes status or score (replacing the noisy
+ * onDocumentUpdated("games/{gameId}") trigger).
+ */
+export async function handleGameTransition(
+  gameId: string,
+  prev: GameSnapshotLite | null,
+  next: GameSnapshotLite
+): Promise<void> {
+  const before = prev?.status;
+  const after = next.status;
+
+  if (before === "upcoming" && after && after !== "upcoming") {
+    const expired = await expirePendingChallenges(gameId);
+    if (expired > 0) logger.info("challenges expired at kickoff", { gameId, expired });
+  }
+
+  // Flash picks grade whenever the scoreboard moves, and once more at the final whistle.
+  const scoreMoved =
+    (prev?.homeScore ?? null) !== (next.homeScore ?? null) ||
+    (prev?.awayScore ?? null) !== (next.awayScore ?? null);
+  if (before !== "upcoming" && (scoreMoved || (before !== "final" && after === "final"))) {
+    await settleFlashForGame(
+      gameId,
+      next.homeScore ?? null,
+      next.awayScore ?? null,
+      String(after ?? "")
+    ).catch((err) => logger.warn("flash picks failed", { gameId, error: String(err) }));
+  }
+
+  if (before === "final" || after !== "final") return;
+
+  // Results feed the model line's team ratings (once per game).
+  await applyResultToRatings(gameId).catch((err) => logger.warn("ratings update failed", { gameId, error: String(err) }));
+
+  const settled = await settleBetsForGame(gameId);
+  const leagueSettled = await settleLeagueBetsForGame(gameId);
+  const challenges = await settleChallengesForGame(gameId);
+  const picks = await settlePicksForGame(gameId);
+  const parlays = await gradeParlays(gameId);
+  const daily = await settleDailyPicksForGame(gameId).catch(() => 0);
+  const slips = await settleSlipParlaysForGame(gameId).catch((err) => (logger.warn("slip parlays failed", { gameId, error: String(err) }), 0));
+  await settleBracketsForGame(gameId).catch((err) => logger.warn("brackets failed", { gameId, error: String(err) }));
+  logger.info("game final settled", { gameId, settled, leagueSettled, challenges, picks, parlays, daily, slips });
+}
+
+/**
+ * Legacy Firestore trigger — no longer exported from index.ts because
+ * syncGames calls handleGameTransition directly (avoiding a function
+ * invocation on every clock/odds/score write).
  */
 export const onGameFinal = onDocumentUpdated(
   { document: "games/{gameId}", region: "us-central1" },
   async (event) => {
-    const before = event.data?.before.get("status");
-    const after = event.data?.after.get("status");
-    const gameId = event.params.gameId;
-
-    if (before === "upcoming" && after && after !== "upcoming") {
-      const expired = await expirePendingChallenges(gameId);
-      if (expired > 0) logger.info("challenges expired at kickoff", { gameId, expired });
-    }
-
-    // Flash picks grade whenever the scoreboard moves, and once more at the final whistle.
     const d = event.data;
-    const scoreMoved = d?.before.get("homeScore") !== d?.after.get("homeScore") || d?.before.get("awayScore") !== d?.after.get("awayScore");
-    if (before !== "upcoming" && (scoreMoved || (before !== "final" && after === "final"))) {
-      await settleFlashForGame(
-        gameId,
-        (d?.after.get("homeScore") as number | null) ?? null,
-        (d?.after.get("awayScore") as number | null) ?? null,
-        String(after ?? "")
-      ).catch((err) => logger.warn("flash picks failed", { gameId, error: String(err) }));
-    }
-
-    if (before === "final" || after !== "final") return;
-
-    // Results feed the model line's team ratings (once per game).
-    await applyResultToRatings(gameId).catch((err) => logger.warn("ratings update failed", { gameId, error: String(err) }));
-
-    const settled = await settleBetsForGame(gameId);
-    const leagueSettled = await settleLeagueBetsForGame(gameId);
-    const challenges = await settleChallengesForGame(gameId);
-    const picks = await settlePicksForGame(gameId);
-    const parlays = await gradeParlays(gameId);
-    const daily = await settleDailyPicksForGame(gameId).catch(() => 0);
-    const slips = await settleSlipParlaysForGame(gameId).catch((err) => (logger.warn("slip parlays failed", { gameId, error: String(err) }), 0));
-    await settleBracketsForGame(gameId).catch((err) => logger.warn("brackets failed", { gameId, error: String(err) }));
-    logger.info("onGameFinal settled", { gameId, settled, leagueSettled, challenges, picks, parlays, daily, slips });
+    await handleGameTransition(
+      event.params.gameId,
+      d?.before
+        ? {
+            status: d.before.get("status") as string | undefined,
+            homeScore: (d.before.get("homeScore") as number | null | undefined) ?? null,
+            awayScore: (d.before.get("awayScore") as number | null | undefined) ?? null,
+          }
+        : null,
+      {
+        status: d?.after.get("status") as string | undefined,
+        homeScore: (d?.after.get("homeScore") as number | null | undefined) ?? null,
+        awayScore: (d?.after.get("awayScore") as number | null | undefined) ?? null,
+      }
+    );
   }
 );
 
 /**
- * Safety net. Catches anything the trigger missed — a cold deploy, a dropped
- * event, a bet placed after the game already went final.
+ * Safety net. Catches anything direct settlement missed — a cold deploy, a
+ * timeout, or a bet placed just before a game went final.
  */
 export const settleBetsSweep = onSchedule(
-  { schedule: "*/15 * * * *", region: "us-central1", timeoutSeconds: 540 },
+  { schedule: "*/30 * * * *", region: "us-central1", timeoutSeconds: 540 },
   async () => {
     const [pending, leaguePending] = await Promise.all([
       db.collection("bets").where("status", "==", "pending").limit(1000).get(),
@@ -754,6 +790,17 @@ export async function refundStale(cutoff: number): Promise<number> {
   return refunded;
 }
 
+/** Runs daily stale/disrupted bet refunds. Called by dailyMaintenance. */
+export async function runRefundStaleBets(now = Date.now()): Promise<number> {
+  const cutoff = now - 72 * 3_600_000;
+  const n =
+    (await voidDisrupted(now)) +
+    (await refundStale(cutoff)) +
+    (await refundStaleChallenges(cutoff));
+  if (n > 0) logger.info("refundStaleBets", { refunded: n });
+  return n;
+}
+
 /**
  * Refunds bets on games that vanished from the provider (postponed, cancelled,
  * or pruned) and have been pending well past their start time.
@@ -761,12 +808,6 @@ export async function refundStale(cutoff: number): Promise<number> {
 export const refundStaleBets = onSchedule(
   { schedule: "30 6 * * *", region: "us-central1", timeoutSeconds: 540 },
   async () => {
-    const now = Date.now();
-    const cutoff = now - 72 * 3_600_000;
-    const n =
-      (await voidDisrupted(now)) +
-      (await refundStale(cutoff)) +
-      (await refundStaleChallenges(cutoff));
-    if (n > 0) logger.info("refundStaleBets", { refunded: n });
+    await runRefundStaleBets();
   }
 );

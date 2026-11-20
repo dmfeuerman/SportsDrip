@@ -113,7 +113,7 @@ export function lookKey(avatar: AvatarConfig, outfit: ResolvedOutfit, framing: s
     avatar.hairStyle,
     avatar.hairColor.toLowerCase(),
     avatar.faceShape ?? "",
-    `${avatar.eyeColor ?? ""}:${avatar.eyebrows ?? ""}:${avatar.eyeShape ?? ""}:${avatar.facialHair ?? ""}:${avatar.noseShape ?? ""}:${avatar.mouthShape ?? ""}`,
+    `${avatar.eyeColor ?? ""}:${avatar.eyebrows ?? ""}:${avatar.eyebrowColor ?? ""}:${avatar.eyeShape ?? ""}:${avatar.facialHair ?? ""}:${avatar.facialHairColor ?? ""}:${avatar.noseShape ?? ""}:${avatar.mouthShape ?? ""}`,
   ].join("|");
   const o = [...outfit.pieces]
     .sort((x, y) => x.slot.localeCompare(y.slot))

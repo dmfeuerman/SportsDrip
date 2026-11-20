@@ -680,7 +680,7 @@ function FriendLoanCard({
                   void act(
                     "cancel",
                     () => api.respondFriendLoan({ loanId: loan.id, accept: false, action: "cancel" }),
-                    "Loan cancelled",
+                    "Loan canceled",
                     { status: "cancelled" }
                   )
                 }

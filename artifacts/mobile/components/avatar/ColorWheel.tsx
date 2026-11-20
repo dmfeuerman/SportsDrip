@@ -92,7 +92,7 @@ function Wheel({ size, hsv, onChange, onEnd }: { size: number; hsv: HSV; onChang
   const mx = R + Math.cos(a) * hsv.s * R;
   const my = R + Math.sin(a) * hsv.s * R;
   return (
-    <View style={{ width: size, height: size }} {...pan.panHandlers} accessibilityLabel="Colour wheel" accessibilityHint="Drag to pick a hue and saturation">
+    <View style={{ width: size, height: size }} {...pan.panHandlers} accessibilityLabel="Color wheel" accessibilityHint="Drag to pick a hue and saturation">
       <Svg width={size} height={size} pointerEvents="none">
         <Defs>
           <RadialGradient id="white" cx="50%" cy="50%" r="50%">
@@ -205,11 +205,11 @@ export default function ColorWheelSheet({
             placeholder="#A1B2C3"
             placeholderTextColor={c.subtleForeground}
             style={[styles.hexInput, { color: c.foreground, borderColor: typed ? c.border : c.negative, backgroundColor: c.secondary }]}
-            accessibilityLabel="Hex colour"
+            accessibilityLabel="Hex color"
           />
         </View>
         <Button
-          label="Use Colour"
+          label="Use Color"
           onPress={() => {
             onPick(hex);
             onClose();

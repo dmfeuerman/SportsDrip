@@ -48,21 +48,33 @@ function useCountUp(target: number, reduced: boolean | undefined) {
   return v;
 }
 
-function NetBar({ net, max, index, reduced }: { net: number; max: number; index: number; reduced: boolean | undefined }) {
+function NetBar({
+  net,
+  max,
+  index,
+  reduced,
+  half = HALF,
+}: {
+  net: number;
+  max: number;
+  index: number;
+  reduced: boolean | undefined;
+  half?: number;
+}) {
   const c = useColors();
   const h = useSharedValue(0);
-  const target = net === 0 ? 3 : Math.max(5, (Math.abs(net) / max) * HALF);
+  const target = net === 0 ? 2 : Math.max(4, (Math.abs(net) / max) * half);
   const color = net > 0 ? c.positive : net < 0 ? c.negative : c.push;
   useEffect(() => {
     h.value = reduced ? target : withDelay(index * 35, withTiming(target, { duration: 520, easing: Easing.out(Easing.cubic) }));
   }, [target, index, reduced, h]);
   const style = useAnimatedStyle(() => ({ height: h.value }));
   return (
-    <View style={styles.barCol}>
-      <View style={styles.barHalf}>
+    <View style={[styles.barCol, { height: half * 2 }]}>
+      <View style={[styles.barHalf, { height: half }]}>
         {net >= 0 ? <Animated.View style={[styles.bar, { backgroundColor: color, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }, style]} /> : null}
       </View>
-      <View style={[styles.barHalf, { justifyContent: "flex-start" }]}>
+      <View style={[styles.barHalf, { height: half, justifyContent: "flex-start" }]}>
         {net < 0 ? <Animated.View style={[styles.bar, { backgroundColor: color, borderTopLeftRadius: 0, borderTopRightRadius: 0 }, style]} /> : null}
       </View>
     </View>
@@ -73,7 +85,15 @@ function NetBar({ net, max, index, reduced }: { net: number; max: number; index:
  * Hit rate ring, W/L/P split, streak and net-per-bet bars. Everything animates in on mount
  * and again when the record changes.
  */
-export default function BetRecordPanel({ bets }: { bets: RecordBet[] }) {
+export default function BetRecordPanel({
+  bets,
+  compact = false,
+  currency = "credits",
+}: {
+  bets: RecordBet[];
+  compact?: boolean;
+  currency?: "credits" | "league";
+}) {
   const c = useColors();
   const reduced = useReducedMotion();
 
@@ -102,6 +122,11 @@ export default function BetRecordPanel({ bets }: { bets: RecordBet[] }) {
   const pFrac = useSharedValue(0);
   const total = settled.length || 1;
 
+  const ringSize = compact ? 92 : RING;
+  const strokeWidth = compact ? 9 : STROKE;
+  const radius = (ringSize - strokeWidth) / 2;
+  const circ = 2 * Math.PI * radius;
+
   useEffect(() => {
     const set = (sv: { value: number }, to: number) => {
       sv.value = reduced ? to : withTiming(to, EASE);
@@ -112,7 +137,7 @@ export default function BetRecordPanel({ bets }: { bets: RecordBet[] }) {
     set(pFrac, pushes / total);
   }, [rate, won, lost, pushes, total, reduced, ring, wFrac, lFrac, pFrac]);
 
-  const ringProps = useAnimatedProps(() => ({ strokeDashoffset: CIRC * (1 - ring.value) }));
+  const ringProps = useAnimatedProps(() => ({ strokeDashoffset: circ * (1 - ring.value) }));
   const wStyle = useAnimatedStyle(() => ({ flexGrow: wFrac.value }));
   const lStyle = useAnimatedStyle(() => ({ flexGrow: lFrac.value }));
   const pStyle = useAnimatedStyle(() => ({ flexGrow: pFrac.value }));
@@ -132,6 +157,79 @@ export default function BetRecordPanel({ bets }: { bets: RecordBet[] }) {
   const recent = settled.slice(-CHART_BARS);
   const maxAbs = Math.max(1, ...recent.map((b) => Math.abs(betNet(b))));
   const offset = settled.length - recent.length;
+
+  if (compact) {
+    const miniHalf = 18;
+    return (
+      <Card style={styles.compactCard}>
+        <View style={styles.compactRow}>
+          <View style={styles.compactLeft}>
+            <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
+              <Svg width={ringSize} height={ringSize} style={{ transform: [{ rotate: "-90deg" }] }}>
+                <Circle cx={ringSize / 2} cy={ringSize / 2} r={radius} stroke={c.border} strokeWidth={strokeWidth} fill="none" />
+                <AnimatedCircle
+                  cx={ringSize / 2}
+                  cy={ringSize / 2}
+                  r={radius}
+                  stroke={ringColor}
+                  strokeWidth={strokeWidth}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeDasharray={`${circ} ${circ}`}
+                  animatedProps={ringProps}
+                />
+              </Svg>
+              <View style={styles.ringCenter} pointerEvents="none">
+                <Text style={[styles.compactRingValue, { color: c.foreground }]}>{rate === null ? "—" : `${Math.round(shownRate)}%`}</Text>
+              </View>
+            </View>
+            <Text style={[styles.compactHitLabel, { color: c.subtleForeground }]}>HIT RATE</Text>
+          </View>
+
+          <View style={styles.compactRight}>
+            <View style={styles.compactTopLine}>
+              <Text style={[styles.compactRecord, { color: c.foreground }]}>
+                {won} – {lost}
+                {pushes ? <Text style={{ color: c.push }}>{` – ${pushes}`}</Text> : null}
+              </Text>
+              {streak > 0 ? (
+                <View style={[styles.compactStreak, { backgroundColor: c.secondary, borderColor: c.border }]}>
+                  <Text style={[styles.compactStreakText, { color: c.foreground }]}>
+                    {streak} {streakWin ? "win" : "loss"} streak
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={[styles.compactStack, { backgroundColor: c.secondary }]}>
+              <Animated.View style={[styles.seg, { backgroundColor: c.positive }, wStyle]} />
+              <Animated.View style={[styles.seg, { backgroundColor: c.negative }, lStyle]} />
+              <Animated.View style={[styles.seg, { backgroundColor: c.push }, pStyle]} />
+            </View>
+
+            <Text style={[styles.compactChartLabel, { color: c.subtleForeground }]}>
+              NET PER BET · LAST {recent.length}
+            </Text>
+
+            <View style={styles.compactBottomLine}>
+              <View style={[styles.compactChart, { height: miniHalf * 2 }]}>
+                {recent.map((b, i) => (
+                  <NetBar key={`${offset + i}`} net={betNet(b)} max={maxAbs} index={i} reduced={reduced} half={miniHalf} />
+                ))}
+              </View>
+              <Amount
+                value={net}
+                currency={currency}
+                signed
+                size="lg"
+                tone={net > 0 ? "positive" : net < 0 ? "negative" : "neutral"}
+              />
+            </View>
+          </View>
+        </View>
+      </Card>
+    );
+  }
 
   return (
     <Card style={styles.card}>
@@ -160,7 +258,7 @@ export default function BetRecordPanel({ bets }: { bets: RecordBet[] }) {
         <View style={styles.side}>
           <Text style={[styles.label, { color: c.subtleForeground }]}>RECORD</Text>
           <Text style={[styles.record, { color: c.foreground }]}>
-            {won}–{lost}
+            {won} – {lost}
             {pushes ? <Text style={{ color: c.push }}>{`  ·  ${pushes} push`}</Text> : null}
           </Text>
 
@@ -188,7 +286,7 @@ export default function BetRecordPanel({ bets }: { bets: RecordBet[] }) {
 
       <View style={styles.chartHead}>
         <Text style={[styles.label, { color: c.subtleForeground }]}>NET PER BET · LAST {recent.length}</Text>
-        <Amount value={net} signed size="sm" tone={net > 0 ? "positive" : net < 0 ? "negative" : "neutral"} />
+        <Amount value={net} currency={currency} signed size="sm" tone={net > 0 ? "positive" : net < 0 ? "negative" : "neutral"} />
       </View>
       <View style={styles.chart}>
         {recent.map((b, i) => (
@@ -201,6 +299,20 @@ export default function BetRecordPanel({ bets }: { bets: RecordBet[] }) {
 
 const styles = StyleSheet.create({
   card: { gap: 14, padding: 16 },
+  compactCard: { padding: 14 },
+  compactRow: { flexDirection: "row", alignItems: "center", gap: 14 },
+  compactLeft: { alignItems: "center", gap: 6 },
+  compactRingValue: { fontSize: 22, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"], letterSpacing: -0.5 },
+  compactHitLabel: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  compactRight: { flex: 1, gap: 7 },
+  compactTopLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  compactRecord: { fontSize: 20, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: -0.4 },
+  compactStreak: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+  compactStreakText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  compactStack: { flexDirection: "row", height: 7, borderRadius: 4, overflow: "hidden", width: "68%" },
+  compactChartLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8, marginTop: 2 },
+  compactBottomLine: { flexDirection: "row", alignItems: "center", gap: 10 },
+  compactChart: { flex: 1, flexDirection: "row", alignItems: "center", gap: 2 },
   top: { flexDirection: "row", alignItems: "center", gap: 16 },
   ringWrap: { width: RING, height: RING, alignItems: "center", justifyContent: "center" },
   ringCenter: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center" },

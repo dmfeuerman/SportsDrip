@@ -59,8 +59,12 @@ export interface AvatarConfig {
   /** Eyelid shape — round, almond, sleepy. */
   eyeShape?: string;
   eyebrows?: string;
+  /** Optional custom eyebrow color (#RRGGBB); defaults to hairColor. */
+  eyebrowColor?: string;
   /** none, stubble, goatee, beard. */
   facialHair?: string;
+  /** Optional custom facial hair color (#RRGGBB); defaults to hairColor. */
+  facialHairColor?: string;
   /** button, straight, broad (a blendshape on the head). */
   noseShape?: string;
   /** neutral, full, wide (blendshapes on the head). */
@@ -351,12 +355,14 @@ export function appearanceErrors(a: unknown): string[] {
   if (x.eyeColor !== undefined && !colorIn(x.eyeColor, EYE_COLORS)) errs.push("eyeColor");
   if (x.eyeShape !== undefined && !inList(x.eyeShape, EYE_SHAPE_IDS)) errs.push("eyeShape");
   if (x.eyebrows !== undefined && !inList(x.eyebrows, EYEBROW_IDS)) errs.push("eyebrows");
+  if (x.eyebrowColor !== undefined && !colorIn(x.eyebrowColor, HAIR_COLORS)) errs.push("eyebrowColor");
   if (x.facialHair !== undefined && !inList(x.facialHair, FACIAL_HAIR_IDS)) errs.push("facialHair");
+  if (x.facialHairColor !== undefined && !colorIn(x.facialHairColor, HAIR_COLORS)) errs.push("facialHairColor");
   if (x.noseShape !== undefined && !inList(x.noseShape, NOSE_SHAPE_IDS)) errs.push("noseShape");
   if (x.mouthShape !== undefined && !inList(x.mouthShape, MOUTH_SHAPE_IDS)) errs.push("mouthShape");
   if (x.faceStyle !== undefined && !inList(x.faceStyle, FACE_STYLE_IDS)) errs.push("faceStyle");
   if (x.base !== undefined && !inList(x.base, BASE_MODELS)) errs.push("base");
-  const known = ["height", "bodyType", "bodyFrame", "skinTone", "hairStyle", "hairColor", "faceShape", "eyeColor", "eyeShape", "eyebrows", "facialHair", "noseShape", "mouthShape", "faceStyle", "base"];
+  const known = ["height", "bodyType", "bodyFrame", "skinTone", "hairStyle", "hairColor", "faceShape", "eyeColor", "eyeShape", "eyebrows", "eyebrowColor", "facialHair", "facialHairColor", "noseShape", "mouthShape", "faceStyle", "base"];
   for (const k of Object.keys(x)) if (!known.includes(k)) errs.push(k);
   return errs;
 }
@@ -369,6 +375,8 @@ export function appearanceErrors(a: unknown): string[] {
 export function sanitizeAppearance(a: unknown): AvatarConfig {
   const x = (a && typeof a === "object" ? a : {}) as Record<string, unknown>;
   const d = DEFAULT_AVATAR;
+  const eyebrowColor = colorIn(x.eyebrowColor, HAIR_COLORS);
+  const facialHairColor = colorIn(x.facialHairColor, HAIR_COLORS);
   return {
     height: unit(x.height) ?? d.height,
     bodyType: unit(x.bodyType) ?? d.bodyType,
@@ -380,7 +388,9 @@ export function sanitizeAppearance(a: unknown): AvatarConfig {
     eyeColor: colorIn(x.eyeColor, EYE_COLORS) ?? d.eyeColor,
     eyeShape: inList(x.eyeShape, EYE_SHAPE_IDS) ?? d.eyeShape,
     eyebrows: inList(x.eyebrows, EYEBROW_IDS) ?? d.eyebrows,
+    ...(eyebrowColor ? { eyebrowColor } : {}),
     facialHair: inList(x.facialHair, FACIAL_HAIR_IDS) ?? d.facialHair,
+    ...(facialHairColor ? { facialHairColor } : {}),
     noseShape: inList(x.noseShape, NOSE_SHAPE_IDS) ?? d.noseShape,
     mouthShape: inList(x.mouthShape, MOUTH_SHAPE_IDS) ?? d.mouthShape,
     faceStyle: (inList(x.faceStyle, FACE_STYLE_IDS) as FaceStyle | undefined) ?? d.faceStyle,

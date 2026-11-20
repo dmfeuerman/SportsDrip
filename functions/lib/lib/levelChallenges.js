@@ -18,7 +18,7 @@ const EXPLORE = [
     { id: "x_bet", minLevel: 1, metric: "bets", target: 1, weight: 1.2, title: "Place your first bet", to: "/(tabs)/games", explore: true },
     { id: "x_hat", minLevel: 1, metric: "ownedHat", target: 1, weight: 1.2, title: "Buy a hat in the Drip Shop", to: "/customize?category=hat", explore: true },
     { id: "x_friend", minLevel: 1, metric: "friends", target: 1, weight: 1.2, title: "Add a friend", to: "/(tabs)/leagues?seg=friends", explore: true },
-    { id: "x_theme", minLevel: 1, metric: "theme", target: 1, weight: 0.8, title: "Change the app color in Settings", to: "/settings", explore: true },
+    { id: "x_theme", minLevel: 1, metric: "theme", target: 1, weight: 0.8, title: "Change the app color in your Locker", to: "/(tabs)/avatar", explore: true },
     { id: "x_teams", minLevel: 1, metric: "favoriteTeams", target: 1, weight: 0.8, title: "Pick your favorite teams in Settings", to: "/settings", explore: true },
     { id: "x_avatar", minLevel: 1, metric: "avatarSaved", target: 1, weight: 0.8, title: "Save a new look for your character", to: "/customize?category=body", explore: true },
     { id: "x_odds", minLevel: 1, metric: "oddsFormat", target: 1, weight: 0.6, title: "Try another odds format in Settings", to: "/settings", explore: true },

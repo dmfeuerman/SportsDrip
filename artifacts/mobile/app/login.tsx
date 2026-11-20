@@ -67,7 +67,7 @@ export default function LoginScreen() {
       return `${name} sign-in isn't available right now. Try another way to sign in.`;
     if (code.includes("account-exists-with-different-credential"))
       return "That email already has an account with a different sign-in. Use the way you signed up first.";
-    if (code.includes("unauthorized-domain")) return "This site isn't authorised for sign-in yet. Add it under Firebase → Authentication → Settings → Authorised domains.";
+    if (code.includes("unauthorized-domain")) return "This site isn't authorized for sign-in yet. Add it under Firebase → Authentication → Settings → Authorized domains.";
     if (code.includes("user-not-found") || code.includes("wrong-password") || code.includes("invalid-credential"))
       return "Invalid email or password.";
     if (code.includes("email-already-in-use")) return "An account with this email already exists.";

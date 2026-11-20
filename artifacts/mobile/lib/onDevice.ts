@@ -1,14 +1,25 @@
 /**
- * Reads the phone can do for itself.
+ * Reads and non-economy self-writes the phone can do for itself.
  *
- * Each function here replaces a read-only Cloud Function call with direct
- * Firestore reads the security rules already allow, plus the same arithmetic
- * the server did. Nothing here can change a balance, a bet or anyone else's
- * data: every write still goes through a callable. If a direct read fails
- * (rules, a missing index, offline), lib/api.ts falls back to the callable.
+ * Each function here replaces a Cloud Function call with direct Firestore
+ * reads/writes enforced by firestore.rules. Nothing here can change a balance,
+ * a bet, an inventory item, or anyone else's data.
  */
-import { collection, doc, getDoc, getDocs, limit, orderBy, query, Timestamp, where } from "firebase/firestore";
-import type { PublicUser, WeeklyQuest } from "@/lib/api";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  Timestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+import type { FavoriteTeam, PublicUser, WeeklyQuest } from "@/lib/api";
 import { getDb, getFirebaseAuth } from "@/lib/firebase";
 import { weekKey } from "@/lib/markets";
 import { nyDayOf } from "@/lib/streakGrid";
@@ -138,4 +149,118 @@ export async function weeklyQuests(now = Date.now()): Promise<{ week: string; qu
       claimed: !!claimed[q.id],
     })),
   };
+}
+
+// ── Direct Firestore self-writes (enforced by firestore.rules) ─────────────
+
+export async function setAlertPrefs(input: {
+  sweat?: boolean;
+  quietHours?: boolean;
+  tz?: string;
+}): Promise<{ ok: true }> {
+  const { db, uid } = ctx();
+  const update: Record<string, unknown> = { updatedAt: serverTimestamp() };
+  if (input.sweat !== undefined) update.sweatAlerts = input.sweat;
+  if (input.quietHours !== undefined) update.quietHours = input.quietHours;
+  if (input.tz !== undefined) update.tz = input.tz.slice(0, 64);
+  await updateDoc(doc(db, "users", uid), update);
+  return { ok: true };
+}
+
+export async function setPlayLimits(input: {
+  dailyPicks?: number | null;
+  breakDays?: 1 | 7 | 30;
+}): Promise<{ ok: true }> {
+  const { db, uid } = ctx();
+  const userRef = doc(db, "users", uid);
+  const snap = await getDoc(userRef);
+  const existing = (snap.get("limits") as { dailyPicks?: number | null; breakUntil?: number | null } | undefined) ?? {};
+  const limits: Record<string, unknown> = { ...existing };
+  if (input.dailyPicks !== undefined) limits.dailyPicks = input.dailyPicks;
+  if (input.breakDays) limits.breakUntil = Date.now() + input.breakDays * 86_400_000;
+  await updateDoc(userRef, { limits, updatedAt: serverTimestamp() });
+  return { ok: true };
+}
+
+export async function updateFavoriteTeams(input: {
+  teams: FavoriteTeam[];
+  reminders?: boolean;
+}): Promise<{ ok: true; teams: FavoriteTeam[] }> {
+  const { db, uid } = ctx();
+  const seen = new Set<string>();
+  const teams = input.teams
+    .filter((t) => {
+      const k = `${t.sport}:${t.abbr.trim().toUpperCase()}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0, 5)
+    .map((t) => ({ ...t, abbr: t.abbr.trim().toUpperCase(), name: t.name.trim() }));
+  const update: Record<string, unknown> = {
+    favoriteTeams: teams,
+    favoriteTeamKeys: teams.map((t) => `${t.sport}:${t.abbr}`),
+    updatedAt: serverTimestamp(),
+  };
+  if (input.reminders !== undefined) update.teamReminders = input.reminders;
+  await updateDoc(doc(db, "users", uid), update);
+  return { ok: true, teams };
+}
+
+export async function setFeaturedTrophy(input: {
+  trophyId: string | null;
+}): Promise<{ ok: true; trophyId: string | null }> {
+  const { db, uid } = ctx();
+  await updateDoc(doc(db, "users", uid), {
+    featuredTrophy: input.trophyId ?? null,
+    updatedAt: serverTimestamp(),
+  });
+  return { ok: true, trophyId: input.trophyId ?? null };
+}
+
+export async function setMuteTaunts(input: { mute: boolean }): Promise<{ ok: true }> {
+  const { db, uid } = ctx();
+  await updateDoc(doc(db, "users", uid), {
+    muteTaunts: Boolean(input.mute),
+    updatedAt: serverTimestamp(),
+  });
+  return { ok: true };
+}
+
+export async function acceptTerms(input: { version: number }): Promise<{ ok: true; version: number }> {
+  const { db, uid } = ctx();
+  await updateDoc(doc(db, "users", uid), {
+    termsVersion: input.version,
+    termsAcceptedAt: serverTimestamp(),
+  });
+  return { ok: true, version: input.version };
+}
+
+export async function setBackground(input: {
+  backgroundId: string | null;
+}): Promise<{ ok: true; backgroundId: string }> {
+  const { db, uid } = ctx();
+  const id = input.backgroundId ?? "locker_room";
+  await updateDoc(doc(db, "users", uid), {
+    background: id,
+    updatedAt: serverTimestamp(),
+  });
+  return { ok: true, backgroundId: id };
+}
+
+export async function setMoveLoadout(input: { moves: string[] }): Promise<{ ok: true; moves: string[] }> {
+  const { db, uid } = ctx();
+  const moves = [...new Set(input.moves)].slice(0, 4);
+  if (moves.length === 0) throw new Error("Pick at least one move.");
+  await updateDoc(doc(db, "users", uid), {
+    moves,
+    updatedAt: serverTimestamp(),
+  });
+  return { ok: true, moves };
+}
+
+export async function unblockUser(input: { otherUid: string }): Promise<{ ok: true }> {
+  const { db, uid } = ctx();
+  await deleteDoc(doc(db, "users", uid, "blocks", input.otherUid));
+  return { ok: true };
 }
