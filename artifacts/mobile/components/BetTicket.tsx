@@ -3,6 +3,7 @@ import React, { memo, useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { Pill } from "@/components/ui";
+import { LiquidGlass } from "@/components/ui/LiquidGlass";
 import { SPORT_ICONS } from "@/constants/leagueTypes";
 import type { Bet } from "@/context/AppContext";
 import { useNow } from "@/hooks/useNow";
@@ -125,8 +126,9 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen,
         accessibilityHint={press ? "Opens bet details" : undefined}
         accessibilityLabel={`${desc.type}: ${desc.pick}, ${meta.label}. ${desc.needs}`}
         onPress={press}
-        style={({ pressed }) => [styles.card, { backgroundColor: c.card, borderColor: c.alpha(tone, 0.45), opacity: press && pressed ? 0.85 : 1 }]}
+        style={({ pressed }) => ({ opacity: press && pressed ? 0.88 : 1 })}
       >
+      <LiquidGlass variant="card" interactive={!!press} borderColor={c.alpha(tone, 0.45)} borderWidth={1.25} contentStyle={styles.card}>
         <View style={styles.head}>
           <MaterialCommunityIcons name={desc.icon} size={18} color={tone} />
           <Text style={[styles.title, { color: c.foreground, flexShrink: 1 }]} numberOfLines={1}>
@@ -213,6 +215,7 @@ function BetTicket({ bet, walletLabel, game, busy, onCancel, onOpenGame, onOpen,
             </Text>
           </Pressable>
         ) : null}
+      </LiquidGlass>
       </Pressable>
     </View>
   );
@@ -265,7 +268,7 @@ function coverProgress(game: Game, bet: TicketBet): { pct: number; text: string;
 const fmtPts = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1.5, borderRadius: 16, padding: 12, gap: 8 },
+  card: { padding: 14, gap: 8 },
   head: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
   lockBadge: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },

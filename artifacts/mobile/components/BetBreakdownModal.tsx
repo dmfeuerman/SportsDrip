@@ -1,8 +1,10 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import React from "react";
-import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { Amount, Button, CloseButton, Pill, StatTile } from "@/components/ui";
+import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { useColors } from "@/hooks/useColors";
 import { describeBet } from "@/lib/markets";
 import { formatOdds, formatPercent, impliedProbability, untilKickoff } from "@/lib/odds";
@@ -135,11 +137,11 @@ export default function BetBreakdownModal({
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <View style={[styles.scrim, { backgroundColor: c.overlay }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close bet breakdown" />
-        <View accessibilityViewIsModal style={[styles.sheet, { backgroundColor: c.elevated, borderColor: c.border }]}>
-          <View style={[styles.topStripe, { backgroundColor: item.teamColor || accentColor }]} />
+    <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      <View style={styles.scrim}>
+        {Platform.OS !== "web" ? <BlurView intensity={34} tint={c.isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} /> : null}
+        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: c.isDark ? "rgba(5, 9, 16, 0.46)" : c.overlay }]} onPress={onClose} accessibilityLabel="Close bet breakdown" />
+        <GlassModalSurface id="bet_breakdown" glowColor={item.teamColor || accentColor} style={styles.sheet}>
 
           <View style={styles.header}>
             <View style={{ flex: 1, gap: 4 }}>
@@ -377,7 +379,7 @@ export default function BetBreakdownModal({
               <Button label="Done" onPress={onClose} style={{ flex: 1.2 }} />
             )}
           </View>
-        </View>
+        </GlassModalSurface>
       </View>
     </Modal>
   );
@@ -428,14 +430,11 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 18 },
+  scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 16 },
   sheet: {
     width: "100%",
     maxWidth: 420,
     maxHeight: "88%",
-    borderRadius: 24,
-    borderWidth: 1,
-    overflow: "hidden",
   },
   topStripe: { height: 5, width: "100%" },
   header: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingHorizontal: 18, paddingTop: 16, paddingBottom: 10 },

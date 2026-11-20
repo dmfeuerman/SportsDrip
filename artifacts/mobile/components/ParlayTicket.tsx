@@ -3,6 +3,7 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { Pill } from "@/components/ui";
+import { LiquidGlass } from "@/components/ui/LiquidGlass";
 import { SPORT_ICONS } from "@/constants/leagueTypes";
 import { useColors } from "@/hooks/useColors";
 import type { ParlayDoc } from "@/hooks/useMyParlays";
@@ -23,7 +24,8 @@ export default function ParlayTicket({ p, onCancel, onOpen, busy }: { p: ParlayD
       accessibilityRole={onOpen ? "button" : undefined}
       accessibilityHint={onOpen ? "Opens parlay details" : undefined}
       onPress={onOpen}
-      style={({ pressed }) => [styles.card, { backgroundColor: c.card, borderColor: c.alpha(tone, 0.45), opacity: onOpen && pressed ? 0.85 : 1 }]}>
+      style={({ pressed }) => ({ opacity: onOpen && pressed ? 0.88 : 1 })}>
+      <LiquidGlass variant="card" interactive={!!onOpen} borderColor={c.alpha(tone, 0.45)} borderWidth={1.25} contentStyle={styles.card}>
       <View style={styles.head}>
         <MaterialCommunityIcons name="link-variant" size={18} color={tone} />
         <Text style={[styles.title, { color: c.foreground, flex: 1 }]}>{p.legs.length}-Leg Parlay</Text>
@@ -53,12 +55,13 @@ export default function ParlayTicket({ p, onCancel, onOpen, busy }: { p: ParlayD
           <Text style={[styles.sub, { color: c.foreground }]}>Cancel and get the stake back</Text>
         </Pressable>
       ) : null}
+      </LiquidGlass>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1.5, borderRadius: 16, padding: 12, gap: 8 },
+  card: { padding: 14, gap: 8 },
   head: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
   leg: { flexDirection: "row", alignItems: "center", gap: 6 },
