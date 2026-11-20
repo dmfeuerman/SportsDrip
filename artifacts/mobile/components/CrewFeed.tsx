@@ -143,8 +143,9 @@ export function CrewRow({ item, last }: { item: CrewItem; last?: boolean }) {
 }
 
 /** Home module: the three latest things your crew did. */
-export default function CrewFeedModule() {
-  const items = useCrewFeed(8);
+export default function CrewFeedModule({ items: externalItems }: { items?: CrewItem[] }) {
+  const fetched = useCrewFeed(externalItems ? 0 : 8);
+  const items = externalItems ?? fetched;
   if (!items.length) return null;
   return (
     <>

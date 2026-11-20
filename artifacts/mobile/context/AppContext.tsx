@@ -73,6 +73,13 @@ export interface PrizeBoxState {
   streakDays?: number | null;
 }
 
+export interface ClaimBoxResult {
+  rewardCredits: number;
+  baseCredits: number;
+  streakBonus: number;
+  streakDays: number;
+}
+
 export interface Profile {
   /** Trophy pinned to the top of the public profile. */
   featuredTrophy?: string | null;
@@ -186,7 +193,7 @@ interface AppContextType {
   purchaseBackground: (backgroundId: string) => Promise<boolean>;
   setBackground: (backgroundId: string) => Promise<boolean>;
   openBox: (tier: BoxTier) => Promise<boolean>;
-  claimBox: (tier: BoxTier) => Promise<number | null>;
+  claimBox: (tier: BoxTier) => Promise<ClaimBoxResult | null>;
   resetBox: (tier: BoxTier) => Promise<void>;
   saveAvatar: (avatar: AvatarConfig) => Promise<boolean>;
   /** Appearance + outfit in one server transaction (the character creator's Save). */
@@ -879,11 +886,14 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
 
   const claimBox = useCallback(
     (tier: BoxTier) =>
-      guard<number | null>(
+      guard<ClaimBoxResult | null>(
         `claim:${tier}`,
         async () => {
           const res = await api.claimPrizeBox({ tier });
-          return res.rewardCredits;
+          const baseCredits = res.baseCredits ?? res.rewardCredits;
+          const streakBonus = res.streakBonus ?? Math.max(0, res.rewardCredits - baseCredits);
+          const streakDays = res.streakDays ?? 0;
+          return { rewardCredits: res.rewardCredits, baseCredits, streakBonus, streakDays };
         },
         null
       ),

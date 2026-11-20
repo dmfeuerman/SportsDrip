@@ -16,8 +16,8 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.isFreeBackground = exports.BACKGROUND_ID_RE = exports.DEFAULT_BACKGROUND = exports.FREE_BACKGROUNDS = void 0;
-exports.FREE_BACKGROUNDS = ["locker_room"];
-exports.DEFAULT_BACKGROUND = "locker_room";
+exports.FREE_BACKGROUNDS = ["liquid_glass"];
+exports.DEFAULT_BACKGROUND = "liquid_glass";
 exports.BACKGROUND_ID_RE = /^[a-z0-9_]{2,40}$/;
 const isFreeBackground = (id) => exports.FREE_BACKGROUNDS.includes(id);
 exports.isFreeBackground = isFreeBackground;

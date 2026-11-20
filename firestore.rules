@@ -70,7 +70,7 @@ service cloud.firestore {
 
     function validBackground(uid, bg) {
       return bg is string &&
-             (bg == 'locker_room' ||
+             (bg == 'liquid_glass' ||
               exists(/databases/$(database)/documents/users/$(uid)/backgrounds/$(bg)));
     }
 

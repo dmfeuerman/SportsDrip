@@ -695,6 +695,7 @@ export function FilterPills<T extends string>({
   onChange,
   inset = 16,
   gap = 8,
+  glass = false,
   style,
 }: {
   options: Array<{ value: T; label: string; icon?: IconName; color?: string; badge?: number }>;
@@ -704,6 +705,8 @@ export function FilterPills<T extends string>({
   inset?: number;
   /** Space between pills. */
   gap?: number;
+  /** Obsidian Liquid Glass pill treatment (theme-adaptive translucent capsules). */
+  glass?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   const c = useColors();
@@ -732,7 +735,55 @@ export function FilterPills<T extends string>({
     >
       {options.map((o) => {
         const on = o.value === value;
-        const fg = on ? c.primaryForeground : c.foreground;
+        const fg = glass
+          ? on
+            ? c.isDark
+              ? c.primary
+              : c.primaryForeground
+            : c.foreground
+          : on
+            ? c.primaryForeground
+            : c.foreground;
+        const pillBg = glass
+          ? on
+            ? c.isDark
+              ? c.alpha(c.primary, 0.18)
+              : c.primary
+            : c.isDark
+              ? c.alpha(c.secondary, 0.56)
+              : c.alpha(c.card, 0.72)
+          : on
+            ? c.primary
+            : c.secondary;
+        const pillBorder = glass
+          ? on
+            ? c.isDark
+              ? c.alpha(c.primary, 0.65)
+              : c.primary
+            : c.isDark
+              ? c.alpha("#FFFFFF", 0.14)
+              : c.alpha(c.foreground, 0.12)
+          : on
+            ? c.primary
+            : c.alpha(c.foreground, 0.12);
+        const iconBg = glass
+          ? on
+            ? c.isDark
+              ? c.alpha(c.primary, 0.22)
+              : c.alpha(c.primaryForeground, 0.16)
+            : c.alpha(o.color ?? c.foreground, 0.16)
+          : on
+            ? c.alpha(c.primaryForeground, 0.12)
+            : c.alpha(o.color ?? c.foreground, 0.16);
+        const iconColor = glass
+          ? on
+            ? c.isDark
+              ? c.primary
+              : c.primaryForeground
+            : (o.color ?? c.mutedForeground)
+          : on
+            ? c.primaryForeground
+            : (o.color ?? c.mutedForeground);
         return (
           <Pressable
             key={o.value}
@@ -751,15 +802,15 @@ export function FilterPills<T extends string>({
               styles.filterPill,
               !o.icon && { paddingLeft: 14 },
               {
-                backgroundColor: on ? c.primary : c.secondary,
-                borderColor: on ? c.primary : c.alpha(c.foreground, 0.12),
+                backgroundColor: pillBg,
+                borderColor: pillBorder,
                 transform: [{ scale: pressed ? 0.96 : 1 }],
               },
             ]}
           >
             {o.icon ? (
-              <View style={[styles.filterIcon, { backgroundColor: on ? c.alpha(c.primaryForeground, 0.12) : c.alpha(o.color ?? c.foreground, 0.16) }]}>
-                <MaterialCommunityIcons name={o.icon} size={13} color={on ? c.primaryForeground : (o.color ?? c.mutedForeground)} />
+              <View style={[styles.filterIcon, { backgroundColor: iconBg }]}>
+                <MaterialCommunityIcons name={o.icon} size={13} color={iconColor} />
               </View>
             ) : null}
             <Text style={[styles.filterText, { color: fg }]} numberOfLines={1}>

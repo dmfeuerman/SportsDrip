@@ -123,7 +123,7 @@ test("backgrounds: buy, auto-select, level gates, and only owned ones can be set
   await rejects(call(purchaseBackground, "cy", { backgroundId: "neon_city", idempotencyKey: key() }), /Reach level 4/);
   await rejects(call(setBackground, "cy", { backgroundId: "confetti_podium" }), /don't own/);
   await call(setBackground, "cy", { backgroundId: null });
-  assert.equal(db.read("users/cy")!.background, "locker_room");
+  assert.equal(db.read("users/cy")!.background, "liquid_glass");
 });
 
 test("invite codes: both players get credits, become friends, and a code can't be reused by its owner", async () => {

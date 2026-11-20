@@ -2,10 +2,11 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useIsFocused, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import type { StageInsets } from "@/components/avatar/AvatarStage";
 import { useBackdropCam, ZoomingBackdrop } from "@/components/avatar/AvatarBackdrop";
 import CartButton from "@/components/CartButton";
 import FavoriteTeamsSheet from "@/components/FavoriteTeamsSheet";
@@ -33,6 +34,7 @@ import type { Slot } from "@/types/avatar";
 export default function LockerScreen() {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const { width: winW } = useWindowDimensions();
   const { profile, balance, inventory, trophies, error, clearError, bets, loadout, equip, background } = useApp();
   const achievements = useMemo(() => trophies.filter((t) => t.kind === "achievement"), [trophies]);
   const leagueTrophies = useMemo(() => trophies.filter((t) => t.kind !== "achievement"), [trophies]);
@@ -40,6 +42,12 @@ export default function LockerScreen() {
   const focused = useIsFocused();
   // Stage: the backdrop zooms with the camera; tapping the character cycles through the loadout.
   const cam = useBackdropCam();
+  const stageW = Math.max(200, winW - 32);
+  const svgScale = Math.max(stageW / 100, 400 / 140);
+  const podiumY = 98.5 * svgScale - (140 * svgScale - 400) / 2;
+  const stageInsets = useRef<StageInsets>({ top: 8, bottom: 65 });
+  stageInsets.current.top = 8;
+  stageInsets.current.bottom = Math.max(0, 400 - 8 - (podiumY - 8) / 0.901);
   const [stageMove, setStageMove] = useState<{ id: string; n: number } | null>(null);
   const nextMove = useRef(0);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -165,6 +173,7 @@ export default function LockerScreen() {
               size="lg"
               active={focused}
               backdropCam={cam}
+              insets={stageInsets}
               move={stageMove}
               onTap={() => {
                 const loadout = loadoutOf(profile?.moves);

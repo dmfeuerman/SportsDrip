@@ -240,7 +240,7 @@ export async function setBackground(input: {
   backgroundId: string | null;
 }): Promise<{ ok: true; backgroundId: string }> {
   const { db, uid } = ctx();
-  const id = input.backgroundId ?? "locker_room";
+  const id = input.backgroundId ?? "liquid_glass";
   await updateDoc(doc(db, "users", uid), {
     background: id,
     updatedAt: serverTimestamp(),

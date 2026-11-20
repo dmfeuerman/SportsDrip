@@ -14,8 +14,8 @@
  *  levelReward    granted free on reaching this level; buyable before then
  */
 
-export const FREE_BACKGROUNDS = ["locker_room"] as const;
-export const DEFAULT_BACKGROUND = "locker_room";
+export const FREE_BACKGROUNDS = ["liquid_glass"] as const;
+export const DEFAULT_BACKGROUND = "liquid_glass";
 export const BACKGROUND_ID_RE = /^[a-z0-9_]{2,40}$/;
 
 export const isFreeBackground = (id: string) => (FREE_BACKGROUNDS as readonly string[]).includes(id);

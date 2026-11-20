@@ -218,6 +218,7 @@ function Body({
           moves={p?.moves ?? seed?.moves}
           onGesture={setAvatarGesture}
           background={isSelf ? myProfile?.background : p?.background}
+          loadingSpinner
           header={
             <>
               <View style={{ flex: 1, gap: 2 }}>

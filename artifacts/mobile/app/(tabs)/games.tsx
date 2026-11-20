@@ -28,6 +28,7 @@ import BannerSlot from "@/components/ads/BannerSlot";
 import { useFriends } from "@/hooks/useFriends";
 import TokenBalance from "@/components/TokenBalance";
 import { FilterPills } from "@/components/ui";
+import { LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { SPORT_COLORS } from "@/constants/colors";
 import { SPORT_ICONS, isLeagueStarted } from "@/constants/leagueTypes";
 import { AD_POLICY } from "@/constants/ads";
@@ -438,11 +439,11 @@ export default function GamesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View
-        style={[
-          styles.header,
-          { backgroundColor: colors.background, borderBottomColor: colors.border, paddingTop: topPad + 12 },
-        ]}
+      <ObsidianBackdrop />
+      <LiquidGlass
+        variant="bar"
+        borderColor={colors.isDark ? colors.alpha("#FFFFFF", 0.1) : colors.alpha(colors.foreground, 0.1)}
+        contentStyle={[styles.header, { paddingTop: topPad + 12 }]}
       >
         <View style={styles.headerRow}>
           <BackToLevels />
@@ -453,7 +454,13 @@ export default function GamesScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={`${openBets} open bets. Open My bets`}
                 onPress={() => router.push("/bets")}
-                style={[styles.pendingBadge, { backgroundColor: colors.alpha(colors.accent, 0.16), borderColor: colors.alpha(colors.accent, 0.5) }]}
+                style={[
+                  styles.pendingBadge,
+                  {
+                    backgroundColor: colors.alpha(colors.accent, colors.isDark ? 0.22 : 0.15),
+                    borderColor: colors.alpha(colors.accent, colors.isDark ? 0.55 : 0.45),
+                  },
+                ]}
               >
                 <Text style={[styles.pendingText, { color: colors.accent }]}>{openBets} open</Text>
               </Pressable>
@@ -466,17 +473,32 @@ export default function GamesScreen() {
               accessibilityRole="button"
               accessibilityLabel={searchOpen ? "Close search" : "Search teams"}
               hitSlop={8}
-              style={[styles.searchToggle, { backgroundColor: searchOpen ? colors.alpha(colors.primary, 0.16) : colors.secondary, borderColor: searchOpen ? colors.alpha(colors.primary, 0.5) : colors.border }]}
+              style={[
+                styles.searchToggle,
+                {
+                  backgroundColor: searchOpen
+                    ? colors.alpha(colors.primary, 0.18)
+                    : colors.isDark
+                      ? colors.alpha(colors.secondary, 0.58)
+                      : colors.alpha(colors.card, 0.72),
+                  borderColor: searchOpen
+                    ? colors.alpha(colors.primary, 0.6)
+                    : colors.isDark
+                      ? colors.alpha("#FFFFFF", 0.15)
+                      : colors.alpha(colors.foreground, 0.12),
+                },
+              ]}
             >
               <MaterialCommunityIcons name={searchOpen ? "close" : "magnify"} size={18} color={searchOpen ? colors.primary : colors.foreground} />
             </Pressable>
-            <TourTarget id="games.balance"><TokenBalance tokens={balance} earn /></TourTarget>
+            <TourTarget id="games.balance"><TokenBalance tokens={balance} earn glass /></TourTarget>
           </View>
         </View>
 
         <TourTarget id="games.filters">
         <FilterPills
-          gap={14}
+          glass
+          gap={10}
           value={sport}
           onChange={setSport}
           options={[
@@ -486,7 +508,15 @@ export default function GamesScreen() {
         />
         </TourTarget>
         {searchOpen ? (
-        <View style={[styles.searchBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.searchBox,
+            {
+              backgroundColor: colors.isDark ? colors.alpha(colors.secondary, 0.56) : colors.alpha(colors.card, 0.78),
+              borderColor: colors.isDark ? colors.alpha("#FFFFFF", 0.14) : colors.alpha(colors.foreground, 0.12),
+            },
+          ]}
+        >
           <MaterialCommunityIcons name="magnify" size={18} color={colors.mutedForeground} />
           <TextInput
             style={[styles.searchInput, { color: colors.foreground }]}
@@ -514,7 +544,7 @@ export default function GamesScreen() {
           ) : null}
         </View>
         ) : null}
-      </View>
+      </LiquidGlass>
 
       {target && (
         <View style={[styles.banner, { backgroundColor: colors.alpha(colors.accent, 0.12), borderColor: colors.alpha(colors.accent, 0.6) }]}>
@@ -565,13 +595,20 @@ export default function GamesScreen() {
             ) : item.kind === "thin" ? (
               <BannerSlot thin style={styles.adRow} />
             ) : item.kind === "section" ? (
-              <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
-                {item.live ? (
-                  <View style={[styles.liveDot, { backgroundColor: colors.live }]} />
-                ) : (
-                  <MaterialCommunityIcons name="calendar-clock" size={15} color={colors.mutedForeground} />
-                )}
-                <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{item.title}</Text>
+              <View style={styles.sectionHeaderWrap}>
+                <LiquidGlass
+                  variant="pill"
+                  tintColor={colors.isDark ? colors.alpha(colors.background, 0.72) : colors.alpha(colors.card, 0.84)}
+                  borderColor={item.live ? colors.alpha(colors.live, 0.4) : colors.isDark ? colors.alpha("#FFFFFF", 0.12) : colors.alpha(colors.foreground, 0.1)}
+                  contentStyle={styles.sectionHeader}
+                >
+                  {item.live ? (
+                    <View style={[styles.liveDot, { backgroundColor: colors.live }]} />
+                  ) : (
+                    <MaterialCommunityIcons name="calendar-clock" size={15} color={colors.mutedForeground} />
+                  )}
+                  <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{item.title}</Text>
+                </LiquidGlass>
               </View>
             ) : (
               <GameCard
@@ -708,16 +745,13 @@ function SkeletonList({ colors }: { colors: ReturnType<typeof useColors> }) {
   return (
     <View style={styles.listContent}>
       {[0, 1, 2, 3].map((i) => (
-        <View
-          key={i}
-          style={[styles.skeleton, { backgroundColor: colors.card, borderColor: colors.border }]}
-        >
-          <View style={[styles.skelBar, { backgroundColor: colors.secondary, width: "35%" }]} />
+        <LiquidGlass key={i} variant="card" style={styles.skeletonWrap} contentStyle={styles.skeleton}>
+          <View style={[styles.skelBar, { backgroundColor: colors.alpha(colors.foreground, 0.08), width: "35%" }]} />
           <View style={styles.skelRow}>
-            <View style={[styles.skelBar, { backgroundColor: colors.secondary, flex: 1, height: 46 }]} />
-            <View style={[styles.skelBar, { backgroundColor: colors.secondary, flex: 1, height: 46 }]} />
+            <View style={[styles.skelBar, { backgroundColor: colors.alpha(colors.foreground, 0.07), flex: 1, height: 46 }]} />
+            <View style={[styles.skelBar, { backgroundColor: colors.alpha(colors.foreground, 0.07), flex: 1, height: 46 }]} />
           </View>
-        </View>
+        </LiquidGlass>
       ))}
       <ActivityIndicator color={colors.mutedForeground} style={{ marginTop: 12 }} />
     </View>
@@ -739,7 +773,7 @@ function EmptyState({
 }) {
   const filtered = sport !== ALL;
   return (
-    <View style={[styles.empty, { borderColor: colors.border, backgroundColor: colors.card }]}>
+    <LiquidGlass variant="card" style={styles.emptyWrap} contentStyle={styles.empty}>
       <MaterialCommunityIcons
         name={error ? "wifi-off" : "calendar-blank-outline"}
         size={34}
@@ -761,22 +795,22 @@ function EmptyState({
       </Text>
       {filtered && !error && (
         <Pressable
-          style={[styles.emptyBtn, { borderColor: colors.alpha(colors.primary, 0.6), backgroundColor: colors.alpha(colors.primary, 0.12) }]}
+          style={[styles.emptyBtn, { borderColor: colors.alpha(colors.primary, 0.6), backgroundColor: colors.alpha(colors.primary, 0.14) }]}
           onPress={onClearFilter}
         >
           <Text style={[styles.emptyBtnText, { color: colors.primary }]}>Show All Sports</Text>
         </Pressable>
       )}
-    </View>
+    </LiquidGlass>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginTop: 6 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8, marginTop: 10, marginHorizontal: 16 },
   searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", padding: 0 },
   searchToggle: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  header: { borderBottomWidth: 1, paddingBottom: 12 },
+  header: { paddingBottom: 12 },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -798,30 +832,35 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 10,
     padding: 10,
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: 1,
   },
   bannerText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
   listContent: { padding: 16 },
+  sectionHeaderWrap: {
+    alignItems: "flex-start",
+    paddingTop: 6,
+    paddingBottom: 10,
+  },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingVertical: 10,
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
   adRow: { marginBottom: 10 },
-  sectionTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  skeleton: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10, gap: 12 },
+  sectionTitle: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
+  skeletonWrap: { marginBottom: 10 },
+  skeleton: { padding: 14, gap: 12 },
   skelBar: { height: 12, borderRadius: 6 },
   skelRow: { flexDirection: "row", gap: 10 },
+  emptyWrap: { marginTop: 24 },
   empty: {
     alignItems: "center",
     gap: 10,
     padding: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginTop: 24,
   },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
   emptyBody: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19 },

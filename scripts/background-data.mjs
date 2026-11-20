@@ -25,6 +25,7 @@ const bg = (id, name, price, rarity, description, extra = {}) => ({
 });
 
 export const BACKGROUNDS = [
+  bg("locker_room", "Locker Room", 0, "common", "Where every career starts. Unlocks free at level 2.", { levelReward: 2 }),
   bg("night_stadium", "Night Game", 1200, "common", "Floodlights on, stands packed."),
   bg("hardwood_court", "Hardwood", 1400, "common", "Center court under the arena lights."),
   bg("beach_court", "Beach Court", 2900, "uncommon", "Sand, sun and a net."),

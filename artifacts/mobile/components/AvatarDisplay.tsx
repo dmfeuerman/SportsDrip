@@ -2,7 +2,7 @@ import React, { forwardRef, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import AvatarPortrait from "@/components/avatar/AvatarPortrait";
 import AvatarSilhouette from "@/components/avatar/AvatarSilhouette";
-import AvatarStage, { type AvatarStageHandle } from "@/components/avatar/AvatarStage";
+import AvatarStage, { type AvatarStageHandle, type StageInsets } from "@/components/avatar/AvatarStage";
 import type { SharedValue } from "react-native-reanimated";
 import type { BackdropCam } from "@/components/avatar/AvatarBackdrop";
 import { normalizeAvatar } from "@/constants/avatarOptions";
@@ -41,6 +41,8 @@ interface Props {
   active?: boolean;
   /** lg only. Drives a ZoomingBackdrop with the camera. */
   backdropCam?: SharedValue<BackdropCam>;
+  /** lg only. Keeps the character framed inside the uncovered part of a full-bleed stage. */
+  insets?: React.MutableRefObject<StageInsets>;
   /** lg only. Tap on the character. */
   onTap?: () => void;
   /** lg only. Spinner while equipped clothes load. */
@@ -53,7 +55,7 @@ interface Props {
  * falls back to a flat silhouette rather than taking the screen down.
  */
 const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDisplay(
-  { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, move, active, backdropCam, onTap, loadingSpinner },
+  { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, move, active, backdropCam, insets, onTap, loadingSpinner },
   ref
 ) {
   const look = useMemo(() => normalizeAvatar(avatar), [avatar]);
@@ -81,6 +83,7 @@ const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDispla
           move={move}
           active={active}
           backdropCam={backdropCam}
+          insets={insets}
           onTap={onTap}
           loadingSpinner={loadingSpinner}
         />

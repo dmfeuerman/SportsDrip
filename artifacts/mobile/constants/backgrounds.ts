@@ -24,8 +24,8 @@ export interface BackgroundInfo {
   levelReward: number | null;
 }
 
-export const FREE_BACKGROUNDS = ["locker_room"] as const;
-export const DEFAULT_BACKGROUND = "locker_room";
+export const FREE_BACKGROUNDS = ["liquid_glass"] as const;
+export const DEFAULT_BACKGROUND = "liquid_glass";
 
 /** Every listed price is x10 since the coin upgrade (2026-11); the numbers below are the old ones. */
 const PRICE_SCALE = 10;
@@ -39,7 +39,8 @@ const bg = (
 ): BackgroundInfo => ({ id, name, price: price * PRICE_SCALE, rarity, description, levelRequired: null, levelReward: null, ...extra });
 
 export const BACKGROUND_LIBRARY: BackgroundInfo[] = [
-  bg("locker_room", "Locker Room", 0, "common", "Where every career starts."),
+  bg("liquid_glass", "Liquid Glass", 0, "common", "Obsidian studio with floating glass orbs and a reflective floor."),
+  bg("locker_room", "Locker Room", 0, "common", "Where every career starts. Unlocks free at level 2.", { levelReward: 2 }),
   bg("night_stadium", "Night Game", 1200, "common", "Floodlights on, stands packed."),
   bg("hardwood_court", "Hardwood", 1400, "common", "Center court under the arena lights."),
   bg("beach_court", "Beach Court", 2900, "uncommon", "Sand, sun and a net."),

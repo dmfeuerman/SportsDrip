@@ -2,7 +2,6 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFrame, useThree } from "@react-three/fiber";
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   PanResponder,
   Platform,
   StyleSheet,
@@ -12,6 +11,8 @@ import {
   type LayoutChangeEvent,
   type ViewStyle,
 } from "react-native";
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import Svg, { Circle } from "react-native-svg";
 import { Pressable } from "@/components/fx/Tap";
 import * as THREE from "three";
 import AvatarSilhouette from "@/components/avatar/AvatarSilhouette";
@@ -329,10 +330,10 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
         </Canvas>
         </View>
       ) : null}
-      {loadingSpinner && !complete && assets.status !== "error" ? (
+      {loadingSpinner && !drawn && assets.status !== "error" ? (
         <View style={[StyleSheet.absoluteFill, styles.centre]} pointerEvents="none">
           <View style={styles.spinnerPill}>
-            <ActivityIndicator size="large" color="#ffffff" />
+            <RotatingLineSpinner />
           </View>
         </View>
       ) : null}
@@ -438,6 +439,34 @@ function StageHelp() {
       ) : null}
       <ZoomButton icon="help" label="How to move your character" onPress={show} />
     </View>
+  );
+}
+
+/** Minimal rotating arc-line loading spinner (replaces iOS spoke ActivityIndicator). */
+function RotatingLineSpinner({ size = 32, stroke = 3 }: { size?: number; stroke?: number }) {
+  const spin = useSharedValue(0);
+  useEffect(() => {
+    spin.value = withRepeat(withTiming(360, { duration: 850, easing: Easing.linear }), -1, false);
+  }, [spin]);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${spin.value}deg` }] }));
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  return (
+    <Animated.View style={[{ width: size, height: size }, animStyle]}>
+      <Svg width={size} height={size}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke="rgba(255,255,255,0.18)" strokeWidth={stroke} fill="none" />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke="#FFFFFF"
+          strokeWidth={stroke}
+          strokeDasharray={`${circ * 0.28} ${circ * 0.72}`}
+          strokeLinecap="round"
+          fill="none"
+        />
+      </Svg>
+    </Animated.View>
   );
 }
 

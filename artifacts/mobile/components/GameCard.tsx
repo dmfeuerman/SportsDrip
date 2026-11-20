@@ -22,6 +22,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import PressableScale from "@/components/fx/PressableScale";
 import { Button } from "@/components/ui";
+import { LiquidGlass } from "@/components/ui/LiquidGlass";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { useValueFlash } from "@/hooks/useMotion";
 import { formatSpread, hasSpreadLine, hasTotalLine, SPREAD_TOTAL_ODDS, type Market, type Selection } from "@/lib/markets";
@@ -120,17 +121,21 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
   return (
     <Pressable
       style={({ pressed }) => [
-        styles.card,
+        styles.cardWrap,
         {
-          backgroundColor: c.card,
-          borderColor: position ? c.alpha(c.primary, 0.45) : c.border,
-          opacity: pressed && onOpenDetail ? 0.92 : 1,
+          opacity: pressed && onOpenDetail ? 0.93 : 1,
         },
       ]}
       onPress={onOpenDetail ? () => onOpenDetail(game) : undefined}
       accessibilityRole={onOpenDetail && Platform.OS !== "web" ? "button" : undefined}
       accessibilityLabel={`${game.awayTeam.name} at ${game.homeTeam.name}`}
     >
+      <LiquidGlass
+        variant="card"
+        borderColor={position ? c.alpha(c.primary, 0.5) : undefined}
+        borderWidth={position ? 1.25 : 1}
+        contentStyle={styles.card}
+      >
       <Header game={game} c={c} />
 
       <MaybeTarget id={tid("odds")} style={styles.teams}>
@@ -304,6 +309,7 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
       />
 
       {position && <PositionStrip game={game} position={position} c={c} />}
+      </LiquidGlass>
     </Pressable>
   );
 }
@@ -312,7 +318,7 @@ export default memo(GameCard);
 
 function MarketGroup({ title, c, children }: { title: string; c: Colors; children: React.ReactNode }) {
   return (
-    <View style={[styles.group, { borderTopColor: c.border }]}>
+    <View style={[styles.group, { borderTopColor: c.isDark ? c.alpha("#FFFFFF", 0.08) : c.alpha(c.foreground, 0.08) }]}>
       <Text style={[styles.colLabel, { color: c.subtleForeground }]}>{title}</Text>
       <View style={styles.marketStrip}>{children}</View>
     </View>
@@ -325,8 +331,11 @@ function MarketChip({ label, odds, selected, onPress, disabled = false, c }: { l
       style={[
         styles.marketChip,
         selected
-          ? { backgroundColor: c.alpha(c.primary, 0.18), borderColor: c.primary, borderWidth: 2 }
-          : { backgroundColor: c.secondary, borderColor: c.alpha(c.foreground, 0.22) },
+          ? { backgroundColor: c.alpha(c.primary, c.isDark ? 0.2 : 0.14), borderColor: c.primary, borderWidth: 1.5 }
+          : {
+              backgroundColor: c.isDark ? c.alpha(c.secondary, 0.56) : c.alpha(c.foreground, 0.05),
+              borderColor: c.isDark ? c.alpha("#FFFFFF", 0.14) : c.alpha(c.foreground, 0.12),
+            },
         disabled && { opacity: 0.55 },
       ]}
       scaleTo={0.95}
@@ -503,7 +512,15 @@ function TeamRow({
 function NoLineTile({ locked, onPress, c }: { locked: boolean; onPress: () => void; c: Colors }) {
   return (
     <PressableScale
-      style={[styles.oddsBtn, { backgroundColor: c.secondary, borderColor: c.border, borderStyle: "dashed", opacity: locked ? 0.55 : 1 }]}
+      style={[
+        styles.oddsBtn,
+        {
+          backgroundColor: c.isDark ? c.alpha(c.secondary, 0.44) : c.alpha(c.foreground, 0.04),
+          borderColor: c.isDark ? c.alpha("#FFFFFF", 0.14) : c.border,
+          borderStyle: "dashed",
+          opacity: locked ? 0.55 : 1,
+        },
+      ]}
       scaleTo={0.96}
       onPress={onPress}
       disabled={locked}
@@ -550,9 +567,20 @@ function OddsButton({
         style={[
           styles.oddsBtn,
           {
-            backgroundColor: backed ? c.primary : selected ? c.alpha(c.primary, 0.18) : c.secondary,
-            borderColor: backed || selected ? c.primary : c.alpha(c.foreground, 0.1),
-            borderWidth: selected ? 2 : 1,
+            backgroundColor: backed
+              ? c.primary
+              : selected
+                ? c.alpha(c.primary, c.isDark ? 0.22 : 0.14)
+                : c.isDark
+                  ? c.alpha(c.primary, 0.08)
+                  : c.alpha(c.foreground, 0.05),
+            borderColor:
+              backed || selected
+                ? c.primary
+                : c.isDark
+                  ? c.alpha(c.primary, 0.28)
+                  : c.alpha(c.foreground, 0.13),
+            borderWidth: selected ? 1.5 : 1,
             opacity: locked && !backed ? 0.55 : 1,
           },
         ]}
@@ -715,7 +743,8 @@ function PositionStrip({ game, position, c }: { game: Game; position: MyPosition
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10, gap: 10 },
+  cardWrap: { marginBottom: 10 },
+  card: { padding: 14, gap: 10 },
 
   header: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: "auto", flexShrink: 0, maxWidth: "62%" },
@@ -742,8 +771,8 @@ const styles = StyleSheet.create({
   teamName: { fontSize: 15, fontFamily: "Inter_700Bold", flexShrink: 1, letterSpacing: -0.2 },
   score: { fontSize: 22, fontFamily: "Inter_900Black", minWidth: 32, textAlign: "right", letterSpacing: -0.5 },
 
-  oddsBtn: { width: 80, borderWidth: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center", gap: 1 },
-  oddsFlash: { position: "absolute", top: -1, left: -1, right: -1, bottom: -1, borderRadius: 10, borderWidth: 2 },
+  oddsBtn: { width: 80, borderWidth: 1, borderRadius: 12, paddingVertical: 8, alignItems: "center", gap: 1 },
+  oddsFlash: { position: "absolute", top: -1, left: -1, right: -1, bottom: -1, borderRadius: 12, borderWidth: 2 },
   oddsLine: { flexDirection: "row", alignItems: "center" },
   oddsValue: { fontSize: 15, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
   oddsProb: { fontSize: 11, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
@@ -753,10 +782,10 @@ const styles = StyleSheet.create({
 
   marketStrip: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   group: { gap: 6, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
-  cta: { gap: 8, borderWidth: 1, borderRadius: 12, padding: 10 },
+  cta: { gap: 8, borderWidth: 1, borderRadius: 14, padding: 10 },
   ctaText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   ctaRow: { flexDirection: "row", gap: 8 },
-  marketChip: { flex: 1, minWidth: 74, borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 8, alignItems: "center", gap: 1 },
+  marketChip: { flex: 1, minWidth: 74, borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 8, alignItems: "center", gap: 1 },
   marketChipLabel: { fontSize: 13, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   marketChipOdds: { fontSize: 11, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
 

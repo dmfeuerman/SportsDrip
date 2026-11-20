@@ -37,8 +37,8 @@ export const FOCUS: Record<Focus, { target: [number, number, number]; distance: 
   feet: { target: [0, 0.12, 0], distance: 1.6, height: 0.13 },
   /** Knees to raised hands: bet-result reactions (fist pumps, hands to the face). */
   reaction: { target: [0, 1.18, 0], distance: 3.2, height: 0.05 },
-  /** Head to toe with headroom for a cheer's raised arms (Home). */
-  hero: { target: [0, 1.0, 0], distance: 4.3, height: 0.03 },
+  /** Head to toe filling the Home hero stage cleanly (Home). */
+  hero: { target: [0, 0.83, 0], distance: 4.55, height: 0.03 },
 };
 
 export const CAMERA_FOV = 28;
@@ -69,7 +69,7 @@ export const HERO_SIZE = { width: 480, height: 600 } as const;
 export const PORTRAIT_FOCUS: Record<Framing, { target: [number, number, number]; distance: number; height: number }> = {
   bust: { target: [0, 1.53, 0], distance: 1.62, height: 0.04 },
   full: { target: [0, 0.9, 0], distance: 4.6, height: 0.04 },
-  hero: { target: [0, 0.89, 0], distance: 4.15, height: 0.06 },
+  hero: { target: [0, 0.83, 0], distance: 4.65, height: 0.04 },
 };
 
 export const SLOT_FOCUS: Record<Slot, Focus> = {

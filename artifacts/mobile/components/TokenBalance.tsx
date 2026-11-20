@@ -3,6 +3,7 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import RollingNumber from "@/components/fx/RollingNumber";
 import EarnCreditsButton from "@/components/ads/EarnCreditsButton";
+import { LiquidGlass } from "@/components/ui/LiquidGlass";
 import { useColors } from "@/hooks/useColors";
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
   size?: "sm" | "md" | "lg";
   /** Show the watch-a-video "+100" pill beside the balance. */
   earn?: boolean;
+  /** Render the balance capsule with Obsidian Liquid Glass styling. */
+  glass?: boolean;
 }
 
 /** Compact balance for the top bar: 8,593 → 8.5K, 2,450,000 → 2.4M (always rounded down). */
@@ -25,17 +28,32 @@ export function compactCredits(n: number): string {
   return `${sign}${v}`;
 }
 
-export default function TokenBalance({ tokens, size = "md", earn }: Props) {
+export default function TokenBalance({ tokens, size = "md", earn, glass = false }: Props) {
   const colors = useColors();
 
   const fontSize = size === "sm" ? 13 : size === "lg" ? 22 : 16;
   const iconSize = size === "sm" ? 14 : size === "lg" ? 22 : 17;
 
-  const balance = (
-    <View style={[styles.container, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+  const inner = (
+    <>
       <MaterialCommunityIcons name="lightning-bolt" size={iconSize} color={colors.primary} />
       {/* Rolls up (green) on a win, a prize or a refund; down (red) on a stake or a purchase. */}
       <RollingNumber value={tokens} format={compactCredits} style={[styles.text, { color: colors.foreground, fontSize }]} upColor={colors.positive} downColor={colors.negative} accessibilityLabel={`${tokens.toLocaleString()} credits`} />
+    </>
+  );
+
+  const balance = glass ? (
+    <LiquidGlass
+      variant="pill"
+      tintColor={colors.isDark ? colors.alpha(colors.primary, 0.14) : colors.alpha(colors.card, 0.78)}
+      borderColor={colors.isDark ? colors.alpha(colors.primary, 0.36) : colors.alpha(colors.foreground, 0.14)}
+      contentStyle={styles.glassContainer}
+    >
+      {inner}
+    </LiquidGlass>
+  ) : (
+    <View style={[styles.container, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+      {inner}
     </View>
   );
   if (!earn) return balance;
@@ -56,6 +74,13 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
+  },
+  glassContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   withEarn: { flexDirection: "row", alignItems: "center", gap: 6 },
   text: {

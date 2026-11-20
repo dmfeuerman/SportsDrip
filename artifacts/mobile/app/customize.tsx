@@ -16,6 +16,7 @@ import {
 import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import type { StageInsets } from "@/components/avatar/AvatarStage";
 import AvatarBackdrop from "@/components/avatar/AvatarBackdrop";
 import MoveCard from "@/components/MoveCard";
 import BackgroundCard from "@/components/BackgroundCard";
@@ -442,6 +443,16 @@ export default function CustomizeScreen() {
   const focus = CATS.find((x) => x.id === cat)!.focus;
   const stageH = Math.max(280, Math.min(winH * 0.46, 520));
   const cols = winW >= 700 ? 5 : winW >= 420 ? 4 : 3;
+  const svgScale = Math.max(winW / 100, stageH / 140);
+  const podiumY = 98.5 * svgScale - (140 * svgScale - stageH) / 2;
+  const stageInsets = useRef<StageInsets>({ top: 0, bottom: 0 });
+  if (cat === "scenes") {
+    stageInsets.current.top = 8;
+    stageInsets.current.bottom = Math.max(0, stageH - 8 - (podiumY - 8) / 0.901);
+  } else {
+    stageInsets.current.top = 0;
+    stageInsets.current.bottom = 0;
+  }
 
   if (!profile) {
     return (
@@ -495,7 +506,7 @@ export default function CustomizeScreen() {
         ) : (
           <View style={[styles.floor, { backgroundColor: c.secondary }]} />
         )}
-        <AvatarDisplay avatar={avatar} equipped={equipped} catalog={byId} size="lg" focus={focus} cheerSignal={cheer} move={play} active={focused} loadingSpinner />
+        <AvatarDisplay avatar={avatar} equipped={equipped} catalog={byId} size="lg" focus={focus} cheerSignal={cheer} move={play} active={focused} insets={stageInsets} loadingSpinner />
         {demoLabel && (cat === "scenes" || cat === "moves") ? (
           <View pointerEvents="none" style={[styles.demoPill, { backgroundColor: c.alpha(c.background, 0.85), borderColor: c.border }]}>
             <MaterialCommunityIcons name={cat === "scenes" ? "image-filter-hdr" : "music-note"} size={13} color={c.primary} />

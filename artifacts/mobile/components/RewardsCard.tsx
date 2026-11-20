@@ -8,7 +8,7 @@ import { recordXpReason } from "@/components/XpGainPopup";
 import { BOX_DISPLAY, BOX_TIERS } from "@/constants/prizeTypes";
 import { STREAK_BONUS_PER_DAY, STREAK_BONUS_MAX_DAYS } from "@/components/StreakBanner";
 import { useAds } from "@/context/AdsContext";
-import { useApp, type PrizeBoxState } from "@/context/AppContext";
+import { useApp, type ClaimBoxResult, type PrizeBoxState } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import type { BoxTier } from "@/lib/api";
 
@@ -23,7 +23,7 @@ export default function RewardsCard() {
   const { breakpoint } = useAds();
 
   const [spinning, setSpinning] = useState<BoxTier | null>(null);
-  const [reward, setReward] = useState<number | null>(null);
+  const [reward, setReward] = useState<ClaimBoxResult | null>(null);
   const [busy, setBusy] = useState<BoxTier | null>(null);
   const [charging, setCharging] = useState<BoxTier | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -101,8 +101,8 @@ export default function RewardsCard() {
       setCharging(tier);
       setSpinning(tier);
       try {
-        const [credits] = await Promise.all([claimBox(tier), new Promise((r) => setTimeout(r, CHARGE_MS))]);
-        setReward(credits);
+        const [result] = await Promise.all([claimBox(tier), new Promise((r) => setTimeout(r, CHARGE_MS))]);
+        setReward(result);
       } finally {
         setCharging(null);
         setBusy(null);
@@ -153,7 +153,17 @@ export default function RewardsCard() {
       <BonusVideoCard />
 
       {spinning ? (
-        <SpinWheel visible tier={spinning} charging={charging === spinning} rewardCredits={reward} error={reward === null && !busy && !charging ? error : null} onClose={closeWheel} />
+        <SpinWheel
+          visible
+          tier={spinning}
+          charging={charging === spinning}
+          rewardCredits={reward?.rewardCredits ?? null}
+          baseCredits={reward?.baseCredits ?? null}
+          streakBonus={reward?.streakBonus ?? 0}
+          streakDays={reward?.streakDays ?? 0}
+          error={reward === null && !busy && !charging ? error : null}
+          onClose={closeWheel}
+        />
       ) : null}
     </View>
   );

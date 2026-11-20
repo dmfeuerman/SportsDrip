@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { haptic as buzz } from "@/lib/motion";
 import { reportChallengeAction } from "@/lib/api";
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -6,6 +7,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View, type StyleProp, 
 import { Pressable } from "@/components/fx/Tap";
 import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import type { StageInsets } from "@/components/avatar/AvatarStage";
 import { useBackdropCam, ZoomingBackdrop } from "@/components/avatar/AvatarBackdrop";
 import { Pill } from "@/components/ui";
 import { loadoutOf, MOVES_BY_ID } from "@/constants/moves";
@@ -31,8 +33,13 @@ export default function AvatarHero({
   floatingRight,
   footer,
   footerHeight,
+  hideFooter = false,
+  bleed = false,
+  glassDance = false,
+  topPad = 0,
   background,
   active = true,
+  loadingSpinner = false,
   onGesture,
   style,
 }: {
@@ -52,9 +59,19 @@ export default function AvatarHero({
   footer?: React.ReactNode;
   /** Bottom clearance for taller custom footers (defaults to 70 when footer is provided). */
   footerHeight?: number;
+  /** Omit the bottom footer/wearing pills entirely (when the HUD lives below the hero). */
+  hideFooter?: boolean;
+  /** Edge-to-edge hero that fades smoothly into the screen background (Home). */
+  bleed?: boolean;
+  /** Translucent glass dance button styling for the 2026 Home hero. */
+  glassDance?: boolean;
+  /** Top safe-area inset when `bleed` extends behind the status bar. */
+  topPad?: number;
   /** Scene behind the character (constants/backgrounds.ts); the Locker Room when absent. */
   background?: string | null;
   active?: boolean;
+  /** Show a spinner instead of the cached 2D stand-in until the live 3D stage draws. */
+  loadingSpinner?: boolean;
   /** True while a spin / pinch owns the touch, so the parent can pause scrolling. */
   onGesture?: (active: boolean) => void;
   style?: StyleProp<ViewStyle>;
@@ -89,13 +106,56 @@ export default function AvatarHero({
     [equipped, catalog]
   );
 
-  const footOffset = footer ? (footerHeight ?? 70) : 52;
+  const heroH = bleed && hideFooter ? 404 + topPad : bleed ? AVATAR_HERO_HEIGHT + topPad : AVATAR_HERO_HEIGHT;
+  const footOffset = hideFooter ? 14 : footer ? (footerHeight ?? 70) : 52;
+  const topInset = bleed ? topPad + 48 : 76;
+  const autoBottom = bleed && hideFooter ? 16 : Math.max(footOffset, 110);
+  const stageInsets = useRef<StageInsets>({ top: topInset, bottom: autoBottom });
+  stageInsets.current.top = topInset;
+  stageInsets.current.bottom = autoBottom;
+  const fadeBase = c.background;
 
   return (
-    <View style={[styles.heroShadow, { backgroundColor: c.elevated }, style]}>
-    <View style={[styles.hero, { backgroundColor: c.elevated }]}>
-      <ZoomingBackdrop id={background} cam={cam} />
-      <View style={[styles.avatar, { bottom: footOffset }]}>
+    <View
+      style={[
+        bleed ? styles.heroBleedWrap : styles.heroShadow,
+        { backgroundColor: bleed ? c.background : c.elevated },
+        bleed && { height: heroH },
+        style,
+      ]}
+    >
+    <View
+      style={[
+        styles.hero,
+        bleed
+          ? styles.heroBleed
+          : { backgroundColor: c.elevated, borderColor: c.isDark ? "rgba(125, 175, 235, 0.28)" : c.alpha(c.primary, 0.28) },
+      ]}
+    >
+      <ZoomingBackdrop
+        id={background}
+        cam={cam}
+        align={bleed && hideFooter ? "top" : "mid"}
+        offsetY={bleed && hideFooter ? 12 : 0}
+        baseScale={bleed && hideFooter ? 1.06 : 1}
+      />
+      {bleed ? (
+        <>
+          <LinearGradient
+            colors={[c.background, c.alpha(c.background, 0.38), "transparent"]}
+            locations={[0, 0.45, 1]}
+            style={[styles.topFade, { height: topPad + 56 }]}
+            pointerEvents="none"
+          />
+          <LinearGradient
+            colors={["transparent", c.alpha(fadeBase, 0.55), fadeBase]}
+            locations={[0, 0.58, 1]}
+            style={[styles.bottomFade, { height: hideFooter ? 92 : Math.max(150, footOffset + 22) }]}
+            pointerEvents="none"
+          />
+        </>
+      ) : null}
+      <View style={styles.avatar}>
         {avatar ? (
           <AvatarDisplay
             avatar={avatar}
@@ -108,7 +168,9 @@ export default function AvatarHero({
             move={move}
             active={active}
             backdropCam={cam}
+            insets={stageInsets}
             onTap={onTapCharacter}
+            loadingSpinner={loadingSpinner}
           />
         ) : (
           <View style={styles.loading}>
@@ -171,29 +233,42 @@ export default function AvatarHero({
           accessibilityState={{ expanded: picking }}
           onPress={onDance}
           hitSlop={6}
-          style={({ pressed }) => [styles.dance, { bottom: footOffset + 20 }, { backgroundColor: c.primary, opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
+          style={({ pressed }) => [
+            styles.dance,
+            { bottom: footOffset + 16 },
+            glassDance
+              ? {
+                  backgroundColor: "rgba(255, 255, 255, 0.14)",
+                  borderWidth: 1,
+                  borderColor: "rgba(255, 255, 255, 0.28)",
+                }
+              : { backgroundColor: c.primary },
+            { opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] },
+          ]}
         >
-          <MaterialCommunityIcons name={picking ? "close" : "human-handsup"} size={picking ? 22 : 26} color={c.primaryForeground} />
-          {!picking ? <MaterialCommunityIcons name="music-note" size={13} color={c.primaryForeground} style={styles.danceNote} /> : null}
+          <MaterialCommunityIcons name={picking ? "close" : "human-handsup"} size={picking ? 22 : 25} color={glassDance ? "#FFFFFF" : c.primaryForeground} />
+          {!picking ? <MaterialCommunityIcons name="music-note" size={13} color={glassDance ? "#FFFFFF" : c.primaryForeground} style={styles.danceNote} /> : null}
         </Pressable>
       ) : null}
       {header ? (
-        <View style={styles.top} pointerEvents="box-none">
+        <View style={[styles.top, bleed && { paddingTop: topPad + 12 }]} pointerEvents="box-none">
           {header}
         </View>
       ) : null}
       {floatingRight ? (
-        <View style={styles.floatingRight} pointerEvents="box-none">
+        <View style={[styles.floatingRight, bleed && { top: topPad + 108 }]} pointerEvents="box-none">
           {floatingRight}
         </View>
       ) : null}
-      <View style={styles.bottom} pointerEvents="box-none">
-        {footer ?? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.wearing} contentContainerStyle={styles.wearingRow}>
-            {wearing.length ? wearing.map((i) => <Pill key={i.id} label={i.name} icon={SLOT_ICONS[i.slot] as never} />) : <Pill label="Nothing Equipped Yet" />}
-          </ScrollView>
-        )}
-      </View>
+      {!hideFooter ? (
+        <View style={styles.bottom} pointerEvents="box-none">
+          {footer ?? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.wearing} contentContainerStyle={styles.wearingRow}>
+              {wearing.length ? wearing.map((i) => <Pill key={i.id} label={i.name} icon={SLOT_ICONS[i.slot] as never} />) : <Pill label="Nothing Equipped Yet" />}
+            </ScrollView>
+          )}
+        </View>
+      ) : null}
     </View>
     </View>
   );
@@ -209,11 +284,15 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 10,
   },
-  hero: { flex: 1, borderRadius: 26, overflow: "hidden" },
-  avatar: { position: "absolute", left: 0, right: 0, top: 44, bottom: 52 },
+  heroBleedWrap: { height: AVATAR_HERO_HEIGHT },
+  hero: { flex: 1, borderRadius: 26, borderWidth: 1.5, overflow: "hidden" },
+  heroBleed: { borderRadius: 0, borderWidth: 0 },
+  topFade: { position: "absolute", left: 0, right: 0, top: 0 },
+  bottomFade: { position: "absolute", left: 0, right: 0, bottom: 0 },
+  avatar: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },
   top: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
-  floatingRight: { position: "absolute", right: 12, top: 80, alignItems: "flex-end", gap: 8 },
+  floatingRight: { position: "absolute", right: 0, top: 108, alignItems: "flex-end", gap: 10 },
   dance: { position: "absolute", right: 12, bottom: 62, width: 50, height: 50, borderRadius: 25, alignItems: "center", justifyContent: "center" },
   danceNote: { position: "absolute", top: 7, right: 8 },
   wheel: { position: "absolute", right: 12, bottom: 120, alignItems: "flex-end", gap: 8 },

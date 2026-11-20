@@ -12,6 +12,7 @@ import Animated, {
 } from "react-native-reanimated";
 import PressableScale from "@/components/fx/PressableScale";
 import Shimmer from "@/components/fx/Shimmer";
+import PrizeBoxArt from "@/components/PrizeBoxArt";
 import type { PrizeBoxState } from "@/context/AppContext";
 import type { BoxDisplay } from "@/constants/prizeTypes";
 import { useColors } from "@/hooks/useColors";
@@ -150,8 +151,8 @@ export default function PrizeBox({ display, state, now, busy, charging = false, 
 
       <View style={styles.iconArea}>
         <Animated.View pointerEvents="none" style={[styles.halo, { backgroundColor: display.glowColor }, glowStyle]} />
-        <Animated.View style={[styles.iconWrap, { backgroundColor: display.color + "22", borderColor: display.color + "77" }, iconStyle]}>
-          <Text style={styles.emoji}>{display.emoji}</Text>
+        <Animated.View style={iconStyle}>
+          <PrizeBoxArt tier={display.tier} size={74} />
         </Animated.View>
       </View>
 
