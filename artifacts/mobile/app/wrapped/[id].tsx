@@ -4,7 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import AvatarDisplay from "@/components/AvatarDisplay";
 import { Pressable } from "@/components/fx/Tap";
-import { BackButton, Button, EmptyState, useTopPad } from "@/components/ui";
+import { BackButton, Button, EmptyState, LoadingState, useTopPad } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import theme from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
 import { useCatalog } from "@/hooks/useCatalog";
@@ -31,7 +32,6 @@ interface Story {
   kicker: string;
   big: string;
   sub: string;
-  /** Private cards (a loss) are never offered for sharing. */
   shareable: boolean;
 }
 
@@ -72,12 +72,20 @@ export default function WrappedScreen() {
   if (w === "missing") {
     return (
       <View style={[styles.fill, { backgroundColor: c.background, paddingTop: top }]}>
+        <ObsidianBackdrop />
         <BackButton />
         <EmptyState icon="gift-outline" title="Not Ready Yet" body="Your Wrapped shows up when the season ends." />
       </View>
     );
   }
-  if (!w) return <View style={[styles.fill, { backgroundColor: c.background }]} />;
+  if (!w) {
+    return (
+      <View style={[styles.fill, { backgroundColor: c.background, paddingTop: top }]}>
+        <ObsidianBackdrop />
+        <LoadingState label="Loading your Wrapped…" />
+      </View>
+    );
+  }
 
   const stories = storiesFor(w);
   const s = stories[Math.min(i, stories.length - 1)]!;
@@ -91,22 +99,26 @@ export default function WrappedScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: c.background, paddingTop: top }]}>
+      <ObsidianBackdrop />
       <View style={styles.bars}>
         {stories.map((x, k) => (
-          <View key={x.key} style={[styles.bar, { backgroundColor: k <= i ? c.primary : c.secondary }]} />
+          <View key={x.key} style={[styles.bar, { backgroundColor: k <= i ? c.primary : c.alpha("#FFFFFF", 0.16) }]} />
         ))}
       </View>
-      <View ref={ref} collapsable={false} style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-        <Text style={[styles.kicker, { color: c.primary }]}>{s.kicker}</Text>
-        <Text style={[styles.big, { color: c.foreground }]} accessibilityRole="header">
-          {s.big}
-        </Text>
-        {s.sub ? <Text style={[styles.sub, { color: c.mutedForeground }]}>{s.sub}</Text> : null}
-        {last && profile ? (
-          <View style={styles.dance}>
-            <AvatarDisplay avatar={profile.avatar} equipped={profile.equipped} catalog={byId} size="lg" interactive={false} move={{ id: profile.moves?.[0] ?? "cheer", n: 1 }} />
-          </View>
-        ) : null}
+      <View ref={ref} collapsable={false} style={{ flex: 1 }}>
+        <LiquidGlass variant="hero" radius={28} style={{ flex: 1 }} contentStyle={styles.card}>
+          <GlassDomeSheen id={`wrapped_${s.key}`} glowColor={c.primary} intensity={0.34} />
+          <Text style={[styles.kicker, { color: c.primary }]}>{s.kicker.toUpperCase()}</Text>
+          <Text style={[styles.big, { color: c.foreground }]} accessibilityRole="header">
+            {s.big}
+          </Text>
+          {s.sub ? <Text style={[styles.sub, { color: c.mutedForeground }]}>{s.sub}</Text> : null}
+          {last && profile ? (
+            <View style={styles.dance}>
+              <AvatarDisplay avatar={profile.avatar} equipped={profile.equipped} catalog={byId} size="lg" interactive={false} move={{ id: profile.moves?.[0] ?? "cheer", n: 1 }} />
+            </View>
+          ) : null}
+        </LiquidGlass>
       </View>
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         <View style={styles.taps} pointerEvents="box-none">
@@ -131,8 +143,8 @@ const styles = StyleSheet.create({
   fill: { flex: 1, paddingHorizontal: 16 },
   bars: { flexDirection: "row", gap: 4, marginVertical: 12 },
   bar: { flex: 1, height: 3, borderRadius: 2 },
-  card: { flex: 1, borderWidth: 1, borderRadius: 24, padding: 24, justifyContent: "center", alignItems: "center", gap: 10 },
-  kicker: theme.type.overline,
+  card: { flex: 1, padding: 24, justifyContent: "center", alignItems: "center", gap: 10 },
+  kicker: { ...theme.type.overline, letterSpacing: 1.6 },
   big: { ...theme.type.display, textAlign: "center" },
   sub: { ...theme.type.body, textAlign: "center" },
   dance: { width: "100%", height: 260 },
