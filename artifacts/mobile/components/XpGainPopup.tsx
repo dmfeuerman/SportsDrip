@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { collection, getDocs, limit, orderBy, query } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -19,6 +20,7 @@ import Animated, {
 import { scheduleOnRN } from "react-native-worklets";
 import { LevelBadge } from "@/components/LevelBar";
 import { Button } from "@/components/ui";
+import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { levelFromXp, progressOf, scaledXp, XP } from "@/constants/progression";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
@@ -274,7 +276,11 @@ export function XpGain({ from, to, level, reason, onClose }: { from: number; to:
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={done ? onClose : undefined}>
       <View style={styles.scrim}>
-        <View style={styles.card}>
+        {Platform.OS !== "web" ? (
+          <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(4, 6, 12, 0.64)" }]} />
+        <GlassModalSurface id="xp_gain" glowColor={c.primary} style={styles.card}>
           <Animated.Text entering={FadeIn.duration(250)} style={[styles.kicker, { color: c.primary }]}>
             XP EARNED
           </Animated.Text>
@@ -324,7 +330,7 @@ export function XpGain({ from, to, level, reason, onClose }: { from: number; to:
               </Animated.View>
             ) : null}
           </View>
-        </View>
+        </GlassModalSurface>
       </View>
     </Modal>
   );
@@ -348,8 +354,8 @@ function Coin({ x, y, delay, duration }: { x: number; y: number; delay: number; 
 }
 
 const styles = StyleSheet.create({
-  scrim: { flex: 1, backgroundColor: "rgba(4, 5, 8, 0.8)", alignItems: "center", justifyContent: "center", padding: 24 },
-  card: { width: "100%", maxWidth: 360, gap: 14, alignItems: "center", paddingVertical: 8 },
+  scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+  card: { width: "100%", maxWidth: 360, gap: 14, alignItems: "center", padding: 24 },
   kicker: { fontSize: 12, fontFamily: "Inter_900Black", letterSpacing: 3 },
   gain: { fontSize: 40, fontFamily: "Inter_900Black", letterSpacing: -1.2, fontVariant: ["tabular-nums"] },
   reasonPill: {
