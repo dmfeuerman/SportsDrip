@@ -1,11 +1,12 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import { markPromptResult } from "@/lib/promptGate";
 import { doc, getDoc } from "firebase/firestore";
 import { getDb } from "@/lib/firebase";
 import { liveActivitySupported, startActivity } from "@/modules/live-activity";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { AccessibilityInfo, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, {
@@ -244,10 +245,14 @@ function ToastCard({ toast, queued, onGone }: { toast: Toast; queued: number; on
   return (
     <View pointerEvents="box-none" style={[styles.wrap, { top: insets.top + 6 }]}>
       <GestureDetector gesture={pan}>
-        <Animated.View style={[styles.card, { backgroundColor: c.elevated, borderColor: c.alpha(tone, 0.55), shadowColor: celebrate ? tone : c.shadow }, card]}>
-          {/* Accent wash: a soft tint of the toast's colour fading out to the right. */}
+        <Animated.View style={[styles.card, { backgroundColor: c.isDark ? "rgba(18, 22, 32, 0.78)" : c.alpha(c.elevated, 0.84), borderColor: c.alpha(tone, 0.58), shadowColor: celebrate ? tone : c.shadow }, card]}>
+          {/* Frosted Liquid Glass blur + accent wash */}
           <View pointerEvents="none" style={styles.washClip}>
-            <LinearGradient colors={[c.alpha(tone, 0.2), c.alpha(tone, 0.0)]} start={{ x: 0, y: 0.5 }} end={{ x: 0.85, y: 0.5 }} style={StyleSheet.absoluteFill} />
+            {Platform.OS !== "web" ? (
+              <BlurView intensity={c.isDark ? 62 : 74} tint={c.isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+            ) : null}
+            <LinearGradient colors={[c.alpha(tone, 0.24), c.alpha(tone, 0.02)]} start={{ x: 0, y: 0.5 }} end={{ x: 0.85, y: 0.5 }} style={StyleSheet.absoluteFill} />
+            <LinearGradient colors={["transparent", c.alpha("#FFFFFF", c.isDark ? 0.34 : 0.85), "transparent"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ position: "absolute", top: 0, left: 16, right: 16, height: 1.25 }} />
             {celebrate && !reduced ? <Shimmer color={tone} intensity={0.22} every={2200} /> : null}
             {celebrate && !reduced ? <Burst colors={[tone, c.positive, "#FFD166"]} trigger={toast.id} count={22} power={0.55} duration={1100} haptics={false} /> : null}
           </View>
