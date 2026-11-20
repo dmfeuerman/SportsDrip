@@ -13,16 +13,13 @@ import { useColors } from "@/hooks/useColors";
 import { SLOT_ICONS, type CatalogItem } from "@/types/catalog";
 import type { AvatarConfig, Equipped } from "@/types/avatar";
 
-export const AVATAR_HERO_HEIGHT = 500;
+export const AVATAR_HERO_HEIGHT = 540;
 
 /**
  * The character card from the top of Home: live 3D stage at hero framing in
- * front of the player's background, dance button, and a footer (the level bar
- * on Home; "wearing" pills by default). Used for the signed-in player
- * and for anyone else's profile so every full-size avatar looks the same.
- *
- * The dance button offers the player's loadout (up to four moves): with one
- * move it just plays it; with more it fans them out to pick from.
+ * front of the player's background, dance button, and a footer (the bankroll
+ * HUD + level bar on Home; "wearing" pills by default). Used for the signed-in
+ * player and for anyone else's profile so every full-size avatar looks the same.
  */
 export default function AvatarHero({
   avatar,
@@ -31,7 +28,9 @@ export default function AvatarHero({
   moves,
   onEditMoves,
   header,
+  floatingRight,
   footer,
+  footerHeight,
   background,
   active = true,
   onGesture,
@@ -47,8 +46,12 @@ export default function AvatarHero({
   onEditMoves?: () => void;
   /** Overlay row across the top of the card. */
   header?: React.ReactNode;
-  /** Replaces the "wearing" pills along the bottom (Home puts the level bar here). */
+  /** Optional floating quick-action pills on the right edge of the 3D stage. */
+  floatingRight?: React.ReactNode;
+  /** Replaces the "wearing" pills along the bottom (Home puts the bankroll HUD + level bar here). */
   footer?: React.ReactNode;
+  /** Bottom clearance for taller custom footers (defaults to 70 when footer is provided). */
+  footerHeight?: number;
   /** Scene behind the character (constants/backgrounds.ts); the Locker Room when absent. */
   background?: string | null;
   active?: boolean;
@@ -86,10 +89,13 @@ export default function AvatarHero({
     [equipped, catalog]
   );
 
+  const footOffset = footer ? (footerHeight ?? 70) : 52;
+
   return (
-    <View style={[styles.hero, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.22) }, style]}>
+    <View style={[styles.heroShadow, { backgroundColor: c.elevated }, style]}>
+    <View style={[styles.hero, { backgroundColor: c.elevated }]}>
       <ZoomingBackdrop id={background} cam={cam} />
-      <View style={[styles.avatar, footer ? { bottom: 70 } : null]}>
+      <View style={[styles.avatar, { bottom: footOffset }]}>
         {avatar ? (
           <AvatarDisplay
             avatar={avatar}
@@ -113,7 +119,7 @@ export default function AvatarHero({
       {avatar && picking ? (
         <>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setPicking(false)} accessibilityLabel="Close moves" />
-          <Animated.View entering={FadeIn.duration(140)} exiting={FadeOut.duration(120)} style={[styles.wheel, footer ? { bottom: 150 } : null]} pointerEvents="box-none">
+          <Animated.View entering={FadeIn.duration(140)} exiting={FadeOut.duration(120)} style={[styles.wheel, { bottom: footOffset + 80 }]} pointerEvents="box-none">
             {onEditMoves ? (
               <Animated.View entering={ZoomIn.duration(160)}>
                 <Pressable
@@ -165,7 +171,7 @@ export default function AvatarHero({
           accessibilityState={{ expanded: picking }}
           onPress={onDance}
           hitSlop={6}
-          style={({ pressed }) => [styles.dance, footer ? { bottom: 92 } : null, { backgroundColor: c.primary, opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
+          style={({ pressed }) => [styles.dance, { bottom: footOffset + 20 }, { backgroundColor: c.primary, opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
         >
           <MaterialCommunityIcons name={picking ? "close" : "human-handsup"} size={picking ? 22 : 26} color={c.primaryForeground} />
           {!picking ? <MaterialCommunityIcons name="music-note" size={13} color={c.primaryForeground} style={styles.danceNote} /> : null}
@@ -176,6 +182,11 @@ export default function AvatarHero({
           {header}
         </View>
       ) : null}
+      {floatingRight ? (
+        <View style={styles.floatingRight} pointerEvents="box-none">
+          {floatingRight}
+        </View>
+      ) : null}
       <View style={styles.bottom} pointerEvents="box-none">
         {footer ?? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.wearing} contentContainerStyle={styles.wearingRow}>
@@ -184,14 +195,25 @@ export default function AvatarHero({
         )}
       </View>
     </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: { height: AVATAR_HERO_HEIGHT, borderRadius: 26, borderWidth: 1, overflow: "hidden" },
-  avatar: { position: "absolute", left: 0, right: 0, top: 56, bottom: 52 },
+  heroShadow: {
+    height: AVATAR_HERO_HEIGHT,
+    borderRadius: 26,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.38,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  hero: { flex: 1, borderRadius: 26, overflow: "hidden" },
+  avatar: { position: "absolute", left: 0, right: 0, top: 44, bottom: 52 },
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },
   top: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
+  floatingRight: { position: "absolute", right: 12, top: 80, alignItems: "flex-end", gap: 8 },
   dance: { position: "absolute", right: 12, bottom: 62, width: 50, height: 50, borderRadius: 25, alignItems: "center", justifyContent: "center" },
   danceNote: { position: "absolute", top: 7, right: 8 },
   wheel: { position: "absolute", right: 12, bottom: 120, alignItems: "flex-end", gap: 8 },

@@ -595,7 +595,7 @@ function StageScene({
         const D = cam.current.distance * fit;
         p.anchor = { x: cam.current.target.x + nx * D * tanH, y: cam.current.target.y + ny * D * tanV, d: cam.current.distance };
       }
-      const maxD = Math.max(FOCUS.full.distance, FOCUS[focus].distance);
+      const maxD = focus === "hero" ? FOCUS.hero.distance : Math.max(FOCUS.full.distance, FOCUS[focus].distance);
       const d = THREE.MathUtils.clamp((p.anchor.d * p.d0) / p.d, MIN_DISTANCE, maxD);
       const D = d * fit;
       // Never pan past the character; zoomed all the way out this re-centres it.
@@ -632,10 +632,12 @@ function StageScene({
     // reads as the viewer moving closer rather than the character growing.
     if (backdropCam && H > 0) {
       const base = FOCUS[focus];
-      const s = base.distance / cam.current.distance;
+      const s = Math.max(1, base.distance / cam.current.distance);
       const pxPerM = H / 2 / (cam.current.distance * fit * Math.tan(THREE.MathUtils.degToRad(CAMERA_FOV) / 2));
-      const x = (base.target[0] - t.x) * pxPerM;
-      const y = (t.y - base.target[1]) * pxPerM;
+      const maxX = (W * (s - 1)) / 2;
+      const maxY = (H * (s - 1)) / 2;
+      const x = THREE.MathUtils.clamp((base.target[0] - t.x) * pxPerM, -maxX, maxX);
+      const y = THREE.MathUtils.clamp((t.y - base.target[1]) * pxPerM, -maxY, maxY);
       const prev = backdropCam.value;
       if (Math.abs(prev.s - s) > 0.002 || Math.abs(prev.x - x) > 0.5 || Math.abs(prev.y - y) > 0.5) backdropCam.value = { s, x, y };
     }

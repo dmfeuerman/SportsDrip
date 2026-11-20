@@ -1,5 +1,4 @@
-import { LinearGradient } from "expo-linear-gradient";
-import { NO_CASH_VALUE } from "@/constants/legal";
+import { BOX_TIERS } from "@/constants/prizeTypes";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useIsFocused, useLocalSearchParams } from "expo-router";
@@ -68,9 +67,17 @@ export default function HomeScreen() {
   const bottom = useBottomPad();
   const now = useNow(30_000);
 
-  const { profile, balance, bets, betsLoaded, totalWon, progress, background } = useApp();
+  const { profile, balance, bets, betsLoaded, progress, background, prizeBoxes } = useApp();
   const hasPlayed = bets.length > 0;
   const [showCard, setShowCard] = useState(false);
+  const [feedTab, setFeedTab] = useState<"prizes" | "bets" | "leagues">("prizes");
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+  const freeBetReady = !bets.some((b) => b.freeBet && b.freeDay === today && b.status !== "cancelled");
+  const readyBoxes = BOX_TIERS.filter((t) => {
+    const b = prizeBoxes[t];
+    return b.state === "ready" || (b.state === "waiting" && (b.readyAt ?? 0) <= now);
+  }).length;
+  const streakCount = profile?.streak?.count ?? 0;
   const { nextAfter } = useLevelRewards();
   const onScene = isSceneBackdrop(background);
   const { myLeagueBets, leagues, ready: leaguesReady } = useLeague();
@@ -131,13 +138,16 @@ export default function HomeScreen() {
   // Measured at tap time against the scroll content: the onLayout y can be stale
   // (cards above it — live sweats, the featured game — load in after it's measured).
   const scrollTo = (section: "prizes" | "daily") => {
-    const scroll = scrollRef.current;
-    const target = sectionRef[section].current;
-    const inner = (scroll as unknown as { getInnerViewRef?: () => unknown } | null)?.getInnerViewRef?.();
-    const go = (y: number) => scroll?.scrollTo({ y: Math.max(0, y - 12), animated: true });
-    if (target && inner) {
-      target.measureLayout(inner as never, (_x: number, y: number) => go(y), () => go(sectionY.current[section]));
-    } else go(sectionY.current[section]);
+    setFeedTab("prizes");
+    setTimeout(() => {
+      const scroll = scrollRef.current;
+      const target = sectionRef[section].current;
+      const inner = (scroll as unknown as { getInnerViewRef?: () => unknown } | null)?.getInnerViewRef?.();
+      const go = (y: number) => scroll?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+      if (target && inner) {
+        target.measureLayout(inner as never, (_x: number, y: number) => go(y), () => go(sectionY.current[section]));
+      } else go(sectionY.current[section]);
+    }, 50);
   };
   const openGameIds = useMemo(
     () => new Set([...openCredit.map((b) => b.gameId), ...openLeague.map(({ b }) => b.gameId)]),
@@ -168,7 +178,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <tourScroll.Provider>
-        {/* Your character, live and head to toe, first thing on screen. Tap it for a celebration. */}
+        {/* Game-Lobby Large 3D Avatar Hero with floating claim chips & docked Bankroll HUD */}
         <TourTarget id="home.hero">
         <AvatarHero
           avatar={profile?.avatar ?? DEFAULT_AVATAR}
@@ -179,7 +189,118 @@ export default function HomeScreen() {
           active={focused}
           onGesture={setAvatarGesture}
           background={background}
-          footer={<TourTarget id="home.level" style={{ flex: 1 }}><LevelBar progress={progress} nextReward={nextAfter(progress.level)} onPress={() => router.push("/levels" as never)} /></TourTarget>}
+          footerHeight={142}
+          floatingRight={
+            freeBetReady || readyBoxes > 0 || challengeInbox.length > 0 ? (
+              <>
+                {freeBetReady ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Daily free bet ready"
+                    onPress={() => {
+                      buzz.tick();
+                      scrollTo("daily");
+                    }}
+                    style={({ pressed }) => [styles.lobbyChip, { opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <View style={[styles.lobbyDot, { backgroundColor: c.positive }]} />
+                    <Text style={styles.lobbyChipText}>Free Bet</Text>
+                  </Pressable>
+                ) : null}
+                {readyBoxes > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${readyBoxes} prize box ready`}
+                    onPress={() => {
+                      buzz.tick();
+                      scrollTo("prizes");
+                    }}
+                    style={({ pressed }) => [styles.lobbyChip, { opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <View style={[styles.lobbyDot, { backgroundColor: "#FFD54A" }]} />
+                    <Text style={styles.lobbyChipText}>{readyBoxes > 1 ? `${readyBoxes} Boxes!` : "Box Ready!"}</Text>
+                  </Pressable>
+                ) : null}
+                {challengeInbox.length > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${challengeInbox.length} incoming 1v1 challenge`}
+                    onPress={() => {
+                      buzz.tick();
+                      router.push("/challenges");
+                    }}
+                    style={({ pressed }) => [styles.lobbyChip, { opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <View style={[styles.lobbyDot, { backgroundColor: c.accent }]} />
+                    <Text style={styles.lobbyChipText}>{`1v1 (${challengeInbox.length})`}</Text>
+                  </Pressable>
+                ) : null}
+              </>
+            ) : null
+          }
+          footer={
+            <View style={styles.hudDock}>
+              <View style={styles.hudTopRow}>
+                <TourTarget id="home.wallet" style={{ flex: 1 }}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${balance.toLocaleString()} credits. Open your player card`}
+                    onPress={() => {
+                      buzz.tick();
+                      setShowCard(true);
+                    }}
+                    style={({ pressed }) => [styles.hudCreditsTap, { opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <View style={styles.hudCreditsLine}>
+                      <MaterialCommunityIcons name="lightning-bolt" size={18} color="#FFD54A" />
+                      <Text style={styles.hudCreditsNum} numberOfLines={1} adjustsFontSizeToFit>
+                        {balance.toLocaleString()}
+                      </Text>
+                      <Text style={styles.hudCreditsTag}>CREDITS</Text>
+                    </View>
+                    <Text style={styles.hudSubLine} numberOfLines={1}>
+                      {totalDebt > 0
+                        ? `Owes ${totalDebt.toLocaleString()} in leagues`
+                        : streakCount > 0
+                          ? `🔥 ${streakCount}d streak · Tap for Player Card`
+                          : "Tap for Player Card"}
+                    </Text>
+                  </Pressable>
+                </TourTarget>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={openTotal > 0 ? `See your ${openTotal} open bets` : "See your settled bets"}
+                  onPress={() => {
+                    buzz.tick();
+                    router.push(openTotal > 0 ? "/bets" : { pathname: "/bets", params: { tab: "settled" } });
+                  }}
+                  style={({ pressed }) => [
+                    styles.quickBetsBtn,
+                    {
+                      backgroundColor: openTotal > 0 ? c.alpha(c.primary, 0.22) : "rgba(255,255,255,0.10)",
+                      borderColor: openTotal > 0 ? c.alpha(c.primary, 0.65) : "rgba(255,255,255,0.22)",
+                      opacity: pressed ? 0.8 : 1,
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons name="ticket-confirmation-outline" size={15} color={openTotal > 0 ? c.primary : "#FFFFFF"} />
+                  <Text style={[styles.quickBetsText, { color: openTotal > 0 ? c.primary : "#FFFFFF" }]}>
+                    {openTotal > 0 ? `${openTotal} Bets` : "My Bets"}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-right" size={14} color={openTotal > 0 ? c.primary : "rgba(255,255,255,0.7)"} />
+                </Pressable>
+              </View>
+              <View style={styles.hudDivider} />
+              <TourTarget id="home.level">
+                <LevelBar
+                  progress={progress}
+                  nextReward={nextAfter(progress.level)}
+                  onPress={() => router.push("/levels" as never)}
+                  style={styles.embeddedLevelBar}
+                />
+              </TourTarget>
+            </View>
+          }
           header={
             <>
               <View style={{ flex: 1 }}>
@@ -198,11 +319,138 @@ export default function HomeScreen() {
             </>
           }
         />
-
         </TourTarget>
 
-        <Zone title="Now" sub="Live, next up and what you have riding" />
-        {/* The one thing worth doing right now */}
+        {/* Live games you have money on — directly below the hero */}
+        <LiveSweatCard bets={sweat} gameById={gameById} onOpen={setQuickGame} />
+
+        {/* 3-button nav: Prizes | Bets | Leagues (opens to Prizes first) */}
+        <View style={[styles.segTrack, { backgroundColor: c.card, borderColor: c.border }]}>
+          {(
+            [
+              { value: "prizes" as const, label: readyBoxes > 0 ? `Prizes (${readyBoxes})` : "Prizes" },
+              { value: "bets" as const, label: openTotal > 0 ? `Bets (${openTotal})` : "Bets" },
+              { value: "leagues" as const, label: leagues.length > 0 ? `Leagues (${leagues.length})` : "Leagues" },
+            ] as const
+          ).map((opt) => {
+            const selected = feedTab === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => {
+                  buzz.tick();
+                  setFeedTab(opt.value);
+                }}
+                style={[styles.segPill, selected && { backgroundColor: c.foreground }]}
+              >
+                <Text style={[styles.segText, { color: selected ? c.background : c.mutedForeground }]} numberOfLines={1}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {feedTab === "prizes" ? (
+          <>
+            <View ref={sectionRef.daily} collapsable={false} onLayout={(e) => (sectionY.current.daily = e.nativeEvent.layout.y)}>
+              <TourTarget id="home.daily">
+                <DailyPickCard />
+              </TourTarget>
+            </View>
+            <View ref={sectionRef.prizes} collapsable={false} onLayout={(e) => (sectionY.current.prizes = e.nativeEvent.layout.y)} style={{ gap: 12 }}>
+              <TourTarget id="home.prizes" style={{ gap: 12 }}>
+                <SectionHeader title="Prizes" icon="gift-outline" />
+                <WinBackCard />
+                <RewardsCard />
+              </TourTarget>
+            </View>
+          </>
+        ) : feedTab === "bets" ? (
+          <>
+            <TourTarget id="home.bets">
+            <SectionHeader
+              title="My Bets"
+              action="See All"
+              onAction={() => router.push(openTotal > 0 ? "/bets" : { pathname: "/bets", params: { tab: "settled" } })}
+            />
+            </TourTarget>
+            {openTotal === 0 && !betsLoaded ? (
+              <LoadingState label="Loading your bets…" />
+            ) : openTotal === 0 ? (
+              <EmptyState icon="ticket-outline" title="Nothing Riding" body="Back a team on the board — results pop up here the moment the game's final." action="Browse Games" onAction={() => router.navigate("/(tabs)/games")} />
+            ) : (
+              <>
+                {openCredit.slice(0, 3).map((b) => (
+                  <BetTicket key={b.id} spacing={0} bet={b} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
+                ))}
+                {openLeague.slice(0, Math.max(0, 3 - openCredit.length)).map(({ b, league }) => (
+                  <BetTicket key={b.id} spacing={0} bet={b} walletLabel={league} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
+                ))}
+                {openTotal > 3 ? (
+                  <Button
+                    label={`See all ${openTotal} open bets`}
+                    icon="ticket-confirmation-outline"
+                    variant="secondary"
+                    onPress={() => router.push("/bets")}
+                    style={{ borderColor: c.primary, borderWidth: 1.5 }}
+                  />
+                ) : null}
+              </>
+            )}
+            {featured ? <FeaturedGameCard game={featured} sides={NO_SIDES} onOpen={(g) => setQuickGame(g.id)} /> : null}
+            {results.length > 0 ? (
+              <Button label="Results & History" icon="history" variant="ghost" size="sm" onPress={() => router.push("/activity")} />
+            ) : null}
+          </>
+        ) : (
+          <>
+            <TourTarget id="home.leagues">
+            <SectionHeader title="Your Leagues" action={leagues.length ? "See All" : undefined} onAction={() => router.navigate("/(tabs)/leagues")} />
+            </TourTarget>
+            {summaries.length === 0 && !leaguesReady ? (
+              <LoadingState label="Loading your leagues…" />
+            ) : summaries.length === 0 ? (
+              <EmptyState
+                icon="trophy-outline"
+                title="Compete With Friends"
+                body="A league gives everyone the same stack of tokens for a season. Best net worth at the end takes the pot."
+                action="Start a League"
+                onAction={() => router.navigate({ pathname: "/(tabs)/leagues", params: { create: "1" } })}
+                secondary="Join With a Code"
+                onSecondary={() => router.navigate({ pathname: "/(tabs)/leagues", params: { join: "1" } })}
+              />
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.leagueRow}>
+                {summaries.slice(0, 6).map((s) => (
+                  <Card
+                    key={s.league.id}
+                    onPress={() => router.push({ pathname: "/league/[id]", params: { id: s.league.id } })}
+                    accessibilityLabel={`${s.league.name}, rank ${s.me?.rank ?? "unranked"} of ${s.memberCount}`}
+                    style={styles.leagueCard}
+                    tone={s.me?.rank === 1 ? "money" : undefined}
+                  >
+                    <Text style={[styles.leagueName, { color: c.foreground }]} numberOfLines={1}>
+                      {s.league.name}
+                    </Text>
+                    <View style={styles.rankLine}>
+                      <Text style={[styles.rank, { color: s.me?.rank === 1 ? c.primary : c.foreground }]}>#{s.me?.rank ?? "–"}</Text>
+                      <Text style={[styles.rankOf, { color: c.mutedForeground }]}>of {s.memberCount}</Text>
+                    </View>
+                    <Amount value={s.me?.netWorth ?? 0} currency="league" size="sm" />
+                    <Text style={[styles.rowSub, { color: c.subtleForeground }]}>
+                      {s.closed ? "Closed" : `${s.daysLeft}d left`}
+                      {s.me && s.me.debt > 0 ? ` · owes ${s.me.debt.toLocaleString()}` : ""}
+                    </Text>
+                  </Card>
+                ))}
+              </ScrollView>
+            )}
+          </>
+        )}
+
         <TourTarget id="home.next">
         <NextActionCard
           now={now}
@@ -214,101 +462,10 @@ export default function HomeScreen() {
         />
         </TourTarget>
 
-        {/* Live games you have money on */}
-        <LiveSweatCard bets={sweat} gameById={gameById} onOpen={setQuickGame} />
-
-        {/* Game of the Night: one tap opens the bet slip without leaving Home */}
-        {featured ? <FeaturedGameCard game={featured} sides={NO_SIDES} onOpen={(g) => setQuickGame(g.id)} /> : null}
-
-        {/* Wallet */}
-        <TourTarget id="home.wallet">
-        <Pressable accessibilityRole="button" accessibilityLabel="Open your player card" onPress={() => { buzz.tick(); setShowCard(true); }}>
-        <Card style={[styles.wallet, { backgroundColor: c.elevated, borderColor: c.alpha(c.primary, 0.28) }]}>
-          <LinearGradient
-            pointerEvents="none"
-            colors={[c.alpha(c.primary, c.isDark ? 0.2 : 0.12), c.alpha(c.accent, 0.05), "transparent"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <Text style={[styles.label, { color: c.mutedForeground }]}>CREDITS</Text>
-          <Amount value={balance} size="xl" animate />
-          <Text style={{ fontSize: 11, fontFamily: "Inter_500Medium", color: c.subtleForeground }}>{NO_CASH_VALUE}</Text>
-          <View style={styles.walletStats}>
-            <WalletStat
-              label="In Play"
-              value={atRisk.toLocaleString()}
-              hint={escrowed > 0 ? `${openCredit.length} bets · ${escrowed.toLocaleString()} in pots` : `${openCredit.length} open`}
-            />
-            <WalletStat label="Could Return" value={couldReturn.toLocaleString()} color={c.positive} />
-            <WalletStat
-              label="League Debt"
-              value={totalDebt.toLocaleString()}
-              color={totalDebt > 0 ? c.debt : undefined}
-              hint={totalDebt > 0 ? "flat fee" : "none"}
-            />
-          </View>
-        </Card>
-        </Pressable>
-        </TourTarget>
-
-        {/* Open bets */}
-        <TourTarget id="home.bets">
-        <SectionHeader
-          title="My Bets"
-          action="See All"
-          onAction={() => router.push(openTotal > 0 ? "/bets" : { pathname: "/bets", params: { tab: "settled" } })}
-        />
-        </TourTarget>
-        {openTotal === 0 && !betsLoaded ? (
-          <LoadingState label="Loading your bets…" />
-        ) : openTotal === 0 ? (
-          <EmptyState icon="ticket-outline" title="Nothing Riding" body="Back a team on the board — results pop up here the moment the game's final." action="Browse Games" onAction={() => router.navigate("/(tabs)/games")} />
-        ) : (
-          <>
-            {openCredit.slice(0, 3).map((b) => (
-              <BetTicket key={b.id} spacing={0} bet={b} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
-            ))}
-            {openLeague.slice(0, Math.max(0, 3 - openCredit.length)).map(({ b, league }) => (
-              <BetTicket key={b.id} spacing={0} bet={b} walletLabel={league} game={gameById.get(b.gameId) ?? null} onOpen={() => setQuickGame(b.gameId)} />
-            ))}
-            {openTotal > 3 ? (
-              <Button
-                label={`See all ${openTotal} open bets`}
-                icon="ticket-confirmation-outline"
-                variant="secondary"
-                onPress={() => router.push("/bets")}
-                style={{ borderColor: c.primary, borderWidth: 1.5 }}
-              />
-            ) : null}
-          </>
-        )}
-
-
-        {results.length > 0 ? (
-          <Button label="Results & History" icon="history" variant="ghost" size="sm" onPress={() => router.push("/activity")} />
-        ) : null}
-
-        <Zone title="Claim" sub="Free bet, boxes and quests" />
-        {/* Daily reasons to open the app: free bet, then prize boxes */}
-        <View ref={sectionRef.daily} collapsable={false} onLayout={(e) => (sectionY.current.daily = e.nativeEvent.layout.y)}>
-          <TourTarget id="home.daily">
-            <DailyPickCard />
-          </TourTarget>
-        </View>
-
-        {/* Prize boxes: start, open and reset right here */}
-        <View ref={sectionRef.prizes} collapsable={false} onLayout={(e) => (sectionY.current.prizes = e.nativeEvent.layout.y)} style={{ gap: 12 }}>
-          <TourTarget id="home.prizes" style={{ gap: 12 }}>
-            <SectionHeader title="Prizes" icon="gift-outline" />
-            <WinBackCard />
-            <RewardsCard />
-          </TourTarget>
-        </View>
-
         {/* First-week checklist: compact row, full list opens over the screen */}
         <FirstWeekChecklist />
 
+        <Zone title="XP Challenges" sub="Bonus XP & weekly recap" />
         {/* XP challenges show from day one: level 1 is "explore the app". */}
         <LevelChallengesCard />
         {hasPlayed ? <LadderPromotionHost /> : null}
@@ -319,10 +476,7 @@ export default function HomeScreen() {
           leagueLine={bestLeague ? `#${bestLeague.me!.rank} of ${bestLeague.memberCount} in ${bestLeague.league.name}` : null}
         />
 
-        {/* Leagues */}
-
-        <Zone title="Crew" sub="Challenges, leagues and what your friends did" />
-        {/* Friend challenges: anything waiting on an answer, or riding on a game */}
+        <Zone title="Crew" sub="Challenges and what your friends did" />
         {challengeInbox.length + challengesLive.length + challengesSent.length > 0 ? (
           <>
           <SectionHeader title="Challenges" icon="sword-cross" action="See All" onAction={() => router.push("/challenges")} />
@@ -351,50 +505,9 @@ export default function HomeScreen() {
           </Card>
           </>
         ) : null}
-
-        <TourTarget id="home.leagues">
-        <SectionHeader title="Your Leagues" action={leagues.length ? "See All" : undefined} onAction={() => router.navigate("/(tabs)/leagues")} />
-        </TourTarget>
-        {summaries.length === 0 && !leaguesReady ? (
-          <LoadingState label="Loading your leagues…" />
-        ) : summaries.length === 0 ? (
-          <EmptyState
-            icon="trophy-outline"
-            title="Compete With Friends"
-            body="A league gives everyone the same stack of tokens for a season. Best net worth at the end takes the pot."
-            action="Start a League"
-            onAction={() => router.navigate({ pathname: "/(tabs)/leagues", params: { create: "1" } })}
-            secondary="Join With a Code"
-            onSecondary={() => router.navigate({ pathname: "/(tabs)/leagues", params: { join: "1" } })}
-          />
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.leagueRow}>
-            {summaries.slice(0, 6).map((s) => (
-              <Card
-                key={s.league.id}
-                onPress={() => router.push({ pathname: "/league/[id]", params: { id: s.league.id } })}
-                accessibilityLabel={`${s.league.name}, rank ${s.me?.rank ?? "unranked"} of ${s.memberCount}`}
-                style={styles.leagueCard}
-                tone={s.me?.rank === 1 ? "money" : undefined}
-              >
-                <Text style={[styles.leagueName, { color: c.foreground }]} numberOfLines={1}>
-                  {s.league.name}
-                </Text>
-                <View style={styles.rankLine}>
-                  <Text style={[styles.rank, { color: s.me?.rank === 1 ? c.primary : c.foreground }]}>#{s.me?.rank ?? "–"}</Text>
-                  <Text style={[styles.rankOf, { color: c.mutedForeground }]}>of {s.memberCount}</Text>
-                </View>
-                <Amount value={s.me?.netWorth ?? 0} currency="league" size="sm" />
-                <Text style={[styles.rowSub, { color: c.subtleForeground }]}>
-                  {s.closed ? "Closed" : `${s.daysLeft}d left`}
-                  {s.me && s.me.debt > 0 ? ` · owes ${s.me.debt.toLocaleString()}` : ""}
-                </Text>
-              </Card>
-            ))}
-          </ScrollView>
-        )}
-
         <CrewFeedModule />
+
+
 
         </tourScroll.Provider>
         {/* The one ad on Home: below everything, after the player has seen their own stuff. */}
@@ -495,4 +608,56 @@ const styles = StyleSheet.create({
   result: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12 },
   resultIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   record: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 },
+  lobbyChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(10, 11, 14, 0.72)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  lobbyDot: { width: 8, height: 8, borderRadius: 4 },
+  lobbyChipText: { color: "#FFFFFF", fontSize: 12, fontFamily: "Inter_700Bold" },
+  hudDock: {
+    flex: 1,
+    borderRadius: 20,
+    backgroundColor: "rgba(10, 12, 16, 0.78)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.16)",
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    gap: 8,
+  },
+  hudTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  hudCreditsTap: { gap: 1 },
+  hudCreditsLine: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  hudCreditsNum: { color: "#FFFFFF", fontSize: 22, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"], letterSpacing: -0.6 },
+  hudCreditsTag: { color: "#FFD54A", fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.1 },
+  hudSubLine: { color: "rgba(255,255,255,0.68)", fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  quickBetsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  quickBetsText: { fontSize: 12, fontFamily: "Inter_800ExtraBold" },
+  hudDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.12)" },
+  embeddedLevelBar: {
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    paddingVertical: 2,
+    paddingLeft: 0,
+    paddingRight: 0,
+    borderRadius: 0,
+  },
+  segTrack: { flexDirection: "row", borderRadius: 999, borderWidth: 1, padding: 4, gap: 4 },
+  segPill: { flex: 1, borderRadius: 999, paddingVertical: 9, paddingHorizontal: 8, alignItems: "center", justifyContent: "center" },
+  segText: { fontSize: 13, fontFamily: "Inter_700Bold" },
 });
