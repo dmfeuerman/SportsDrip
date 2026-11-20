@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -25,12 +25,14 @@ import MemberAvatar from "@/components/MemberAvatar";
 import PlayerProfileSheet from "@/components/PlayerProfileSheet";
 import ReportDialog, { type ReportTarget } from "@/components/ReportDialog";
 import { EmptyState, LoadingState, TabStrip } from "@/components/ui";
+import { LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { PEER_LOAN_MAX_PCT, REACTION_EMOJIS, type LeagueLoan, type LeagueMessage } from "@/constants/leagueTypes";
 import { useApp } from "@/context/AppContext";
 import { useChat, type DirectMessage } from "@/context/ChatContext";
 import { useLeague, useLeagueDetail } from "@/context/LeagueContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { useFriends } from "@/hooks/useFriends";
 import { useNow } from "@/hooks/useNow";
 import { chatText } from "@/lib/chatText";
@@ -244,6 +246,7 @@ function MessageActionTray({
 export default function MessagesScreen() {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const readyMount = useDeferredMount();
   const params = useLocalSearchParams<{ uid?: string; name?: string; leagueId?: string }>();
   const { profile } = useApp();
   const { show: showToast } = useToast();
@@ -287,6 +290,7 @@ export default function MessagesScreen() {
   const chatSeen = useAllChatSeen();
 
   const [mode, setMode] = useState<ChatMode>(params.leagueId ? "league" : "dm");
+  const deferredMode = useDeferredValue(mode);
   const [selectedFriendUid, setSelectedFriendUid] = useState<string | null>(
     params.uid ?? friends[0]?.uid ?? null
   );
@@ -442,18 +446,18 @@ export default function MessagesScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: chatWallpaperBg }]}
+      style={[styles.container, { backgroundColor: c.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      {/* iOS / WhatsApp Top Navigation Bar */}
-      <View
-        style={[
+      <ObsidianBackdrop />
+      {/* 2026 Liquid Glass Top Navigation Bar */}
+      <LiquidGlass
+        variant="bar"
+        contentStyle={[
           styles.header,
           {
             paddingTop: topPad + 6,
-            borderBottomColor: c.border,
-            backgroundColor: c.isDark ? "rgba(18, 20, 28, 0.96)" : "rgba(249, 249, 251, 0.96)",
           },
         ]}
       >
@@ -653,10 +657,14 @@ export default function MessagesScreen() {
             })}
           </ScrollView>
         ) : null}
-      </View>
+      </LiquidGlass>
 
       {/* Message List (Newest at the Bottom, iOS/WhatsApp grouping) */}
-      {mode === "dm" ? (
+      {!readyMount ? (
+        <View style={styles.emptyContainer}>
+          <LoadingState label="Loading messages…" />
+        </View>
+      ) : deferredMode === "dm" ? (
         !activeFriend && friendsLoading ? (
           <View style={styles.emptyContainer}>
             <LoadingState label="Loading your chats…" />
@@ -1122,14 +1130,15 @@ export default function MessagesScreen() {
       {/* Reply composer quote banner */}
       <ReplyComposerBar quote={replyQuote} onCancel={() => setReplyQuote(null)} />
 
-      {/* iOS iMessage / WhatsApp Fixed Bottom Input Bar */}
+      {/* 2026 Liquid Glass Fixed Bottom Input Bar */}
       {((mode === "dm" && activeFriend) || (mode === "league" && activeLeague)) && (
-        <View
-          style={[
+        <LiquidGlass
+          variant="bar"
+          borderWidth={0}
+          style={{ borderTopWidth: 1, borderTopColor: c.isDark ? c.alpha("#FFFFFF", 0.14) : c.border }}
+          contentStyle={[
             styles.inputDock,
             {
-              backgroundColor: c.isDark ? "rgba(18, 20, 28, 0.98)" : "rgba(249, 249, 251, 0.98)",
-              borderTopColor: c.border,
               paddingBottom: Math.max(insets.bottom, 10),
             },
           ]}
@@ -1213,7 +1222,7 @@ export default function MessagesScreen() {
               />
             </Pressable>
           </View>
-        </View>
+        </LiquidGlass>
       )}
 
       <FriendSendSheet
