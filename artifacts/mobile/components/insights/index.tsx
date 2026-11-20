@@ -14,6 +14,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { ActionChip } from "@/components/ui";
+import { LiquidGlass } from "@/components/ui/LiquidGlass";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { fairProbabilities, formatPercent } from "@/lib/odds";
 import { isPriced, type Game, type Side, type TeamSide } from "@/types/game";
@@ -63,7 +64,7 @@ export function Block({
         </View>
         {right}
       </View>
-      <View style={[styles.blockBody, { backgroundColor: c.card, borderColor: c.border }]}>{children}</View>
+      <LiquidGlass variant="card" radius={18} contentStyle={styles.blockBody}>{children}</LiquidGlass>
     </Animated.View>
   );
 }
@@ -164,8 +165,8 @@ export function Linescore({ game, insights }: { game: Game; insights: GameInsigh
 
   return (
     <Block title="By Period" caption={live ? "Updates as the game goes" : null}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 8 }}>
-        <View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 8, flexGrow: 1 }}>
+        <View style={{ flex: 1, minWidth: "100%" }}>
           <View style={styles.lsRow}>
             <View style={styles.lsTeam} />
             {ls.periods.map((p, i) => (
@@ -201,44 +202,56 @@ export function Linescore({ game, insights }: { game: Game; insights: GameInsigh
   );
 }
 
+const CLOCK_ONLY = /^(\d{1,3}['′](\+\d{1,2}['′]?)?|HT|FT|ET|PEN|1H|2H|Q[1-4]|OT\d?)$/i;
+
 export function SituationCard({ game }: { game: Game }) {
   const c = useColors();
   if (game.status !== "live") return null;
   const s = game.live;
   const football = (game.sport === "NFL" || game.sport === "NCAAF") && s?.downDistance;
   const baseball = game.sport === "MLB" && s && (s.outs !== null || s.balls !== null);
-  const text = game.lastPlay ?? game.situation;
+  const rawText = (game.lastPlay ?? game.situation)?.trim() ?? null;
+  // Skip redundant clock-only strings (e.g. soccer "30'") that are already shown in the scoreboard.
+  const text = rawText && (!CLOCK_ONLY.test(rawText) && rawText !== game.clock?.trim()) ? rawText : null;
   if (!football && !baseball && !text) return null;
 
   return (
-    <Animated.View entering={FadeIn} style={[styles.situation, { backgroundColor: c.alpha(c.live, 0.08), borderColor: c.alpha(c.live, 0.35) }]}>
-      {football && s ? (
-        <View style={styles.sitRow}>
-          <MaterialCommunityIcons name="football" size={16} color={c.live} />
-          <Text style={[styles.sitStrong, { color: c.foreground }]}>
-            {s.possession ? `${teamOf(game, s.possession).abbreviation} ball · ` : ""}
-            {s.downDistance}
+    <Animated.View entering={FadeIn}>
+      <LiquidGlass
+        variant="card"
+        radius={16}
+        tintColor={c.alpha(c.live, c.isDark ? 0.12 : 0.08)}
+        borderColor={c.alpha(c.live, 0.4)}
+        contentStyle={styles.situation}
+      >
+        {football && s ? (
+          <View style={styles.sitRow}>
+            <MaterialCommunityIcons name="football" size={16} color={c.live} />
+            <Text style={[styles.sitStrong, { color: c.foreground }]}>
+              {s.possession ? `${teamOf(game, s.possession).abbreviation} ball · ` : ""}
+              {s.downDistance}
+            </Text>
+            {s.redZone ? (
+              <View style={[styles.tag, { backgroundColor: c.alpha(c.negative, 0.16) }]}>
+                <Text style={[styles.tagText, { color: c.negative }]}>RED ZONE</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+        {baseball && s ? (
+          <View style={styles.sitRow}>
+            <Diamond first={s.onFirst} second={s.onSecond} third={s.onThird} c={c} />
+            <Text style={[styles.sitStrong, { color: c.foreground }]}>
+              {s.balls ?? 0}-{s.strikes ?? 0} · {s.outs ?? 0} out{s.outs === 1 ? "" : "s"}
+            </Text>
+          </View>
+        ) : null}
+        {text ? (
+          <Text style={[styles.sitText, { color: c.cardForeground }]} numberOfLines={3}>
+            {text}
           </Text>
-          {s.redZone ? (
-            <View style={[styles.tag, { backgroundColor: c.alpha(c.negative, 0.16) }]}>
-              <Text style={[styles.tagText, { color: c.negative }]}>RED ZONE</Text>
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-      {baseball && s ? (
-        <View style={styles.sitRow}>
-          <Diamond first={s.onFirst} second={s.onSecond} third={s.onThird} c={c} />
-          <Text style={[styles.sitStrong, { color: c.foreground }]}>
-            {s.balls ?? 0}-{s.strikes ?? 0} · {s.outs ?? 0} out{s.outs === 1 ? "" : "s"}
-          </Text>
-        </View>
-      ) : null}
-      {text ? (
-        <Text style={[styles.sitText, { color: c.cardForeground }]} numberOfLines={3}>
-          {text}
-        </Text>
-      ) : null}
+        ) : null}
+      </LiquidGlass>
     </Animated.View>
   );
 }
@@ -639,7 +652,7 @@ const styles = StyleSheet.create({
   block: { gap: 8 },
   blockHead: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   blockTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
-  blockBody: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 4 },
+  blockBody: { paddingHorizontal: 14, paddingVertical: 4 },
   caption: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 },
   link: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
@@ -656,14 +669,14 @@ const styles = StyleSheet.create({
   note: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, padding: 12 },
   noteText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium", lineHeight: 17 },
 
-  lsRow: { flexDirection: "row", alignItems: "center", minHeight: 34 },
-  lsTeam: { width: 66, flexDirection: "row", alignItems: "center", gap: 6 },
+  lsRow: { flexDirection: "row", alignItems: "center", minHeight: 36, width: "100%" },
+  lsTeam: { flex: 1, minWidth: 72, flexDirection: "row", alignItems: "center", gap: 6 },
   lsAbbr: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  lsHead: { width: 32, textAlign: "center", fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  lsCell: { width: 32, textAlign: "center", fontSize: 14, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
-  lsTotal: { width: 40 },
+  lsHead: { width: 34, textAlign: "center", fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  lsCell: { width: 34, textAlign: "center", fontSize: 14, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
+  lsTotal: { width: 42 },
 
-  situation: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 8 },
+  situation: { padding: 12, gap: 8 },
   sitRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   sitStrong: { fontSize: 14, fontFamily: "Inter_700Bold", flexShrink: 1 },
   sitText: { fontSize: 13, fontFamily: "Inter_500Medium", lineHeight: 18 },
