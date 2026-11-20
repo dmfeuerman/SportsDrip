@@ -4,7 +4,7 @@ import { tourEvent, tourPractice } from "@/lib/tour/store";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useDeferredValue, useEffect, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import CreateLeagueModal from "@/components/CreateLeagueModal";
 import JoinLeagueSheet from "@/components/JoinLeagueSheet";
@@ -12,6 +12,7 @@ import FriendsPanel from "@/components/FriendsPanel";
 import { useChallenges } from "@/context/ChallengeContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { Amount, Button, Card, EmptyState, ErrorBanner, Pill, ScreenHeader, SectionHeader, SegmentedControl, useBottomPad } from "@/components/ui";
+import { ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useApp } from "@/context/AppContext";
 import { useLeague, useLeagueSummaries, type LeagueSummary } from "@/context/LeagueContext";
 import { useColors } from "@/hooks/useColors";
@@ -34,6 +35,7 @@ export default function LeaguesScreen() {
   const friendRequests = notifications.filter((n) => !n.read && n.type === "friend_request");
   const { incoming: challengeInbox } = useChallenges();
   const [seg, setSeg] = useState<"leagues" | "friends">(params.seg === "friends" || params.open ? "friends" : "leagues");
+  const deferredSeg = useDeferredValue(seg);
   const pickSeg = (v: "leagues" | "friends") => {
     setSeg(v);
     if (v === "friends") tourEvent("leagues:friends");
@@ -63,6 +65,7 @@ export default function LeaguesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader
         leading={<BackToLevels />}
         title={seg === "friends" ? "Friends" : "Leagues"}
@@ -87,7 +90,7 @@ export default function LeaguesScreen() {
       </ScreenHeader>
       <ErrorBanner message={error} onDismiss={clearError} />
 
-      {seg === "friends" ? <FriendsPanel embedded /> : (
+      {deferredSeg === "friends" ? <FriendsPanel embedded /> : (
       <FlatList
         data={rows}
         keyExtractor={(r, i) => (r.kind === "league" ? r.s.league.id : `h${i}`)}
