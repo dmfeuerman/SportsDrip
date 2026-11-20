@@ -1,7 +1,7 @@
 import BackToLevels from "@/components/BackToLevels";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -80,6 +80,12 @@ export default function GamesScreen() {
 
   const [sport, setSport] = useState<string>(ALL);
   const [query, setQuery] = useState("");
+  const deferredSport = useDeferredValue(sport);
+  const deferredQuery = useDeferredValue(query);
+  const handleSportChange = useCallback((next: string) => {
+    setSport(next);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
   const [searchOpen, setSearchOpen] = useState(false);
   const [headerH, setHeaderH] = useState(124);
   const [pending, setPending] = useState<{
@@ -141,9 +147,9 @@ export default function GamesScreen() {
   // Thin banners only for players with a real social graph (10+ friends or leagues).
   const thinOn = AD_POLICY.boardThinBanners && (friends.length > 10 || leagues.length > 10);
   const rows: Row[] = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     const teamHit = (t: { name: string; abbreviation: string }) => t.name.toLowerCase().includes(q) || t.abbreviation.toLowerCase().includes(q);
-    const match = (g: Game) => (sport === ALL || g.sport === sport) && (!q || teamHit(g.homeTeam) || teamHit(g.awayTeam));
+    const match = (g: Game) => (deferredSport === ALL || g.sport === deferredSport) && (!q || teamHit(g.homeTeam) || teamHit(g.awayTeam));
     const l = live.filter(match);
     const u = upcoming.filter(match);
     const out: Row[] = [];
@@ -157,7 +163,7 @@ export default function GamesScreen() {
       if (!pendingBig && !pendingThin) return;
       const last = out[out.length - 1];
       if (last && last.kind !== "ad" && last.kind !== "thin") {
-        if (pendingBig && adsOn && sport === ALL && ads < AD_POLICY.boardMax) {
+        if (pendingBig && adsOn && deferredSport === ALL && ads < AD_POLICY.boardMax) {
           out.push({ kind: "ad", id: `ad-${ads}` });
           ads += 1;
         } else if (pendingThin && thinOn) out.push({ kind: "thin", id: `thin-${seen}` });
@@ -170,7 +176,7 @@ export default function GamesScreen() {
       out.push({ kind: "game", id: g.id, game: g });
       seen += 1;
       const slot = seen - AD_POLICY.boardFirstAfter;
-      if (adsOn && sport === ALL && slot >= 0 && slot % AD_POLICY.boardEvery === 0) pendingBig = true;
+      if (adsOn && deferredSport === ALL && slot >= 0 && slot % AD_POLICY.boardEvery === 0) pendingBig = true;
       // Thin banner after games 3, 7, 10, 14, 17… (every 3 or 4 games).
       if (thinOn && (seen % 7 === 3 || seen % 7 === 0)) pendingThin = true;
     };
@@ -190,7 +196,7 @@ export default function GamesScreen() {
       pushGame(g);
     }
     return out;
-  }, [live, upcoming, sport, adsOn, thinOn, query]);
+  }, [live, upcoming, deferredSport, adsOn, thinOn, deferredQuery]);
   // The tutorials point at the first two games you can actually bet on (the second is a parlay's other leg).
   const listRef = useRef<FlatList<Row>>(null);
   const tourScroll = useTourScroll(listRef);
@@ -204,12 +210,12 @@ export default function GamesScreen() {
 
   const featured = useMemo(() => {
     const favs = new Set((profile?.favoriteTeams ?? []).map((t) => `${t.sport}:${t.abbr}`));
-    const pool = upcoming.filter((g) => sport === ALL || g.sport === sport);
+    const pool = upcoming.filter((g) => deferredSport === ALL || g.sport === deferredSport);
     return pickFeatured(pool, boardSides, favs, Date.now());
-  }, [upcoming, sport, boardSides, profile?.favoriteTeams]);
+  }, [upcoming, deferredSport, boardSides, profile?.favoriteTeams]);
 
   // The game of the day steps aside while searching.
-  const featuredShown = !!featured && !query.trim();
+  const featuredShown = !!featured && !deferredQuery.trim();
 
   const openBetSheet = useCallback(
     (game: Game, side: Side, friend?: boolean, market?: Market, selection?: Selection) => {
@@ -502,7 +508,7 @@ export default function GamesScreen() {
           glass
           gap={10}
           value={sport}
-          onChange={setSport}
+          onChange={handleSportChange}
           options={[
             { value: ALL, label: "All", icon: "trophy-outline" as const },
             ...SPORTS.map((sp) => ({ value: sp, label: sp, icon: SPORT_ICONS[sp] as never, color: SPORT_COLORS[sp] })),
@@ -578,7 +584,7 @@ export default function GamesScreen() {
           scrollEventThrottle={tourScroll.scrollEventThrottle}
           data={rows}
           keyExtractor={(r) => r.id}
-          ListFooterComponent={sport !== ALL && rows.length ? <SponsoredCard style={{ marginVertical: 12 }} /> : undefined}
+          ListFooterComponent={deferredSport !== ALL && rows.length ? <SponsoredCard style={{ marginVertical: 12 }} /> : undefined}
           // Child 0 is the featured header when there is one, so section rows sit one further down.
           stickyHeaderIndices={rows
             .map((r, i) => (r.kind === "section" ? i + (featuredShown ? 1 : 0) : -1))
@@ -631,9 +637,9 @@ export default function GamesScreen() {
             <EmptyState
               colors={colors}
               error={gamesError}
-              sport={sport}
-              query={query.trim()}
-              onClearFilter={() => setSport(ALL)}
+              sport={deferredSport}
+              query={deferredQuery.trim()}
+              onClearFilter={() => startTransition(() => setSport(ALL))}
             />
           }
         />
