@@ -225,8 +225,8 @@ export function LiquidGlass({
 }
 
 /**
- * Smooth SVG radial ambient glow rendered behind the Games screen so Liquid Glass
- * cards and the floating header visibly refract the active theme's primary,
+ * Smooth SVG radial ambient glow rendered behind screens so Liquid Glass
+ * cards and floating headers visibly refract the active theme's primary,
  * accent, and league colours.
  */
 export function ObsidianBackdrop() {
@@ -263,6 +263,84 @@ export function ObsidianBackdrop() {
   );
 }
 
+/**
+ * Radial dome Liquid Glass sheen + specular top rim (matching Home Bento & PrizeVaultModal).
+ * Drop inside any `overflow: "hidden"` container to give it directional luminous depth.
+ */
+export function GlassDomeSheen({
+  id = "dome",
+  glowColor,
+  rimColor,
+  intensity = 0.32,
+}: {
+  id?: string;
+  glowColor?: string;
+  rimColor?: string;
+  intensity?: number;
+}) {
+  const c = useColors();
+  const glow = glowColor ?? c.primary;
+  const rim = rimColor ?? (c.isDark ? c.alpha(glow, 0.72) : c.alpha("#FFFFFF", 0.92));
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <Defs>
+          <RadialGradient id={`gd_${id}`} cx="50%" cy="12%" rx="78%" ry="56%">
+            <Stop offset="0" stopColor={glow} stopOpacity={String(c.isDark ? intensity : intensity * 0.55)} />
+            <Stop offset="0.52" stopColor={glow} stopOpacity={String(c.isDark ? intensity * 0.34 : intensity * 0.18)} />
+            <Stop offset="1" stopColor={glow} stopOpacity="0" />
+          </RadialGradient>
+          <RadialGradient id={`gs_${id}`} cx="50%" cy="0%" rx="56%" ry="26%">
+            <Stop offset="0" stopColor="#FFFFFF" stopOpacity={c.isDark ? "0.20" : "0.75"} />
+            <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill={`url(#gd_${id})`} />
+        <Rect x="0" y="0" width="100%" height="100%" fill={`url(#gs_${id})`} />
+      </Svg>
+      <LinearGradient
+        colors={["transparent", rim, "transparent"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.domeTopRim}
+      />
+    </View>
+  );
+}
+
+/**
+ * Centered Liquid Glass modal surface matching the Prize Vault ("Luminous Spotlight") design:
+ * blurred dark/light frosted glass card, radial dome glow, specular top rim, concentric 32pt radius.
+ */
+export function GlassModalSurface({
+  children,
+  glowColor,
+  rimColor,
+  style,
+  id = "modal",
+}: {
+  children: React.ReactNode;
+  glowColor?: string;
+  rimColor?: string;
+  style?: StyleProp<ViewStyle>;
+  id?: string;
+}) {
+  const c = useColors();
+  const bg = c.isDark ? "rgba(18, 22, 32, 0.80)" : c.alpha(c.elevated, 0.86);
+  const border = c.isDark ? "rgba(255, 255, 255, 0.20)" : c.alpha(c.foreground, 0.14);
+
+  return (
+    <View style={[styles.modalCard, { backgroundColor: bg, borderColor: border }, style]}>
+      {Platform.OS !== "web" ? (
+        <BlurView intensity={c.isDark ? 72 : 82} tint={c.isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+      ) : null}
+      <GlassDomeSheen id={id} glowColor={glowColor} rimColor={rimColor} />
+      {children}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   inner: {
     overflow: "hidden",
@@ -273,5 +351,22 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     height: 1.25,
+  },
+  domeTopRim: {
+    position: "absolute",
+    top: 0,
+    left: 22,
+    right: 22,
+    height: 1.5,
+  },
+  modalCard: {
+    borderRadius: 32,
+    borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOpacity: 0.52,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 18,
   },
 });

@@ -21,7 +21,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import PressableScale from "@/components/fx/PressableScale";
 import RollingNumber from "@/components/fx/RollingNumber";
 import Shimmer from "@/components/fx/Shimmer";
-import { LiquidGlass } from "@/components/ui/LiquidGlass";
+import { BlurView } from "expo-blur";
+import { GlassModalSurface, LiquidGlass } from "@/components/ui/LiquidGlass";
 import { useColors, type Colors } from "@/hooks/useColors";
 import { titleCase } from "@/lib/titleCase";
 
@@ -180,12 +181,17 @@ export function IconButton({
       accessibilityLabel={badge ? `${label}, ${badge} unread` : label}
       onPress={onPress}
       hitSlop={8}
-      style={({ pressed }) => [
-        styles.iconBtn,
-        { backgroundColor: c.secondary, borderColor: c.border, opacity: pressed ? 0.75 : 1 },
-      ]}
+      style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
     >
-      <MaterialCommunityIcons name={icon} size={18} color={tone === "neutral" ? c.foreground : t.fg} />
+      <LiquidGlass
+        variant="pill"
+        interactive
+        tintColor={tone !== "neutral" ? c.alpha(t.fg, c.isDark ? 0.16 : 0.12) : undefined}
+        borderColor={tone !== "neutral" ? c.alpha(t.fg, 0.45) : undefined}
+        contentStyle={styles.iconBtn}
+      >
+        <MaterialCommunityIcons name={icon} size={18} color={tone === "neutral" ? c.foreground : t.fg} />
+      </LiquidGlass>
       {!!badge && badge > 0 && (
         <View style={[styles.badge, { backgroundColor: c.negative, borderColor: c.background }]}>
           <Text style={styles.badgeText}>{badge > 9 ? "9+" : badge}</Text>
@@ -216,13 +222,11 @@ export function CloseButton({
       disabled={disabled}
       onPress={onPress}
       hitSlop={12}
-      style={({ pressed }) => [
-        styles.closeBtn,
-        { backgroundColor: c.secondary, borderColor: c.border, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 },
-        style,
-      ]}
+      style={({ pressed }) => [{ opacity: disabled ? 0.4 : pressed ? 0.7 : 1 }, style]}
     >
-      <MaterialCommunityIcons name="close" size={20} color={c.foreground} />
+      <LiquidGlass variant="pill" interactive contentStyle={styles.closeBtn}>
+        <MaterialCommunityIcons name="close" size={20} color={c.foreground} />
+      </LiquidGlass>
     </Pressable>
   );
 }
@@ -243,12 +247,25 @@ export function Card({
   accessibilityLabel?: string;
 }) {
   const c = useColors();
-  const border = tone ? c.alpha(toneColor(c, tone).fg, 0.35) : c.border;
-  const base = [styles.card, { backgroundColor: c.card, borderColor: border }, style];
-  if (!onPress) return <View style={base}>{children}</View>;
-  return (
-    <PressableScale accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} scaleTo={0.98} dimTo={0.94} style={base}>
+  const t = tone ? toneColor(c, tone) : null;
+  const border = t ? c.alpha(t.fg, c.isDark ? 0.45 : 0.35) : undefined;
+  const tint = t ? c.alpha(t.fg, c.isDark ? 0.12 : 0.08) : undefined;
+  const glassCard = (
+    <LiquidGlass
+      variant="card"
+      interactive={!!onPress}
+      tintColor={tint}
+      borderColor={border}
+      borderWidth={tone ? 1.25 : 1}
+      contentStyle={[styles.card, style]}
+    >
       {children}
+    </LiquidGlass>
+  );
+  if (!onPress) return glassCard;
+  return (
+    <PressableScale accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} scaleTo={0.98} dimTo={0.94}>
+      {glassCard}
     </PressableScale>
   );
 }
@@ -330,7 +347,7 @@ export function StatTile({
 }) {
   const c = useColors();
   return (
-    <View style={[styles.stat, { backgroundColor: c.alpha(c.foreground, 0.045) }, style]}>
+    <LiquidGlass variant="tile" style={[{ flex: 1, minWidth: 0 }, style]} contentStyle={styles.stat}>
       {typeof children === "string" || typeof children === "number" ? (
         <Text style={[styles.statValue, { color: c.foreground }]} numberOfLines={1} adjustsFontSizeToFit>
           {children}
@@ -346,7 +363,7 @@ export function StatTile({
           {hint}
         </Text>
       ) : null}
-    </View>
+    </LiquidGlass>
   );
 }
 
@@ -371,7 +388,11 @@ export function ScreenHeader({
   const c = useColors();
   const top = useTopPad();
   return (
-    <View style={[styles.header, { backgroundColor: c.background, borderBottomColor: c.border, paddingTop: top + 10 }]}>
+    <LiquidGlass
+      variant="bar"
+      borderColor={c.isDark ? c.alpha("#FFFFFF", 0.14) : c.alpha(c.foreground, 0.1)}
+      contentStyle={[styles.header, { paddingTop: top + 10 }]}
+    >
       <View style={styles.headerRow}>
         {back && (
           <Pressable
@@ -381,7 +402,9 @@ export function ScreenHeader({
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
             style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
           >
-            <MaterialCommunityIcons name="chevron-left" size={28} color={c.foreground} />
+            <LiquidGlass variant="pill" interactive contentStyle={styles.backPill}>
+              <MaterialCommunityIcons name="chevron-left" size={24} color={c.foreground} />
+            </LiquidGlass>
           </Pressable>
         )}
         {leading}
@@ -398,7 +421,7 @@ export function ScreenHeader({
         {right ? <View style={styles.headerRight}>{right}</View> : null}
       </View>
       {children}
-    </View>
+    </LiquidGlass>
   );
 }
 
@@ -413,7 +436,9 @@ export function BackButton() {
       onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
       style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
     >
-      <MaterialCommunityIcons name="chevron-left" size={28} color={c.foreground} />
+      <LiquidGlass variant="pill" interactive contentStyle={styles.backPill}>
+        <MaterialCommunityIcons name="chevron-left" size={24} color={c.foreground} />
+      </LiquidGlass>
     </Pressable>
   );
 }
@@ -552,32 +577,65 @@ export function SegmentedControl<T extends string>({
 }) {
   const c = useColors();
   return (
-    <View accessibilityRole="tablist" style={[styles.segment, { backgroundColor: c.secondary, borderColor: c.alpha(c.foreground, 0.08) }, style]}>
-      {options.map((o) => {
-        const on = o.value === value;
-        return (
-          <Pressable
-            key={o.value}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: on }}
-            onPress={() => {
-              buzz.tick();
-              onChange(o.value);
-            }}
-            style={[styles.segmentItem, on && { backgroundColor: c.foreground }]}
-          >
-            <Text style={[styles.segmentText, { color: on ? c.background : c.mutedForeground }]} numberOfLines={1}>
-              {titleCase(o.label)}
-            </Text>
-            {o.badge ? (
-              <View style={[styles.segmentBadge, { backgroundColor: on ? c.alpha(c.background, 0.16) : c.alpha(c.foreground, 0.1) }]}>
-                <Text style={[styles.segmentBadgeText, { color: on ? c.background : c.mutedForeground }]}>{o.badge > 99 ? "99+" : o.badge}</Text>
-              </View>
-            ) : null}
-          </Pressable>
-        );
-      })}
-    </View>
+    <LiquidGlass
+      variant="pill"
+      style={style}
+      borderColor={c.isDark ? c.alpha("#FFFFFF", 0.16) : c.alpha(c.foreground, 0.12)}
+      contentStyle={styles.segment}
+    >
+      <View accessibilityRole="tablist" style={styles.segmentInner}>
+        {options.map((o) => {
+          const on = o.value === value;
+          return (
+            <Pressable
+              key={o.value}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              onPress={() => {
+                buzz.tick();
+                onChange(o.value);
+              }}
+              style={[
+                styles.segmentItem,
+                on && {
+                  backgroundColor: c.isDark ? c.alpha(c.primary, 0.22) : c.foreground,
+                  borderWidth: 1,
+                  borderColor: c.isDark ? c.alpha(c.primary, 0.65) : c.foreground,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  { color: on ? (c.isDark ? c.primary : c.background) : c.mutedForeground },
+                ]}
+                numberOfLines={1}
+              >
+                {titleCase(o.label)}
+              </Text>
+              {o.badge ? (
+                <View
+                  style={[
+                    styles.segmentBadge,
+                    {
+                      backgroundColor: on
+                        ? c.isDark
+                          ? c.alpha(c.primary, 0.28)
+                          : c.alpha(c.background, 0.16)
+                        : c.alpha(c.foreground, 0.1),
+                    },
+                  ]}
+                >
+                  <Text style={[styles.segmentBadgeText, { color: on ? (c.isDark ? c.primary : c.background) : c.mutedForeground }]}>
+                    {o.badge > 99 ? "99+" : o.badge}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </LiquidGlass>
   );
 }
 
@@ -696,7 +754,7 @@ export function FilterPills<T extends string>({
   onChange,
   inset = 16,
   gap = 8,
-  glass = false,
+  glass = true,
   style,
 }: {
   options: Array<{ value: T; label: string; icon?: IconName; color?: string; badge?: number }>;
@@ -903,8 +961,8 @@ export function EmptyState({
 }) {
   const c = useColors();
   return (
-    <View style={[styles.empty, { backgroundColor: c.card, borderColor: c.border }]}>
-      <View style={[styles.emptyIcon, { backgroundColor: c.secondary }]}>
+    <LiquidGlass variant="card" contentStyle={styles.empty}>
+      <View style={[styles.emptyIcon, { backgroundColor: c.alpha(c.foreground, 0.08) }]}>
         <MaterialCommunityIcons name={icon} size={28} color={c.mutedForeground} />
       </View>
       <Text style={[styles.emptyTitle, { color: c.foreground }]}>{titleCase(title)}</Text>
@@ -915,7 +973,7 @@ export function EmptyState({
           {action && onAction ? <Button label={action} onPress={onAction} /> : null}
         </View>
       )}
-    </View>
+    </LiquidGlass>
   );
 }
 
@@ -923,10 +981,12 @@ export function EmptyState({
 export function LoadingState({ label = "Loading…" }: { label?: string }) {
   const c = useColors();
   return (
-    <View accessibilityRole="progressbar" accessibilityLabel={label} style={[styles.empty, { backgroundColor: c.card, borderColor: c.border }]}>
-      <ActivityIndicator color={c.mutedForeground} />
-      <Text style={[styles.emptyBody, { color: c.mutedForeground }]}>{label}</Text>
-    </View>
+    <LiquidGlass variant="card" contentStyle={styles.empty}>
+      <View accessibilityRole="progressbar" accessibilityLabel={label} style={{ alignItems: "center", gap: 8 }}>
+        <ActivityIndicator color={c.mutedForeground} />
+        <Text style={[styles.emptyBody, { color: c.mutedForeground }]}>{label}</Text>
+      </View>
+    </LiquidGlass>
   );
 }
 
@@ -934,15 +994,17 @@ export function ErrorBanner({ message, onDismiss }: { message: string | null; on
   const c = useColors();
   if (!message) return null;
   return (
-    <Pressable
-      accessibilityRole="alert"
-      accessibilityLabel={message}
-      onPress={onDismiss}
-      style={[styles.banner, { backgroundColor: c.negativeSoft, borderColor: c.alpha(c.negative, 0.5) }]}
-    >
-      <MaterialCommunityIcons name="alert-circle-outline" size={16} color={c.negative} />
-      <Text style={[styles.bannerText, { color: c.negative }]}>{message}</Text>
-      {onDismiss && <MaterialCommunityIcons name="close" size={15} color={c.negative} />}
+    <Pressable accessibilityRole="alert" accessibilityLabel={message} onPress={onDismiss} style={styles.bannerWrap}>
+      <LiquidGlass
+        variant="tile"
+        tintColor={c.negativeSoft}
+        borderColor={c.alpha(c.negative, 0.5)}
+        contentStyle={styles.banner}
+      >
+        <MaterialCommunityIcons name="alert-circle-outline" size={16} color={c.negative} />
+        <Text style={[styles.bannerText, { color: c.negative }]}>{message}</Text>
+        {onDismiss && <MaterialCommunityIcons name="close" size={15} color={c.negative} />}
+      </LiquidGlass>
     </Pressable>
   );
 }
@@ -977,24 +1039,27 @@ export function ConfirmDialog({
 }) {
   const c = useColors();
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? () => {} : onCancel}>
-      <View style={[styles.dialogScrim, { backgroundColor: c.overlay }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={busy ? undefined : onCancel} accessibilityLabel="Close dialog" />
-        <View accessibilityViewIsModal style={[styles.dialog, { backgroundColor: c.elevated, borderColor: c.border }]}>
-          <Text accessibilityRole="header" style={[styles.dialogTitle, { color: c.foreground }]}>
-            {title}
-          </Text>
-          <Text style={[styles.dialogBody, { color: c.mutedForeground }]}>{body}</Text>
-          {error ? (
-            <Text accessibilityRole="alert" style={[styles.dialogBody, { color: c.negative }]}>
-              {error}
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={busy ? () => {} : onCancel}>
+      <View style={styles.dialogScrim}>
+        {Platform.OS !== "web" ? <BlurView intensity={30} tint={c.isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} /> : null}
+        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: c.isDark ? "rgba(5, 9, 16, 0.48)" : c.overlay }]} onPress={busy ? undefined : onCancel} accessibilityLabel="Close dialog" />
+        <GlassModalSurface id="confirm" glowColor={destructive ? c.negative : c.primary} style={styles.dialog}>
+          <View accessibilityViewIsModal style={styles.dialogInner}>
+            <Text accessibilityRole="header" style={[styles.dialogTitle, { color: c.foreground }]}>
+              {title}
             </Text>
-          ) : null}
-          <View style={styles.dialogActions}>
-            <Button label={cancelLabel} variant="secondary" style={{ flex: 1 }} onPress={onCancel} disabled={busy} />
-            <Button label={confirmLabel} variant={destructive ? "destructive" : "primary"} style={{ flex: 1 }} onPress={onConfirm} loading={busy} />
+            <Text style={[styles.dialogBody, { color: c.mutedForeground }]}>{body}</Text>
+            {error ? (
+              <Text accessibilityRole="alert" style={[styles.dialogBody, { color: c.negative }]}>
+                {error}
+              </Text>
+            ) : null}
+            <View style={styles.dialogActions}>
+              <Button label={cancelLabel} variant="secondary" style={{ flex: 1 }} onPress={onCancel} disabled={busy} />
+              <Button label={confirmLabel} variant={destructive ? "destructive" : "primary"} style={{ flex: 1 }} onPress={onConfirm} loading={busy} />
+            </View>
           </View>
-        </View>
+        </GlassModalSurface>
       </View>
     </Modal>
   );
@@ -1022,21 +1087,24 @@ export function ChoiceDialog({
 }) {
   const c = useColors();
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={[styles.dialogScrim, { backgroundColor: c.overlay }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Close dialog" />
-        <View accessibilityViewIsModal style={[styles.dialog, { backgroundColor: c.elevated, borderColor: c.border }]}>
-          <Text accessibilityRole="header" style={[styles.dialogTitle, { color: c.foreground }]}>
-            {title}
-          </Text>
-          <Text style={[styles.dialogBody, { color: c.mutedForeground }]}>{body}</Text>
-          <View style={styles.dialogStack}>
-            {actions.map((a) => (
-              <Button key={a.label} label={a.label} icon={a.icon} variant={a.variant ?? "primary"} onPress={a.onPress} />
-            ))}
-            <Button label={cancelLabel} variant="ghost" onPress={onCancel} />
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={onCancel}>
+      <View style={styles.dialogScrim}>
+        {Platform.OS !== "web" ? <BlurView intensity={30} tint={c.isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} /> : null}
+        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: c.isDark ? "rgba(5, 9, 16, 0.48)" : c.overlay }]} onPress={onCancel} accessibilityLabel="Close dialog" />
+        <GlassModalSurface id="choice" glowColor={c.accent} style={styles.dialog}>
+          <View accessibilityViewIsModal style={styles.dialogInner}>
+            <Text accessibilityRole="header" style={[styles.dialogTitle, { color: c.foreground }]}>
+              {title}
+            </Text>
+            <Text style={[styles.dialogBody, { color: c.mutedForeground }]}>{body}</Text>
+            <View style={styles.dialogStack}>
+              {actions.map((a) => (
+                <Button key={a.label} label={a.label} icon={a.icon} variant={a.variant ?? "primary"} onPress={a.onPress} />
+              ))}
+              <Button label={cancelLabel} variant="ghost" onPress={onCancel} />
+            </View>
           </View>
-        </View>
+        </GlassModalSurface>
       </View>
     </Modal>
   );
@@ -1066,22 +1134,23 @@ export function Initial({ name, color, size = 36 }: { name: string; color: strin
 const styles = StyleSheet.create({
   btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, borderWidth: 1.5, minHeight: 44 },
   btnText: { fontFamily: "Inter_800ExtraBold" },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  closeBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  closeBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
   badgeText: { color: "#fff", fontSize: 11, fontFamily: "Inter_800ExtraBold" },
-  card: { borderRadius: 14, borderWidth: 1, padding: 14 },
+  card: { padding: 14 },
   pill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" },
   pillText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
   amountRow: { flexDirection: "row", alignItems: "center", gap: 3 },
-  stat: { flex: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 10, gap: 2, minWidth: 0, alignItems: "center" },
+  stat: { paddingHorizontal: 10, paddingVertical: 10, gap: 2, alignItems: "center" },
   statLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.9, marginTop: 2 },
   statValue: { fontSize: 20, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"], letterSpacing: -0.3 },
   statHint: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center" },
-  header: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingBottom: 12, gap: 12 },
+  header: { paddingHorizontal: 16, paddingBottom: 12, gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 40 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  backBtn: { marginLeft: -8, marginRight: -4 },
+  backBtn: { marginLeft: -2 },
+  backPill: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 22, lineHeight: 27, fontFamily: "Inter_900Black", letterSpacing: -0.5 },
   subtitle: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 1 },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, marginBottom: 8 },
@@ -1093,7 +1162,8 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.1 },
   sectionPill: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 36, paddingLeft: 14, paddingRight: 8, borderRadius: 999, borderWidth: 1 },
   sectionPillText: { fontSize: 14, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.1 },
-  segment: { flexDirection: "row", borderRadius: 999, borderWidth: 1, padding: 3 },
+  segment: { padding: 3 },
+  segmentInner: { flexDirection: "row" },
   segmentItem: { flex: 1, flexDirection: "row", gap: 6, paddingVertical: 8, borderRadius: 999, alignItems: "center", justifyContent: "center" },
   segmentText: { fontSize: 13, fontFamily: "Inter_700Bold", flexShrink: 1 },
   segmentBadge: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
@@ -1114,17 +1184,19 @@ const styles = StyleSheet.create({
   filterIcon: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   filterText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   dot: { width: 7, height: 7, borderRadius: 4, marginLeft: -2 },
-  empty: { alignItems: "center", gap: 8, padding: 28, borderRadius: 16, borderWidth: 1 },
+  empty: { alignItems: "center", gap: 8, padding: 28 },
   emptyIcon: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },
   emptyBody: { fontSize: 13, lineHeight: 19, fontFamily: "Inter_400Regular", textAlign: "center", maxWidth: 320 },
   emptyActions: { flexDirection: "row", gap: 10, marginTop: 8 },
   dialogScrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  dialog: { width: "100%", maxWidth: 400, borderRadius: 22, borderWidth: 1, padding: 20, gap: 10 },
-  dialogTitle: { fontSize: 20, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.4 },
+  dialog: { width: "100%", maxWidth: 380 },
+  dialogInner: { padding: 22, gap: 10 },
+  dialogTitle: { fontSize: 21, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.4 },
   dialogBody: { fontSize: 14, lineHeight: 20, fontFamily: "Inter_400Regular" },
-  dialogActions: { flexDirection: "row", gap: 10, marginTop: 8 },
-  dialogStack: { gap: 8, marginTop: 8 },
-  banner: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 10, padding: 10, borderRadius: 12, borderWidth: 1 },
+  dialogActions: { flexDirection: "row", gap: 10, marginTop: 10 },
+  dialogStack: { gap: 8, marginTop: 10 },
+  bannerWrap: { marginHorizontal: 16, marginTop: 10 },
+  banner: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10 },
   bannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
 });
