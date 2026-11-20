@@ -3,13 +3,10 @@ import React, { useRef } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
 import { Amount, Card, Pill, ScreenHeader, useBottomPad } from "@/components/ui";
+import { ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
-/**
- * The Leagues tutorial's pretend league. Everything here is made up and local:
- * no Firestore reads or writes, no league is created, nobody is invited.
- */
 const MEMBERS = [
   { name: "Jordan", worth: 124_800, debt: 0 },
   { name: "You", worth: 100_000, debt: 0, me: true },
@@ -32,6 +29,7 @@ export default function TutorialLeagueScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <TourTarget id="practice.header">
         <ScreenHeader back title="Practice League" subtitle="Tutorial · not saved" right={<Pill label="PRACTICE" tone="accent" icon="school-outline" />} />
       </TourTarget>
@@ -40,10 +38,11 @@ export default function TutorialLeagueScreen() {
         onScroll={tourScroll.onScroll}
         scrollEventThrottle={tourScroll.scrollEventThrottle}
         contentContainerStyle={[styles.body, { paddingBottom: bottom }]}
+        showsVerticalScrollIndicator={false}
       >
         <tourScroll.Provider>
           <TourTarget id="practice.invite">
-            <Card style={styles.row}>
+            <Card style={styles.row} tone="league">
               <MaterialCommunityIcons name="ticket-account" size={22} color={c.league} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.k, { color: c.mutedForeground }]}>INVITE CODE</Text>
@@ -93,7 +92,7 @@ export default function TutorialLeagueScreen() {
             <Card style={{ gap: 8 }}>
               <Text style={[styles.k, { color: c.mutedForeground }]}>LEAGUE CHAT</Text>
               {CHAT.map((m) => (
-                <View key={m.text} style={[styles.bubble, { backgroundColor: c.secondary }]}>
+                <View key={m.text} style={[styles.bubble, { backgroundColor: c.alpha(c.secondary, 0.55), borderColor: c.isDark ? c.alpha("#FFFFFF", 0.1) : c.border }]}>
                   <Text style={[styles.name, { color: c.foreground }]}>{m.name}</Text>
                   <Text style={[styles.sub, { color: c.mutedForeground }]}>{m.text}</Text>
                 </View>
@@ -110,10 +109,10 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   body: { padding: 16, gap: 14 },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
-  k: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.8 },
+  k: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.0 },
   code: { fontSize: 22, fontFamily: "Inter_900Black", letterSpacing: 3 },
   sub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
   rank: { fontSize: 15, fontFamily: "Inter_800ExtraBold", width: 30 },
   name: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  bubble: { padding: 10, borderRadius: 12, gap: 2 },
+  bubble: { padding: 11, borderRadius: 14, borderWidth: 1, gap: 2 },
 });
