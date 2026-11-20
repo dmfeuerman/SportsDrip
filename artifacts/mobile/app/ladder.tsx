@@ -81,7 +81,7 @@ export default function LadderScreen() {
             </View>
           </LiquidGlass>
           {ids.map((u, idx) => (
-            <Card key={u} style={styles.row} tone={u === profile?.uid ? "league" : "default"}>
+            <Card key={u} style={styles.row} tone={u === profile?.uid ? "league" : undefined}>
               <Text style={[styles.rank, { color: c.subtleForeground }]}>#{idx + 1}</Text>
               <Text style={[styles.name, { color: c.foreground, flex: 1 }]} numberOfLines={1}>
                 {u === profile?.uid ? "You" : profiles[u]?.displayName ?? "Player"}

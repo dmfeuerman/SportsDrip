@@ -103,7 +103,7 @@ export default function SeasonScreen() {
         {season.tiers.map((t, i) => {
           const reached = xp >= t.xp;
           return (
-            <Card key={i} style={styles.row} tone={reached && !claimed[i] ? "positive" : "default"}>
+            <Card key={i} style={styles.row} tone={reached && !claimed[i] ? "positive" : undefined}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={[styles.title, { color: c.foreground }]}>Tier {i + 1}</Text>
                 <Text style={[styles.sub, { color: c.mutedForeground }]}>

@@ -116,7 +116,7 @@ export default function CheckoutScreen() {
       <ObsidianBackdrop />
       {/* Liquid Glass Header */}
       <LiquidGlass variant="bar" contentStyle={[styles.header, { paddingTop: top }]}>
-        <BackButton onPress={back} />
+        <BackButton />
         <View style={{ flex: 1 }}>
           <Text accessibilityRole="header" style={[styles.title, { color: c.foreground }]}>
             {phase === "done" ? "Order complete" : "Your cart"}
