@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TourModalLayer } from "@/components/tour/TourHost";
+import { BlurView } from "expo-blur";
 import {
   Animated,
   Dimensions,
@@ -15,25 +16,18 @@ import {
 import { Pressable } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CloseButton } from "@/components/ui";
+import { GlassDomeSheen } from "@/components/ui/LiquidGlass";
 import { useColors } from "@/hooks/useColors";
 
 const DISMISS_DISTANCE = 90;
 const DISMISS_VELOCITY = 1.1;
 
 /**
- * Bottom sheet that stays above the software keyboard.
+ * Liquid Glass sheet that stays above the software keyboard.
  *
- * The sheets used to be `<Modal>` + overlay + a bottom-pinned View with no
- * keyboard handling, so an autofocused input (the invite-code box) opened
- * straight under the keyboard. `behavior="padding"` is used on both
- * platforms on purpose: KeyboardAvoidingView pads by the measured overlap
- * between the keyboard frame and this view, so it is correct whether or not
- * Android also resized the window (edge-to-edge modals don't).
- *
- * Three ways out, always: the close button, a tap on the backdrop, and a
- * downward swipe on the grab bar. Tall sheets (a player's profile at 90%)
- * left almost no backdrop to tap, which is what made them hard to close.
- * `dismissible={false}` holds all three while something is in flight.
+ * Uses a dimmed + blurred backdrop and frosted Liquid Glass surface with a
+ * directional dome glow and specular top rim so every secondary sheet matches
+ * the 2026 Liquid Glass design language.
  */
 export default function KeyboardSheet({
   visible,
@@ -44,6 +38,7 @@ export default function KeyboardSheet({
   maxHeight = "92%",
   dismissible = true,
   showClose = true,
+  glowColor,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -54,12 +49,13 @@ export default function KeyboardSheet({
   maxHeight?: `${number}%` | number;
   dismissible?: boolean;
   showClose?: boolean;
+  /** Optional accent glow tint for the Liquid Glass dome sheen. */
+  glowColor?: string;
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const drag = useRef(new Animated.Value(0)).current;
 
-  // PanResponder is created once; read the latest props through a ref.
   const latest = useRef({ onClose, dismissible });
   latest.current = { onClose, dismissible };
 
@@ -67,12 +63,6 @@ export default function KeyboardSheet({
     if (visible) drag.setValue(0);
   }, [visible, drag]);
 
-  // The keyboard already covers the home-indicator area, so keeping the
-  // safe-area bottom padding while it's up floats the sheet's footer ~50pt
-  // above the keyboard. Drop it so the bottom action sits right on top.
-  // The sheet reaches the bottom of the screen and pads itself by the keyboard's
-  // height, so its background runs under the keyboard (nothing behind shows through)
-  // and the bottom action sits right on top of it.
   const [kbH, setKbH] = useState(0);
   const keyboardUp = kbH > 0;
   useEffect(() => {
@@ -113,22 +103,40 @@ export default function KeyboardSheet({
     [drag]
   );
 
+  const sheetBg = c.isDark ? "rgba(16, 20, 30, 0.84)" : c.alpha(c.elevated, 0.88);
+  const sheetBorder = c.isDark ? "rgba(255, 255, 255, 0.18)" : c.alpha(c.foreground, 0.14);
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.fill}>
-        <Pressable style={[styles.fill, { backgroundColor: c.overlay }]} onPress={close} accessibilityLabel="Close" />
+        {Platform.OS !== "web" ? (
+          <BlurView intensity={28} tint={c.isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+        ) : null}
+        <Pressable
+          style={[styles.fill, { backgroundColor: c.isDark ? "rgba(5, 9, 16, 0.45)" : c.overlay }]}
+          onPress={close}
+          accessibilityLabel="Close"
+        />
         <Animated.View
           style={[
             styles.sheet,
-            { backgroundColor: c.elevated, borderColor: c.border, paddingBottom: keyboardUp ? 8 : insets.bottom + 16, maxHeight, transform: [{ translateY: drag }] },
+            {
+              backgroundColor: sheetBg,
+              borderColor: sheetBorder,
+              paddingBottom: keyboardUp ? 8 : insets.bottom + 16,
+              maxHeight,
+              transform: [{ translateY: drag }],
+            },
             style,
-            // The keyboard covers the home indicator, so the bottom action sits right on
-            // top of it whatever padding the sheet asked for.
             keyboardUp ? { paddingBottom: kbH + 8 } : null,
           ]}
         >
+          {Platform.OS !== "web" ? (
+            <BlurView intensity={c.isDark ? 70 : 80} tint={c.isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+          ) : null}
+          <GlassDomeSheen id="sheet" glowColor={glowColor ?? c.primary} intensity={0.22} />
           <View {...pan.panHandlers} style={[styles.grab, headerStyle]} hitSlop={{ top: 12 }}>
-            <View style={[styles.handle, { backgroundColor: c.border }]} />
+            <View style={[styles.handle, { backgroundColor: c.isDark ? "rgba(255,255,255,0.28)" : c.border }]} />
             {showClose ? <CloseButton onPress={close} disabled={!dismissible} style={styles.close} /> : null}
           </View>
           {children}
@@ -141,8 +149,22 @@ export default function KeyboardSheet({
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, borderBottomWidth: 0, padding: 20, paddingTop: 8, gap: 12, flexShrink: 1 },
-  // Tall enough to grab with a thumb; the close button sits at its right edge.
+  sheet: {
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    padding: 20,
+    paddingTop: 8,
+    gap: 12,
+    flexShrink: 1,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOpacity: 0.45,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: -10 },
+    elevation: 16,
+  },
   grab: { height: 40, alignItems: "center", justifyContent: "center", marginBottom: -4 },
   handle: { width: 40, height: 5, borderRadius: 3 },
   close: { position: "absolute", right: 0, top: 2 },
