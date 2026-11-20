@@ -15,6 +15,7 @@ import TeamChips from "@/components/TeamChips";
 import ItemIcon from "@/components/avatar/ItemIcon";
 import TokenBalance from "@/components/TokenBalance";
 import { Button, Card, ErrorBanner } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useApp } from "@/context/AppContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
@@ -120,7 +121,12 @@ export default function LockerScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: c.background }]}>
-      <View style={[styles.header, { paddingTop: (Platform.OS === "web" ? 24 : insets.top) + 12, borderBottomColor: c.border }]}>
+      <ObsidianBackdrop />
+      <LiquidGlass
+        variant="bar"
+        borderColor={c.isDark ? c.alpha("#FFFFFF", 0.14) : c.alpha(c.foreground, 0.1)}
+        contentStyle={[styles.header, { paddingTop: (Platform.OS === "web" ? 24 : insets.top) + 12 }]}
+      >
         <View style={{ flex: 1 }}>
           <Text accessibilityRole="header" style={[styles.title, { color: c.foreground }]} numberOfLines={1}>
             Locker
@@ -130,25 +136,26 @@ export default function LockerScreen() {
             {profile?.username ? ` · @${profile.username}` : ""}
           </Text>
         </View>
-        <TokenBalance tokens={balance} earn />
+        <TokenBalance tokens={balance} earn glass />
         <TourTarget id="locker.help">
         <Pressable
-          style={[styles.iconBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
           onPress={openTourMenu}
           accessibilityRole="button"
           accessibilityLabel="Tutorials"
         >
-          <MaterialCommunityIcons name="help-circle-outline" size={17} color={c.foreground} />
+          <LiquidGlass variant="pill" interactive contentStyle={styles.iconBtn}>
+            <MaterialCommunityIcons name="help-circle-outline" size={17} color={c.foreground} />
+          </LiquidGlass>
         </Pressable>
         </TourTarget>
-      </View>
+      </LiquidGlass>
 
       <ErrorBanner message={error} onDismiss={clearError} />
 
       <ScrollView ref={scrollRef} onScroll={tourScroll.onScroll} scrollEventThrottle={tourScroll.scrollEventThrottle} contentContainerStyle={[styles.content, { paddingBottom: Platform.OS === "web" ? 100 : insets.bottom + 84 }]} showsVerticalScrollIndicator={false}>
         <tourScroll.Provider>
         {activePunishment ? (
-          <Card style={{ gap: 4, borderColor: c.negative }}>
+          <Card tone="negative" style={{ gap: 4 }}>
             <View style={styles.teamsHead}>
               <MaterialCommunityIcons name="emoticon-sad-outline" size={18} color={c.negative} />
               <Text style={[styles.quickTitle, { color: c.foreground, flex: 1 }]}>
@@ -162,8 +169,8 @@ export default function LockerScreen() {
         ) : null}
 
         <TourTarget id="locker.stage">
-        <View style={[styles.stage, { backgroundColor: c.card, borderColor: c.border }]}>
-          <View style={[styles.floor, { backgroundColor: c.secondary }]} />
+        <LiquidGlass variant="hero" radius={26} contentStyle={styles.stage}>
+          <View style={[styles.floor, { backgroundColor: c.alpha(c.secondary, 0.5) }]} />
           <View style={styles.stageInner}>
             <ZoomingBackdrop id={background} cam={cam} />
             <AvatarDisplay
@@ -187,16 +194,17 @@ export default function LockerScreen() {
             <TourTarget id="locker.cart"><CartButton from="locker" /></TourTarget>
             <TourTarget id="locker.settings">
             <Pressable
-              style={[styles.iconBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
               onPress={() => router.push("/settings" as never)}
               accessibilityRole="button"
               accessibilityLabel="Settings"
             >
-              <MaterialCommunityIcons name="cog-outline" size={17} color={c.foreground} />
+              <LiquidGlass variant="pill" interactive contentStyle={styles.iconBtn}>
+                <MaterialCommunityIcons name="cog-outline" size={17} color={c.foreground} />
+              </LiquidGlass>
             </Pressable>
             </TourTarget>
           </View>
-          <View style={[styles.stageBar, { borderTopColor: c.border }]}>
+          <View style={[styles.stageBar, { borderTopColor: c.isDark ? "rgba(255,255,255,0.12)" : c.border }]}>
             <TourTarget id="locker.scene">
             <Button
               label="Scene"
@@ -208,35 +216,45 @@ export default function LockerScreen() {
             </TourTarget>
             <TourTarget id="locker.shop"><Button label="Drip Shop" icon="shopping-outline" size="sm" onPress={() => router.push({ pathname: "/customize", params: { category: "hat" } })} /></TourTarget>
           </View>
-        </View>
+        </LiquidGlass>
 
         </TourTarget>
         <TourTarget id="locker.quick">
         <View style={styles.quickRow}>
-          <Card onPress={() => router.push("/bets")} style={styles.quickCard} accessibilityLabel="My bets">
+          <Pressable
+            onPress={() => router.push("/bets")}
+            accessibilityRole="button"
+            accessibilityLabel="My bets"
+            style={({ pressed }) => [styles.bentoTile, { backgroundColor: c.isDark ? "#12203A" : c.card, borderColor: c.isDark ? "rgba(130, 182, 250, 0.48)" : c.border, opacity: pressed ? 0.86 : 1 }]}
+          >
+            <GlassDomeSheen id="locker_bets" glowColor="#60A5FA" intensity={0.44} />
             <View style={styles.teamsHead}>
-              <MaterialCommunityIcons name="ticket-confirmation-outline" size={20} color={c.accent} />
-              <Text style={[styles.quickTitle, { color: c.foreground, flex: 1 }]}>My Bets</Text>
-              <MaterialCommunityIcons name="chevron-right" size={18} color={c.mutedForeground} />
+              <Text style={[styles.bentoKicker, { color: c.isDark ? "rgba(226,238,255,0.85)" : c.mutedForeground, flex: 1 }]}>MY BETS</Text>
+              <MaterialCommunityIcons name="chevron-right" size={16} color={c.isDark ? "rgba(255,255,255,0.65)" : c.mutedForeground} />
             </View>
-            <Text style={[styles.quickBig, { color: c.foreground }]}>
+            <Text style={[styles.quickBig, { color: c.isDark ? "#FFFFFF" : c.foreground }]}>
               {wins}–{settled.length - wins}
             </Text>
-            <Text style={[styles.quickSub, { color: c.mutedForeground }]}>
+            <Text style={[styles.quickSub, { color: c.isDark ? "rgba(203, 218, 240, 0.78)" : c.mutedForeground }]}>
               {settled.length ? `${Math.round((wins / settled.length) * 100)}% hit rate` : "No results yet"}
             </Text>
-          </Card>
-          <Card onPress={() => router.push("/trophies" as never)} style={styles.quickCard} accessibilityLabel="Trophy shelf">
+          </Pressable>
+          <Pressable
+            onPress={() => router.push("/trophies" as never)}
+            accessibilityRole="button"
+            accessibilityLabel="Trophy shelf"
+            style={({ pressed }) => [styles.bentoTile, { backgroundColor: c.isDark ? "#241B0F" : c.card, borderColor: c.isDark ? "rgba(250, 212, 110, 0.52)" : c.border, opacity: pressed ? 0.86 : 1 }]}
+          >
+            <GlassDomeSheen id="locker_trophies" glowColor="#EAB308" intensity={0.48} />
             <View style={styles.teamsHead}>
-              <MaterialCommunityIcons name="trophy" size={20} color={c.primary} />
-              <Text style={[styles.quickTitle, { color: c.foreground, flex: 1 }]}>Trophy Shelf</Text>
-              <MaterialCommunityIcons name="chevron-right" size={18} color={c.mutedForeground} />
+              <Text style={[styles.bentoKicker, { color: c.isDark ? "#E6C98C" : c.mutedForeground, flex: 1 }]}>TROPHY SHELF</Text>
+              <MaterialCommunityIcons name="chevron-right" size={16} color={c.isDark ? "rgba(255,238,206,0.7)" : c.mutedForeground} />
             </View>
-            <Text style={[styles.quickBig, { color: c.foreground }]}>{trophies.length}</Text>
-            <Text style={[styles.quickSub, { color: c.mutedForeground }]}>
+            <Text style={[styles.quickBig, { color: c.isDark ? "#FCE3A1" : c.foreground }]}>{trophies.length}</Text>
+            <Text style={[styles.quickSub, { color: c.isDark ? "rgba(255, 238, 206, 0.78)" : c.mutedForeground }]}>
               {achievements.length}/{ACHIEVEMENT_COUNT} achievements{leagueTrophies.length ? ` · ${leagueTrophies.length} league` : ""}
             </Text>
-          </Card>
+          </Pressable>
         </View>
 
         </TourTarget>
@@ -288,8 +306,8 @@ export default function LockerScreen() {
           ) : null}
         </Card>
 
-        <TourTarget id="locker.wearing" style={{ gap: 14 }}>
-        <Text style={[styles.section, { color: c.foreground }]}>Wearing</Text>
+        <TourTarget id="locker.wearing" style={{ gap: 12 }}>
+        <Text style={[styles.section, { color: c.foreground }]}>WEARING</Text>
         <View style={styles.slots}>
           {SLOT_ORDER.map((slot) => {
             const item = equipped[slot] ? byId.get(equipped[slot]!) : undefined;
@@ -299,25 +317,27 @@ export default function LockerScreen() {
                 onPress={() => open(slot)}
                 accessibilityRole="button"
                 accessibilityLabel={`${SLOT_LABELS[slot]}: ${item?.name ?? "nothing"}. Change`}
-                style={({ pressed }) => [styles.slot, { backgroundColor: c.card, borderColor: c.border, opacity: pressed ? 0.85 : 1 }]}
+                style={({ pressed }) => [styles.slotWrap, { opacity: pressed ? 0.85 : 1 }]}
               >
-                <View style={[styles.slotArt, { backgroundColor: c.secondary }]}>
-                  {item ? <ItemIcon item={item} size={44} /> : <MaterialCommunityIcons name={SLOT_ICONS[slot] as never} size={20} color={c.subtleForeground} />}
-                </View>
-                <Text style={[styles.slotLabel, { color: c.mutedForeground }]}>{SLOT_LABELS[slot].toUpperCase()}</Text>
-                <Text style={[styles.slotValue, { color: item ? c.foreground : c.subtleForeground }]} numberOfLines={1}>
-                  {item?.name ?? "—"}
-                </Text>
+                <LiquidGlass variant="tile" radius={16} interactive contentStyle={styles.slot}>
+                  <View style={[styles.slotArt, { backgroundColor: c.alpha(c.foreground, 0.06) }]}>
+                    {item ? <ItemIcon item={item} size={44} /> : <MaterialCommunityIcons name={SLOT_ICONS[slot] as never} size={20} color={c.subtleForeground} />}
+                  </View>
+                  <Text style={[styles.slotLabel, { color: c.mutedForeground }]}>{SLOT_LABELS[slot].toUpperCase()}</Text>
+                  <Text style={[styles.slotValue, { color: item ? c.foreground : c.subtleForeground }]} numberOfLines={1}>
+                    {item?.name ?? "—"}
+                  </Text>
+                </LiquidGlass>
               </Pressable>
             );
           })}
         </View>
 
         </TourTarget>
-        <TourTarget id="locker.wardrobe" style={{ gap: 14 }}>
+        <TourTarget id="locker.wardrobe" style={{ gap: 12 }}>
         <View style={styles.wardrobeHead}>
-          <Text style={[styles.section, { color: c.foreground }]}>Wardrobe · {owned.length}</Text>
-          <Text style={[styles.quickSub, { color: c.mutedForeground }]}>Tap to Wear · Hold to Customize</Text>
+          <Text style={[styles.section, { color: c.foreground }]}>WARDROBE · {owned.length}</Text>
+          <Text style={[styles.quickSub, { color: c.mutedForeground }]}>Tap to wear · Hold to edit</Text>
         </View>
         <View style={styles.wardrobe}>
           {owned.map((item) => {
@@ -330,9 +350,18 @@ export default function LockerScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={`${item.name}${on ? ", wearing" : ""}`}
                 accessibilityHint={on ? "Takes it off" : "Puts it on"}
-                style={[styles.wItem, { backgroundColor: c.card, borderColor: on ? c.primary : c.border, borderWidth: on ? 2 : 1 }]}
               >
-                <ItemIcon item={item} size={52} />
+                <LiquidGlass
+                  variant="tile"
+                  radius={16}
+                  interactive
+                  tintColor={on ? c.alpha(c.primary, 0.2) : undefined}
+                  borderColor={on ? c.primary : undefined}
+                  borderWidth={on ? 1.75 : 1}
+                  contentStyle={styles.wItem}
+                >
+                  <ItemIcon item={item} size={50} />
+                </LiquidGlass>
               </Pressable>
             );
           })}
@@ -353,34 +382,36 @@ export default function LockerScreen() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, paddingHorizontal: 16, paddingBottom: 12 },
-  title: { fontSize: 22, fontFamily: "Inter_900Black" },
-  handle: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1 },
-  iconBtn: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  header: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 12 },
+  title: { fontSize: 24, fontFamily: "Inter_900Black", letterSpacing: -0.5 },
+  handle: { fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 1 },
+  iconBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   content: { padding: 16, gap: 14 },
-  stage: { borderRadius: 20, borderWidth: 1, overflow: "hidden" },
+  stage: { overflow: "hidden" },
   floor: { position: "absolute", left: 0, right: 0, bottom: 52, height: 90 },
-  shoulders: { position: "absolute", left: 0, right: 0, top: 28, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 26, zIndex: 5 },
-  stageInner: { height: 400, overflow: "hidden" },
+  shoulders: { position: "absolute", left: 0, right: 0, top: 20, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 18, zIndex: 5 },
+  stageInner: { height: 380, overflow: "hidden" },
   stageBar: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
-  quickRow: { flexDirection: "row", gap: 8 },
-  quickCard: { flex: 1, gap: 4, padding: 12 },
+  quickRow: { flexDirection: "row", gap: 10 },
+  bentoTile: { flex: 1, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, gap: 4, overflow: "hidden" },
+  bentoKicker: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.9 },
   quickTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  quickBig: { fontSize: 22, fontFamily: "Inter_900Black", marginTop: 2 },
-  quickSub: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  quickBig: { fontSize: 26, fontFamily: "Inter_900Black", letterSpacing: -0.6, fontVariant: ["tabular-nums"], marginTop: 2 },
+  quickSub: { fontSize: 11.5, fontFamily: "Inter_500Medium" },
   teamsHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   moves: { flexDirection: "row", gap: 6 },
   moveSlot: { flex: 1, alignItems: "center", gap: 4, paddingVertical: 10, paddingHorizontal: 4, borderRadius: 12, borderWidth: 1 },
   moveName: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  section: { fontSize: 16, fontFamily: "Inter_700Bold", marginTop: 4 },
+  section: { fontSize: 12, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.1, marginTop: 4 },
   slots: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  slot: { width: "31.5%", flexGrow: 1, borderRadius: 14, borderWidth: 1, padding: 10, gap: 4 },
+  slotWrap: { width: "31.5%", flexGrow: 1 },
+  slot: { padding: 10, gap: 4 },
   slotArt: { height: 52, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  slotLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  slotLabel: { fontSize: 10.5, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
   slotValue: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   wardrobe: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   wardrobeHead: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 8 },
-  wItem: { width: 66, height: 66, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  wItem: { width: 66, height: 66, alignItems: "center", justifyContent: "center" },
   privacy: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, marginTop: 4 },
   privacyText: { fontSize: 12, fontFamily: "Inter_500Medium" },
 });
