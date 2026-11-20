@@ -1,11 +1,10 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { haptic as buzz } from "@/lib/motion";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -17,13 +16,13 @@ import { Pressable, TouchableOpacity } from "@/components/fx/Tap";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { ActionChip, CloseButton } from "@/components/ui";
+import { ActionChip } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { setPendingSignupMeta } from "@/lib/settings";
 import AgeMonthPickerModal from "@/components/AgeMonthPickerModal";
 import TermsCheckbox from "@/components/TermsCheckbox";
 import HouseLogo from "@/components/brand/HouseLogo";
 import { AGE_LOCKED_MESSAGE, ageBlocked, passesAgeGate, useAgeGateLocked } from "@/lib/ageGate";
-
 
 /** Format raw digits into (XXX) XXX-XXXX phone mask. */
 export function formatPhoneMask(raw: string): string {
@@ -60,7 +59,6 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
 
   function friendlyError(code: string, provider?: "google" | "apple"): string {
-    // Developer detail goes to the console; users get plain language.
     if (__DEV__) console.warn("[auth]", provider ?? "email", code);
     const name = provider === "apple" ? "Apple" : provider === "google" ? "Google" : null;
     if (name && (code.includes("operation-not-allowed") || code.includes("admin-restricted-operation") || code.includes("invalid-credential") || code.includes("audience")))
@@ -157,7 +155,6 @@ export default function LoginScreen() {
         return;
       }
       const phoneDigits = extractPhoneDigits(phone);
-      // Whatever's filled in carries over; onboarding asks for the rest.
       setPendingSignupMeta({
         age: age ?? undefined,
         birthMonth: birthMonth ?? undefined,
@@ -188,8 +185,12 @@ export default function LoginScreen() {
     buzz.light();
   }
 
+  const inputBg = colors.alpha(colors.secondary, colors.isDark ? 0.62 : 0.72);
+  const inputBorder = colors.isDark ? colors.alpha("#FFFFFF", 0.14) : colors.border;
+
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]}>
+      <ObsidianBackdrop />
       <KeyboardAvoidingView
         style={s.kav}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -204,14 +205,18 @@ export default function LoginScreen() {
             <HouseLogo size={96} tagline="Free sports bets with friends" />
           </View>
 
-          {/* Card */}
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {/* 2026 Liquid Glass Hero Auth Card */}
+          <LiquidGlass variant="hero" radius={28} contentStyle={s.card}>
+            <GlassDomeSheen id="login_card" glowColor={colors.primary} intensity={0.28} />
+            <Text style={[s.kicker, { color: colors.primary }]}>
+              {mode === "signin" ? "SIGN IN" : "NEW PLAYER"}
+            </Text>
             <Text style={[s.cardTitle, { color: colors.foreground }]}>
               {mode === "signin" ? "Welcome back" : "Create account"}
             </Text>
 
             {/* Email */}
-            <View style={[s.inputWrap, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
+            <View style={[s.inputWrap, { borderColor: inputBorder, backgroundColor: inputBg }]}>
               <MaterialCommunityIcons name="email-outline" size={18} color={colors.mutedForeground} />
               <TextInput
                 style={[s.input, { color: colors.foreground }]}
@@ -227,7 +232,7 @@ export default function LoginScreen() {
             </View>
 
             {/* Password */}
-            <View style={[s.inputWrap, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
+            <View style={[s.inputWrap, { borderColor: inputBorder, backgroundColor: inputBg }]}>
               <MaterialCommunityIcons name="lock-outline" size={18} color={colors.mutedForeground} />
               <TextInput
                 style={[s.input, { color: colors.foreground }]}
@@ -245,7 +250,7 @@ export default function LoginScreen() {
             {/* Extended Sign-Up Fields */}
             {mode === "signup" && (
               <>
-                <View style={[s.inputWrap, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
+                <View style={[s.inputWrap, { borderColor: inputBorder, backgroundColor: inputBg }]}>
                   <MaterialCommunityIcons name="lock-check-outline" size={18} color={colors.mutedForeground} />
                   <TextInput
                     style={[s.input, { color: colors.foreground }]}
@@ -259,12 +264,11 @@ export default function LoginScreen() {
                   />
                 </View>
 
-                {/* Age + birth month (neutral: no default, no cutoff shown) */}
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Select your age and birth month"
                   onPress={() => setShowAgePicker(true)}
-                  style={[s.inputWrap, { borderColor: colors.border, backgroundColor: colors.secondary }]}
+                  style={[s.inputWrap, { borderColor: inputBorder, backgroundColor: inputBg }]}
                 >
                   <MaterialCommunityIcons name="cake-variant-outline" size={18} color={colors.mutedForeground} />
                   <Text style={[s.input, { color: ageLabel ? colors.foreground : colors.mutedForeground }]} numberOfLines={1}>
@@ -272,8 +276,7 @@ export default function LoginScreen() {
                   </Text>
                 </Pressable>
 
-                {/* Phone Number with Formatting Mask */}
-                <View style={[s.inputWrap, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
+                <View style={[s.inputWrap, { borderColor: inputBorder, backgroundColor: inputBg }]}>
                   <MaterialCommunityIcons name="phone-outline" size={18} color={colors.mutedForeground} />
                   <TextInput
                     style={[s.input, { color: colors.foreground }]}
@@ -375,8 +378,8 @@ export default function LoginScreen() {
                 style={[
                   s.ssoBtn,
                   {
-                    backgroundColor: colors.secondary,
-                    borderColor: colors.border,
+                    backgroundColor: inputBg,
+                    borderColor: inputBorder,
                   },
                 ]}
                 activeOpacity={0.85}
@@ -395,7 +398,7 @@ export default function LoginScreen() {
                 )}
               </TouchableOpacity>
             </View>
-          </View>
+          </LiquidGlass>
 
           <View style={s.legalRow}>
             <Text style={[s.legalLink, { color: colors.mutedForeground }]} onPress={() => router.push({ pathname: "/legal", params: { doc: "terms" } })}>
@@ -430,23 +433,12 @@ const s = StyleSheet.create({
   kav: { flex: 1 },
   scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24, gap: 24 },
   logoWrap: { alignItems: "center", gap: 8 },
-  logoCircle: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  appName: { fontSize: 34, fontFamily: "Inter_700Bold", letterSpacing: -1 },
-  tagline: { fontSize: 15, fontFamily: "Inter_400Regular" },
   card: {
-    borderRadius: 20,
-    borderWidth: 1,
     padding: 22,
     gap: 12,
   },
-  cardTitle: { fontSize: 20, fontFamily: "Inter_700Bold", marginBottom: 2 },
+  kicker: { fontSize: 10, fontFamily: "Inter_900Black", letterSpacing: 1.6 },
+  cardTitle: { fontSize: 22, fontFamily: "Inter_900Black", letterSpacing: -0.4, marginBottom: 2 },
   ssoStack: { gap: 10 },
   ssoBtn: {
     flexDirection: "row",
@@ -454,8 +446,8 @@ const s = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingVertical: 13,
     paddingHorizontal: 14,
   },
   ssoBtnText: { fontSize: 15, fontFamily: "Inter_700Bold" },
@@ -467,7 +459,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
@@ -477,13 +469,13 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 10,
   },
   errorText: { color: "#FF4444", fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
   btn: {
-    paddingVertical: 14,
-    borderRadius: 14,
+    paddingVertical: 15,
+    borderRadius: 16,
     alignItems: "center",
     marginTop: 4,
   },
