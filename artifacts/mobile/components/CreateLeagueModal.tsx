@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import { TourModalLayer } from "@/components/tour/TourHost";
 import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
 import { tourEvent, tourPractice } from "@/lib/tour/store";
@@ -7,6 +8,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,6 +19,7 @@ import { Switch, TouchableOpacity } from "@/components/fx/Tap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import NumericInput from "@/components/NumericInput";
 import { ActionChip, CloseButton } from "@/components/ui";
+import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { getDb } from "@/lib/firebase";
 import {
   BUY_IN_OPTIONS,
@@ -339,25 +342,29 @@ export default function CreateLeagueModal({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="fade"
       onRequestClose={onClose}
       statusBarTranslucent
       navigationBarTranslucent
     >
-      {/* Keeps the name / custom-amount inputs above the keyboard (see KeyboardSheet). */}
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+      {/* Centered 2026 Liquid Glass display modal matching PrizeVaultModal */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.backdrop}>
+      {Platform.OS !== "web" ? (
+        <BlurView intensity={34} tint={colors.isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+      ) : null}
       <TouchableOpacity
-        style={styles.overlay}
+        style={[StyleSheet.absoluteFill, { backgroundColor: colors.isDark ? "rgba(5, 9, 16, 0.46)" : colors.overlay }]}
         activeOpacity={1}
         onPress={onClose}
       />
-      <View
+      <GlassModalSurface
+        id="create_league"
+        glowColor={colors.league}
         style={[
           styles.sheet,
-          { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: insets.bottom },
+          { maxHeight: "88%", paddingBottom: Math.max(12, insets.bottom * 0.4) },
         ]}
       >
-        <View style={[styles.handle, { backgroundColor: colors.border }]} />
         <ScrollView ref={scrollRef} onScroll={tourScroll.onScroll} scrollEventThrottle={32} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
           <tourScroll.Provider>
           <Text style={[styles.title, { color: colors.foreground }]}>
@@ -1203,7 +1210,7 @@ export default function CreateLeagueModal({
           </tourScroll.Provider>
         </ScrollView>
         <CloseButton onPress={onClose} style={styles.close} />
-      </View>
+      </GlassModalSurface>
       </KeyboardAvoidingView>
       <TourModalLayer />
     </Modal>
@@ -1211,17 +1218,13 @@ export default function CreateLeagueModal({
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
-  close: { position: "absolute", top: 12, right: 16 },
+  backdrop: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 14, paddingVertical: 20 },
+  close: { position: "absolute", top: 14, right: 16, zIndex: 5 },
   sheet: {
-    maxHeight: "92%",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    padding: 24,
-    paddingTop: 16,
+    width: "100%",
+    maxWidth: 420,
+    padding: 20,
+    paddingTop: 18,
   },
   handle: {
     width: 36,
