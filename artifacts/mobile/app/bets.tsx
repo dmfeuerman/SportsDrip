@@ -2,7 +2,7 @@ import { adAfterRow } from "@/constants/ads";
 import SponsoredCard from "@/components/ads/SponsoredCard";
 import { router, useLocalSearchParams } from "expo-router";
 import { useUnseenCount } from "@/lib/settings";
-import React, { useMemo, useState } from "react";
+import React, { useDeferredValue, useMemo, useState } from "react";
 import ParlayTicket from "@/components/ParlayTicket";
 import ChallengeCard from "@/components/ChallengeCard";
 import BetRecordPanel, { betNet } from "@/components/BetRecordPanel";
@@ -14,11 +14,13 @@ import { FlatList, StyleSheet, Text, View } from "react-native";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import GameQuickView from "@/components/GameQuickView";
-import { ActionChip, Amount, Card, ConfirmDialog, EmptyState, FilterPills, LoadingState, ScreenHeader, TabStrip, useBottomPad } from "@/components/ui";
+import { ActionChip, Amount, ConfirmDialog, EmptyState, FilterPills, LoadingState, ScreenHeader, TabStrip, useBottomPad } from "@/components/ui";
+import { GlassDomeSheen, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useApp } from "@/context/AppContext";
 import { useChallenges, viewOf } from "@/context/ChallengeContext";
 import { useLeague } from "@/context/LeagueContext";
 import { useColors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { useGames } from "@/hooks/useGames";
 
 type Tab = "open" | "settled";
@@ -38,8 +40,11 @@ export default function MyBetsScreen() {
   const { games } = useGames();
   const gameById = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
 
+  const mounted = useDeferredMount();
   const [tab, setTab] = useState<Tab>(params.tab === "settled" ? "settled" : "open");
   const [wallet, setWallet] = useState<string>(params.wallet ?? "all");
+  const deferredTab = useDeferredValue(tab);
+  const deferredWallet = useDeferredValue(wallet);
   const [busy, setBusy] = useState<string | null>(null);
   // Parlays cancelled on this screen: gone from Open at once, before the listener reports it.
   const [cancelledParlays, setCancelledParlays] = useState<Record<string, boolean>>({});
@@ -63,27 +68,27 @@ export default function MyBetsScreen() {
   const now = useNow(30_000);
   // Friend challenges are credit bets too: open ones (waiting on you, waiting on them, locked in) under Open, the rest under Settled.
   const challengeViews = useMemo(() => {
-    if (!chUid || (wallet !== "all" && wallet !== "credits")) return [];
-    const list = tab === "open" ? [...chIn, ...chOut, ...chLive] : chHistory.slice(0, 30);
+    if (!chUid || (deferredWallet !== "all" && deferredWallet !== "credits")) return [];
+    const list = deferredTab === "open" ? [...chIn, ...chOut, ...chLive] : chHistory.slice(0, 30);
     return list.map((ch) => viewOf(ch, chUid));
-  }, [chUid, wallet, tab, chIn, chOut, chLive, chHistory]);
+  }, [chUid, deferredWallet, deferredTab, chIn, chOut, chLive, chHistory]);
   const openChallenges = chIn.length + chOut.length + chLive.length;
 
   const rows: Row[] = useMemo(() => {
     const out: Row[] = [];
-    if (wallet === "all" || wallet === "credits") {
+    if (deferredWallet === "all" || deferredWallet === "credits") {
       for (const b of bets) out.push({ bet: b, key: b.id, placed: (b.placedAt?.seconds ?? 0) * 1000, wallet: null, cancellable: true });
     }
     for (const lg of leagues) {
-      if (wallet !== "all" && wallet !== lg.id) continue;
+      if (deferredWallet !== "all" && deferredWallet !== lg.id) continue;
       for (const b of myLeagueBets[lg.id] ?? []) out.push({ bet: b, key: `${lg.id}:${b.id}`, placed: b.placedAt, wallet: lg.name, leagueId: lg.id, cancellable: false });
     }
     return out.sort((a, b) => b.placed - a.placed);
-  }, [bets, leagues, myLeagueBets, wallet]);
+  }, [bets, leagues, myLeagueBets, deferredWallet]);
 
   const open = rows.filter((r) => r.bet.status === "pending");
   const settled = rows.filter((r) => r.bet.status !== "pending");
-  const list = tab === "open" ? open : settled;
+  const list = deferredTab === "open" ? open : settled;
   // Red badges count only bets you haven't looked at yet.
   const openNew = useUnseenCount("bets.open", open.map((r) => r.key), tab === "open");
   const settledNew = useUnseenCount("bets.settled", settled.map((r) => r.key), tab === "settled");
@@ -129,6 +134,7 @@ export default function MyBetsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader
         back
         title="My Bets"
@@ -137,32 +143,55 @@ export default function MyBetsScreen() {
       >
         <View style={styles.statsDrawer}>
           <BetRecordPanel bets={walletStats.recordBets} compact currency={walletCurrency} />
-          <Card style={styles.summaryBar}>
-            <View style={styles.summaryCol}>
-              <Text style={[styles.summaryLabel, { color: c.mutedForeground }]}>Staked</Text>
-              <Amount value={walletStats.staked} currency={walletCurrency} size="sm" tone="neutral" />
-            </View>
-            <View style={[styles.summaryDivider, { backgroundColor: c.border }]} />
-            <View style={styles.summaryCol}>
-              <Text style={[styles.summaryLabel, { color: c.mutedForeground }]}>Net</Text>
+          <View style={styles.bentoStatsRow}>
+            <View
+              style={[
+                styles.bentoStatCard,
+                {
+                  flex: 1.15,
+                  backgroundColor: c.isDark ? (walletStats.net >= 0 ? "#102420" : "#26121A") : c.card,
+                  borderColor: c.isDark
+                    ? walletStats.net >= 0
+                      ? "rgba(82, 224, 160, 0.42)"
+                      : "rgba(251, 113, 133, 0.42)"
+                    : c.border,
+                },
+              ]}
+            >
+              <GlassDomeSheen id="bets_net" glowColor={walletStats.net >= 0 ? "#34D399" : "#FB7185"} intensity={0.38} />
+              <Text style={[styles.bentoKicker, { color: c.mutedForeground }]}>NET PROFIT</Text>
               <Amount
                 value={walletStats.net}
                 currency={walletCurrency}
-                size="sm"
+                size="md"
                 signed
                 tone={walletStats.net > 0 ? "positive" : walletStats.net < 0 ? "negative" : "neutral"}
               />
             </View>
-            <View style={[styles.summaryDivider, { backgroundColor: c.border }]} />
-            <View style={styles.summaryCol}>
-              <Text style={[styles.summaryLabel, { color: c.mutedForeground }]}>Best Hit</Text>
-              {walletStats.bestHit > 0 ? (
-                <Amount value={walletStats.bestHit} currency={walletCurrency} size="sm" signed tone="positive" />
-              ) : (
-                <Text style={[styles.summaryDash, { color: c.foreground }]}>—</Text>
-              )}
+            <View
+              style={[
+                styles.bentoStatCard,
+                {
+                  flex: 1,
+                  backgroundColor: c.isDark ? "#121E34" : c.card,
+                  borderColor: c.isDark ? "rgba(130, 182, 250, 0.40)" : c.border,
+                },
+              ]}
+            >
+              <GlassDomeSheen id="bets_hit" glowColor="#60A5FA" intensity={0.34} />
+              <Text style={[styles.bentoKicker, { color: c.mutedForeground }]}>BEST HIT · STAKED</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                {walletStats.bestHit > 0 ? (
+                  <Amount value={walletStats.bestHit} currency={walletCurrency} size="sm" signed tone="positive" />
+                ) : (
+                  <Text style={[styles.summaryDash, { color: c.foreground }]}>—</Text>
+                )}
+                <Text style={[styles.stakedMini, { color: c.subtleForeground }]} numberOfLines={1}>
+                  / {walletStats.staked.toLocaleString()}
+                </Text>
+              </View>
             </View>
-          </Card>
+          </View>
         </View>
         {openChallenges > 0 && (
           <ActionChip
@@ -196,6 +225,9 @@ export default function MyBetsScreen() {
         />
       </ScreenHeader>
 
+      {!mounted ? (
+        <View style={styles.list}><LoadingState label="Loading your bets…" /></View>
+      ) : (
       <FlatList
         data={list}
         keyExtractor={(r) => r.key}
@@ -327,6 +359,7 @@ export default function MyBetsScreen() {
           )
         }
       />
+      )}
       <ConfirmDialog
         visible={!!confirmCancel}
         title={confirmCancel?.kind === "parlay" ? "Cancel this parlay?" : "Cancel this bet?"}
@@ -375,10 +408,10 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   stats: { flexDirection: "row", gap: 8 },
   statsDrawer: { gap: 8 },
-  summaryBar: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 8 },
-  summaryCol: { flex: 1, alignItems: "center", gap: 4 },
-  summaryDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", marginVertical: 2 },
-  summaryLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  bentoStatsRow: { flexDirection: "row", gap: 8 },
+  bentoStatCard: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 4, overflow: "hidden" },
+  bentoKicker: { fontSize: 10, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.9 },
+  stakedMini: { fontSize: 11.5, fontFamily: "Inter_600SemiBold", fontVariant: ["tabular-nums"] },
   summaryDash: { fontSize: 15, fontFamily: "Inter_700Bold" },
   chips: { gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, maxWidth: 180 },
