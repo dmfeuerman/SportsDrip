@@ -1,13 +1,14 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useDeferredValue, useRef, useState } from "react";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import { Button, Card, EmptyState, Pill, ScreenHeader, useBottomPad } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { type LeagueReportCard } from "@/constants/leagueTypes";
 import { useLeague, useLeagueDetail } from "@/context/LeagueContext";
 import { useColors, type Colors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { shareViewOrText } from "@/lib/shareCard";
 
 const CARD_META: Record<
@@ -25,15 +26,18 @@ const CARD_META: Record<
 export default function LeagueRecapScreen() {
   const c = useColors();
   const bottom = useBottomPad(false);
+  const readyMount = useDeferredMount();
   const params = useLocalSearchParams<{ id: string; week?: string }>();
   const { getLeague, ready } = useLeague();
   const league = getLeague(params.id);
   const detail = useLeagueDetail(league);
   const [selectedWeek, setSelectedWeek] = useState<string | null>(params.week ?? null);
+  const deferredWeek = useDeferredValue(selectedWeek);
 
   if (!league) {
     return (
       <View style={[styles.container, { backgroundColor: c.background }]}>
+        <ObsidianBackdrop />
         <ScreenHeader back title="League Report" />
         <View style={{ padding: 16 }}>
           <EmptyState
@@ -49,10 +53,12 @@ export default function LeagueRecapScreen() {
   }
 
   const reports = detail.reports;
-  const activeReport = (selectedWeek ? reports.find((r) => r.week === selectedWeek) : reports[0]) ?? reports[0];
+  const activeReport = (deferredWeek ? reports.find((r) => r.week === deferredWeek) : reports[0]) ?? reports[0];
+  const highlightedWeek = selectedWeek ?? activeReport?.week;
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader
         back
         title="Tuesday League Report"
@@ -61,23 +67,25 @@ export default function LeagueRecapScreen() {
         {reports.length > 1 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
             {reports.map((r) => {
-              const on = r.week === activeReport?.week;
+              const on = r.week === highlightedWeek;
               return (
                 <Pressable
                   key={r.week}
                   accessibilityRole="button"
                   onPress={() => setSelectedWeek(r.week)}
-                  style={[
-                    styles.weekChip,
-                    {
-                      backgroundColor: on ? c.leagueSoft : c.secondary,
-                      borderColor: on ? c.league : c.border,
-                    },
-                  ]}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
                 >
-                  <Text style={[styles.weekChipText, { color: on ? c.foreground : c.mutedForeground }]}>
-                    {r.week}
-                  </Text>
+                  <LiquidGlass
+                    variant="pill"
+                    interactive
+                    tintColor={on ? c.alpha(c.league, 0.22) : undefined}
+                    borderColor={on ? c.league : undefined}
+                    contentStyle={styles.weekChip}
+                  >
+                    <Text style={[styles.weekChipText, { color: on ? c.foreground : c.mutedForeground }]}>
+                      {r.week}
+                    </Text>
+                  </LiquidGlass>
                 </Pressable>
               );
             })}
@@ -85,29 +93,35 @@ export default function LeagueRecapScreen() {
         ) : null}
       </ScreenHeader>
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: bottom + 24 }]} showsVerticalScrollIndicator={false}>
-        {!activeReport || activeReport.cards.length === 0 ? (
-          <EmptyState
-            icon="newspaper-variant-outline"
-            title="No Weekly Report Yet"
-            body="Every Tuesday morning, On The House compiles the biggest hits, worst bad beats, climbers, fallers, and streaks from your league."
-          />
-        ) : (
-          <>
-            <Card tone="league" style={{ gap: 6 }}>
-              <Text style={[styles.introTitle, { color: c.foreground }]}>
-                Week {activeReport.week} Wrapped
-              </Text>
-              <Text style={[styles.introSub, { color: c.mutedForeground }]}>
-                Tap Share on any story card to drop it in the group chat.
-              </Text>
-            </Card>
-            {activeReport.cards.map((card, i) => (
-              <StoryCard key={`${card.kind}_${i}`} card={card} leagueName={league.name} week={activeReport.week} c={c} />
-            ))}
-          </>
-        )}
-      </ScrollView>
+      {!readyMount ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={c.mutedForeground} />
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={[styles.body, { paddingBottom: bottom + 24 }]} showsVerticalScrollIndicator={false}>
+          {!activeReport || activeReport.cards.length === 0 ? (
+            <EmptyState
+              icon="newspaper-variant-outline"
+              title="No Weekly Report Yet"
+              body="Every Tuesday morning, On The House compiles the biggest hits, worst bad beats, climbers, fallers, and streaks from your league."
+            />
+          ) : (
+            <>
+              <Card tone="league" style={{ gap: 6 }}>
+                <Text style={[styles.introTitle, { color: c.foreground }]}>
+                  Week {activeReport.week} Wrapped
+                </Text>
+                <Text style={[styles.introSub, { color: c.mutedForeground }]}>
+                  Tap Share on any story card to drop it in the group chat.
+                </Text>
+              </Card>
+              {activeReport.cards.map((card, i) => (
+                <StoryCard key={`${card.kind}_${i}`} card={card} leagueName={league.name} week={activeReport.week} c={c} idx={i} />
+              ))}
+            </>
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -117,11 +131,13 @@ function StoryCard({
   leagueName,
   week,
   c,
+  idx,
 }: {
   card: LeagueReportCard;
   leagueName: string;
   week: string;
   c: Colors;
+  idx: number;
 }) {
   const cardRef = useRef<React.ComponentRef<typeof View> | null>(null);
   const meta = CARD_META[card.kind] ?? { icon: "star", badge: "HIGHLIGHT", tone: "league" as const };
@@ -136,48 +152,51 @@ function StoryCard({
   const statLabel = card.value >= 0 ? `+${card.value.toLocaleString()}` : card.value.toLocaleString();
 
   return (
-    <View ref={cardRef} collapsable={false} style={[styles.storyCard, { backgroundColor: c.card, borderColor: c.alpha(tint, 0.55) }]}>
-      <LinearGradient
-        colors={[c.alpha(tint, 0.22), c.alpha(tint, 0.04), "transparent"] as const}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-      <View style={styles.storyTop}>
-        <Pill label={meta.badge} tone={meta.tone} icon={meta.icon} />
-        <Text style={[styles.storyLeague, { color: c.subtleForeground }]} numberOfLines={1}>
-          {leagueName} · {week}
-        </Text>
-      </View>
-
-      <View style={styles.storyMain}>
-        <View style={[styles.storyIconWrap, { backgroundColor: c.alpha(tint, 0.16), borderColor: c.alpha(tint, 0.45) }]}>
-          <MaterialCommunityIcons name={meta.icon} size={28} color={tint} />
+    <View ref={cardRef} collapsable={false}>
+      <LiquidGlass
+        variant="hero"
+        radius={24}
+        tintColor={c.alpha(tint, c.isDark ? 0.1 : 0.06)}
+        borderColor={c.alpha(tint, 0.55)}
+        borderWidth={1.25}
+        contentStyle={styles.storyCard}
+      >
+        <GlassDomeSheen id={`recap_${card.kind}_${idx}`} glowColor={tint} intensity={0.32} />
+        <View style={styles.storyTop}>
+          <Pill label={meta.badge} tone={meta.tone} icon={meta.icon} />
+          <Text style={[styles.storyLeague, { color: c.subtleForeground }]} numberOfLines={1}>
+            {leagueName} · {week}
+          </Text>
         </View>
-        <View style={{ flex: 1, gap: 4 }}>
-          <Text style={[styles.storyTitle, { color: c.foreground }]}>{card.headline || card.title}</Text>
-          <Text style={[styles.storySubtitle, { color: c.mutedForeground }]}>{card.detail}</Text>
-        </View>
-      </View>
 
-      <View style={[styles.storyFooter, { borderTopColor: c.border }]}>
-        <Text style={[styles.storyStat, { color: tint }]}>{statLabel}</Text>
-        <Button
-          size="sm"
-          variant="secondary"
-          icon="share-variant"
-          label="Share Card"
-          onPress={() => {
-            void shareViewOrText({
-              viewRef: cardRef,
-              kind: "league_report",
-              id: `${week}_${card.kind}`,
-              message: `${meta.badge}: ${card.headline || card.title} (${statLabel}) — ${card.detail} in ${leagueName} on On The House`,
-            });
-          }}
-        />
-      </View>
+        <View style={styles.storyMain}>
+          <View style={[styles.storyIconWrap, { backgroundColor: c.alpha(tint, 0.18), borderColor: c.alpha(tint, 0.45) }]}>
+            <MaterialCommunityIcons name={meta.icon} size={28} color={tint} />
+          </View>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={[styles.storyTitle, { color: c.foreground }]}>{card.headline || card.title}</Text>
+            <Text style={[styles.storySubtitle, { color: c.mutedForeground }]}>{card.detail}</Text>
+          </View>
+        </View>
+
+        <View style={[styles.storyFooter, { borderTopColor: c.isDark ? c.alpha("#FFFFFF", 0.12) : c.border }]}>
+          <Text style={[styles.storyStat, { color: tint }]}>{statLabel}</Text>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="share-variant"
+            label="Share Card"
+            onPress={() => {
+              void shareViewOrText({
+                viewRef: cardRef,
+                kind: "league_report",
+                id: `${week}_${card.kind}`,
+                message: `${meta.badge}: ${card.headline || card.title} (${statLabel}) — ${card.detail} in ${leagueName} on On The House`,
+              });
+            }}
+          />
+        </View>
+      </LiquidGlass>
     </View>
   );
 }
@@ -185,11 +204,11 @@ function StoryCard({
 const styles = StyleSheet.create({
   container: { flex: 1 },
   body: { padding: 16, gap: 14 },
-  weekChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1 },
+  weekChip: { paddingHorizontal: 14, paddingVertical: 7 },
   weekChipText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   introTitle: { fontSize: 16, fontFamily: "Inter_800ExtraBold" },
   introSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  storyCard: { borderRadius: 20, borderWidth: 1.5, padding: 16, gap: 14, overflow: "hidden" },
+  storyCard: { padding: 18, gap: 14 },
   storyTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   storyLeague: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   storyMain: { flexDirection: "row", alignItems: "center", gap: 14 },
