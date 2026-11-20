@@ -22,6 +22,7 @@ import InviteFriendsCard from "@/components/InviteFriendsCard";
 import PushPrimer from "@/components/PushPrimer";
 import { useNotifications } from "@/context/NotificationContext";
 import { Button } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useCatalog } from "@/hooks/useCatalog";
 import { DEMO } from "@/lib/demo";
 import { extractPhoneDigits, formatPhoneMask } from "@/app/login";
@@ -39,15 +40,8 @@ import { REFERRAL } from "@/constants/progression";
 import type { AvatarConfig } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
 
-/**
- * Order follows time-to-value: who you are → call tonight's game → a quick character → your teams →
- * your crew → the push primer → done. The free bet comes later, in the first-bet tutorial on Home. Anything skipped
- * can be finished later (Locker, Friends tab).
- */
 type Step = "identity" | "appearance" | "teams" | "crew" | "welcome";
 const STEP_ORDER: Step[] = ["identity", "appearance", "teams", "crew", "welcome"];
-const NO_SIDES = new Map<string, never[]>();
-const NO_FAVS = new Set<string>();
 
 export default function OnboardingScreen() {
   const colors = useColors();
@@ -58,7 +52,6 @@ export default function OnboardingScreen() {
   const [teamsSet, setTeamsSet] = useState(false);
   const [primer, setPrimer] = useState(false);
   const { pushStatus, enablePush } = useNotifications();
-  // Email sign-up already collected age / birth month, phone and terms: never ask twice.
   const ageFromSignup = !!pendingMeta?.age && !!pendingMeta?.birthMonth;
   const termsFromSignup = !!pendingMeta?.acceptedTerms;
   const phoneFromSignup = extractPhoneDigits(pendingMeta?.phoneNumber ?? "").length === 10;
@@ -70,11 +63,9 @@ export default function OnboardingScreen() {
   const [termsChecked, setTermsChecked] = useState(false);
   const ageLocked = useAgeGateLocked();
   const [phone, setPhone] = useState(pendingMeta?.phoneNumber ?? "");
-  // Everyone starts from the same plain base (bald, nothing worn) and builds from there.
   const [avatar, setAvatar] = useState<AvatarConfig>(SIGNUP_AVATAR);
   const [cheer, setCheer] = useState(0);
 
-  // A friend's invite code: pre-filled from a sportdrip://ref link, checked as you type.
   const [refText, setRefText] = useState("");
   const [refCheck, setRefCheck] = useState<
     { state: "idle" | "checking" | "invalid" } | { state: "valid"; name: string; username: string | null }
@@ -125,7 +116,6 @@ export default function OnboardingScreen() {
     if (pendingMeta?.phoneNumber && !phone) setPhone(pendingMeta.phoneNumber);
   }, [pendingMeta, age, birthMonth, phone]);
 
-  // An invite link opened before signup: joined automatically once the profile exists.
   const { joinLeague } = useLeague();
   const [invite, setInvite] = useState<
     | { code: string; name: string | null; state: "joining" }
@@ -142,7 +132,6 @@ export default function OnboardingScreen() {
   const phoneDigits = extractPhoneDigits(phone);
   const phoneValid = phoneFromSignup || phoneDigits.length === 10;
 
-  // Debounced availability check.
   useEffect(() => {
     if (!usernameValid) {
       setAvailable(null);
@@ -225,7 +214,6 @@ export default function OnboardingScreen() {
     }
   }
 
-  // After the crew step: soft push pre-prompt (never the system dialog cold), then done.
   function afterPick() {
     if (pushStatus === "undetermined" && pushPrimerDue()) {
       markPushPrimerShown();
@@ -236,7 +224,6 @@ export default function OnboardingScreen() {
   }
 
   function finish() {
-    // The walkthrough no longer auto-opens: onboarding already covered it (Help on Home replays it).
     markWalkthroughSeen();
     if (invite?.state === "joined") {
       router.replace({ pathname: "/league/[id]", params: { id: invite.leagueId } });
@@ -251,10 +238,11 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]}>
+      <ObsidianBackdrop />
       <ProgressDots step={step} colors={colors} />
 
       {step === "identity" && (
-        <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Text style={[s.title, { color: colors.foreground }]}>Pick Your Name</Text>
           <Text style={[s.sub, { color: colors.mutedForeground }]}>
             Your username is how friends find you. Complete your profile details below.
@@ -407,7 +395,7 @@ export default function OnboardingScreen() {
       )}
 
       {step === "teams" && (
-        <ScrollView contentContainerStyle={s.body}>
+        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
           <Text style={[s.title, { color: colors.foreground }]}>Who do you root for?</Text>
           <Text style={[s.sub, { color: colors.mutedForeground }]}>
             Pick up to five teams. We'll show them on your profile and can remind you before they play.
@@ -433,7 +421,7 @@ export default function OnboardingScreen() {
       )}
 
       {step === "crew" && (
-        <ScrollView contentContainerStyle={s.body}>
+        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
           <Text style={[s.title, { color: colors.foreground }]}>Bring Your Crew</Text>
           <Text style={[s.sub, { color: colors.mutedForeground }]}>
             On The House is better with friends: leagues, head-to-heads and trash talk.
@@ -471,15 +459,16 @@ export default function OnboardingScreen() {
       ) : null}
 
       {step === "welcome" && (
-        <View style={[s.body, s.welcome]}>
-          <View style={[s.welcomeIcon, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "55" }]}>
+        <ScrollView contentContainerStyle={[s.body, s.welcome]} showsVerticalScrollIndicator={false}>
+          <View style={[s.welcomeIcon, { backgroundColor: colors.alpha(colors.primary, 0.16), borderColor: colors.alpha(colors.primary, 0.5) }]}>
             <MaterialCommunityIcons name="lightning-bolt" size={44} color={colors.primary} />
           </View>
           <Text style={[s.title, { color: colors.foreground, textAlign: "center" }]}>
             You're in, {displayName.trim()}
           </Text>
 
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <LiquidGlass variant="hero" radius={24} contentStyle={s.card}>
+            <GlassDomeSheen id="onboard_welcome" glowColor={colors.primary} intensity={0.28} />
             {[
               referred
                 ? {
@@ -494,18 +483,23 @@ export default function OnboardingScreen() {
               { icon: "account-group", text: "Add friends to see their fits, chat, and go head to head." },
             ].map(({ icon, text }, i) => (
               <View key={i} style={s.bulletRow}>
-                <View style={[s.bulletIcon, { backgroundColor: colors.secondary }]}>
+                <View style={[s.bulletIcon, { backgroundColor: colors.alpha(colors.primary, 0.14), borderColor: colors.alpha(colors.primary, 0.3) }]}>
                   <MaterialCommunityIcons name={icon as never} size={16} color={colors.primary} />
                 </View>
                 <Text style={[s.bulletText, { color: colors.mutedForeground }]}>{text}</Text>
               </View>
             ))}
-          </View>
+          </LiquidGlass>
 
           {invite ? (
-            <View style={[s.card, { backgroundColor: colors.card, borderColor: invite.state === "failed" ? colors.negative : colors.league }]}>
+            <LiquidGlass
+              variant="card"
+              radius={20}
+              borderColor={invite.state === "failed" ? colors.negative : colors.league}
+              contentStyle={s.card}
+            >
               <View style={s.bulletRow}>
-                <View style={[s.bulletIcon, { backgroundColor: colors.secondary }]}>
+                <View style={[s.bulletIcon, { backgroundColor: colors.alpha(invite.state === "failed" ? colors.negative : colors.league, 0.14), borderColor: colors.alpha(invite.state === "failed" ? colors.negative : colors.league, 0.35) }]}>
                   <MaterialCommunityIcons
                     name={invite.state === "failed" ? "alert-circle-outline" : "trophy-outline"}
                     size={16}
@@ -520,7 +514,7 @@ export default function OnboardingScreen() {
                       : `Couldn't join ${invite.name ?? `league ${invite.code}`}: ${invite.error}`}
                 </Text>
               </View>
-            </View>
+            </LiquidGlass>
           ) : null}
 
           <PrimaryButton
@@ -539,7 +533,7 @@ export default function OnboardingScreen() {
           {invite?.state === "failed" ? (
             <Button label="Skip for Now" variant="ghost" onPress={() => router.replace("/(tabs)")} />
           ) : null}
-        </View>
+        </ScrollView>
       )}
     </SafeAreaView>
   );
@@ -582,9 +576,9 @@ function Field({
   return (
     <View style={s.field}>
       <Text style={[s.fieldLabel, { color: colors.mutedForeground }]}>{label.toUpperCase()}</Text>
-      <View style={[s.fieldBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
+      <LiquidGlass variant="tile" radius={14} contentStyle={s.fieldBox}>
         {children}
-      </View>
+      </LiquidGlass>
     </View>
   );
 }
@@ -647,15 +641,15 @@ const s = StyleSheet.create({
   title: { fontSize: 30, fontFamily: "Inter_900Black", letterSpacing: -1 },
   sub: { fontSize: 14, fontFamily: "Inter_400Regular", marginTop: -10 },
   field: { gap: 8 },
-  fieldLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
-  fieldBox: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  fieldLabel: { fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1.0 },
+  fieldBox: { paddingHorizontal: 14, paddingVertical: 12 },
   inputRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   at: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   input: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
   hint: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: -10 },
-  primaryBtn: { paddingVertical: 15, borderRadius: 14, alignItems: "center", marginTop: 8 },
+  primaryBtn: { paddingVertical: 15, borderRadius: 16, alignItems: "center", marginTop: 8 },
   primaryBtnText: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  welcome: { flex: 1, justifyContent: "center", alignItems: "stretch", gap: 20 },
+  welcome: { flexGrow: 1, justifyContent: "center", alignItems: "stretch", gap: 20 },
   welcomeIcon: {
     width: 88,
     height: 88,
@@ -665,8 +659,8 @@ const s = StyleSheet.create({
     justifyContent: "center",
     alignSelf: "center",
   },
-  card: { borderRadius: 18, borderWidth: 1, padding: 18, gap: 14 },
+  card: { padding: 18, gap: 14 },
   bulletRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  bulletIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  bulletIcon: { width: 32, height: 32, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   bulletText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
 });
