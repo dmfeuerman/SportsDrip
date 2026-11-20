@@ -1,19 +1,21 @@
 import { useExitBreakpoint } from "@/context/AdsContext";
 import BannerSlot from "@/components/ads/BannerSlot";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn } from "react-native-reanimated";
-import Svg, { Circle, Defs, LinearGradient as SvgGradient, Path, Rect, Stop } from "react-native-svg";
 import { Pressable } from "@/components/fx/Tap";
 import { Button, ScreenHeader, useBottomPad } from "@/components/ui";
+import { GlassModalSurface, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { ACHIEVEMENTS, METALS, type TrophyMetal } from "@/constants/achievements";
 import TrophyArt, { achievementLook, trophyLook, type TrophyDesign } from "@/components/TrophyArt";
 import type { TrophyItem } from "@/constants/leagueTypes";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { haptic } from "@/lib/motion";
 import * as api from "@/lib/api";
 import { DEMO } from "@/lib/demo";
@@ -68,10 +70,11 @@ export default function TrophiesScreen() {
   useExitBreakpoint("trophies_exit");
   const c = useColors();
   const bottom = useBottomPad(false);
+  const ready = useDeferredMount();
   const { trophies, profile, writeProfile } = useApp();
   const [open, setOpen] = useState<Piece | null>(null);
   const [stats, setStats] = useState<{ players: number; counts: Record<string, number> } | null>(null);
-  const [pinned, setPinned] = useState<string | null | undefined>(undefined);
+  const [pinned] = useState<string | null | undefined>(undefined);
   const featured = pinned !== undefined ? pinned : profile?.featuredTrophy ?? null;
   useEffect(() => {
     if (DEMO) return;
@@ -122,84 +125,102 @@ export default function TrophiesScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader
         back
         title="Trophy Case"
         subtitle={`${earnedCount}/${ACHIEVEMENTS.length} achievements · ${league.length} league trophi${league.length === 1 ? "y" : "es"}`}
       />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]} showsVerticalScrollIndicator={false}>
-        <LinearGradient colors={[WOOD.hi, WOOD.mid, WOOD.lo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cabinet}>
-          <View style={styles.crown}>
-            <LinearGradient colors={[METALS.gold.hi, METALS.gold.mid]} style={styles.nameplate}>
-              <Text style={styles.nameplateText}>HALL OF DRIP</Text>
-            </LinearGradient>
-          </View>
-          <View style={styles.glass}>
-            {/* Back panel + spotlight from the top */}
-            <LinearGradient colors={["#1B2230", "#0D1118", "#080A0F"]} style={StyleSheet.absoluteFill} />
-            <LinearGradient colors={["rgba(255,236,190,0.22)", "rgba(255,236,190,0)"]} style={styles.spot} />
+      {!ready ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={c.mutedForeground} />
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]} showsVerticalScrollIndicator={false}>
+          <LinearGradient colors={[WOOD.hi, WOOD.mid, WOOD.lo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cabinet}>
+            <View style={styles.crown}>
+              <LinearGradient colors={[METALS.gold.hi, METALS.gold.mid]} style={styles.nameplate}>
+                <Text style={styles.nameplateText}>HALL OF DRIP</Text>
+              </LinearGradient>
+            </View>
+            <View style={styles.glass}>
+              {/* Back panel + spotlight from the top */}
+              <LinearGradient colors={["#1B2230", "#0D1118", "#080A0F"]} style={StyleSheet.absoluteFill} />
+              <LinearGradient colors={["rgba(255,236,190,0.22)", "rgba(255,236,190,0)"]} style={styles.spot} />
 
-            <Text style={styles.shelfLabel}>LEAGUE HARDWARE</Text>
-            {league.length ? (
-              shelves(league).map((row, r) => <Shelf key={`l${r}`} row={row} base={r * PER_SHELF} onPress={tap} pinnedId={featured} />)
-            ) : (
-              <>
-                <View style={styles.emptyShelf}>
-                  <MaterialCommunityIcons name="trophy-outline" size={22} color="rgba(255,255,255,0.28)" />
-                  <Text style={styles.emptyText}>Win a league to put a cup here</Text>
-                </View>
-                <Plank />
-              </>
-            )}
+              <Text style={styles.shelfLabel}>LEAGUE HARDWARE</Text>
+              {league.length ? (
+                shelves(league).map((row, r) => <Shelf key={`l${r}`} row={row} base={r * PER_SHELF} onPress={tap} pinnedId={featured} />)
+              ) : (
+                <>
+                  <View style={styles.emptyShelf}>
+                    <MaterialCommunityIcons name="trophy-outline" size={22} color="rgba(255,255,255,0.28)" />
+                    <Text style={styles.emptyText}>Win a league to put a cup here</Text>
+                  </View>
+                  <Plank />
+                </>
+              )}
 
-            <Text style={[styles.shelfLabel, { marginTop: 18 }]}>ACHIEVEMENTS</Text>
-            {shelves(achievements).map((row, r) => (
-              <Shelf key={`a${r}`} row={row} base={(league.length + r) * PER_SHELF} onPress={tap} pinnedId={featured} />
-            ))}
+              <Text style={[styles.shelfLabel, { marginTop: 18 }]}>ACHIEVEMENTS</Text>
+              {shelves(achievements).map((row, r) => (
+                <Shelf key={`a${r}`} row={row} base={(league.length + r) * PER_SHELF} onPress={tap} pinnedId={featured} />
+              ))}
 
-            {/* Glass reflection */}
-            <LinearGradient
-              pointerEvents="none"
-              colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.07)", "rgba(255,255,255,0)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0.6 }}
-              locations={[0.25, 0.4, 0.55]}
-              style={StyleSheet.absoluteFill}
-            />
-          </View>
-        </LinearGradient>
-        <BannerSlot />
-      </ScrollView>
+              {/* Glass reflection */}
+              <LinearGradient
+                pointerEvents="none"
+                colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.07)", "rgba(255,255,255,0)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0.6 }}
+                locations={[0.25, 0.4, 0.55]}
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
+          </LinearGradient>
+          <BannerSlot />
+        </ScrollView>
+      )}
 
+      {/* Luminous Spotlight Liquid Glass Trophy Detail Modal */}
       <Modal visible={!!open} transparent animationType="none" onRequestClose={() => setOpen(null)} statusBarTranslucent>
         {open ? (
-          <Animated.View entering={FadeIn.duration(140)} exiting={FadeOut.duration(140)} style={[styles.scrim, { backgroundColor: c.overlay }]}>
+          <Animated.View entering={FadeIn.duration(140)} exiting={FadeOut.duration(140)} style={styles.scrim}>
+            {Platform.OS !== "web" ? (
+              <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
+            ) : null}
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(4, 6, 12, 0.64)" }]} />
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(null)} accessibilityRole="button" accessibilityLabel="Close" />
-            <Animated.View entering={ZoomIn.springify().damping(14)} style={[styles.detail, { backgroundColor: c.elevated, borderColor: open.earned ? METALS[open.metal].mid : c.border }]}>
-              <Trophy piece={open} size={140} />
-              <Text style={[styles.detailTitle, { color: c.foreground }]}>{open.title}</Text>
-              <Text style={[styles.detailSub, { color: open.earned ? METALS[open.metal].mid : c.mutedForeground }]}>
-                {open.earned ? `${open.metal.toUpperCase()} · EARNED` : "LOCKED"}
-              </Text>
-              {open.rarity != null ? (
-                <Text style={[styles.rarity, { color: c.accent }]}>
-                  {open.rarity < 0.005 ? "<0.5%" : `${Math.round(open.rarity * 1000) / 10}%`} of players have this
+            <Animated.View entering={ZoomIn.springify().damping(15)} style={styles.detailWrap}>
+              <GlassModalSurface
+                id="trophy_detail"
+                glowColor={open.earned ? METALS[open.metal].mid : c.primary}
+                style={styles.detail}
+              >
+                <Trophy piece={open} size={140} />
+                <Text style={[styles.detailTitle, { color: c.foreground }]}>{open.title}</Text>
+                <Text style={[styles.detailSub, { color: open.earned ? METALS[open.metal].mid : c.mutedForeground }]}>
+                  {open.earned ? `${open.metal.toUpperCase()} · EARNED` : "LOCKED"}
                 </Text>
-              ) : null}
-              <Text style={[styles.detailBody, { color: c.mutedForeground }]}>
-                {open.earned
-                  ? `${open.detail}${open.awardedAt ? `\nAwarded ${new Date(open.awardedAt).toLocaleDateString()}` : ""}`
-                  : `How to earn: ${open.detail}`}
-              </Text>
-              {open.earned && open.trophyId ? (
-                <Button
-                  label={featured === open.trophyId ? "Unpin From Profile" : "Pin to Profile"}
-                  icon={featured === open.trophyId ? "pin-off-outline" : "pin-outline"}
-                  onPress={() => void pin(featured === open.trophyId ? null : open.trophyId!)}
-                  style={{ alignSelf: "stretch" }}
-                />
-              ) : null}
-              <Button label="Close" variant="secondary" onPress={() => setOpen(null)} style={{ alignSelf: "stretch" }} />
+                {open.rarity != null ? (
+                  <Text style={[styles.rarity, { color: c.accent }]}>
+                    {open.rarity < 0.005 ? "<0.5%" : `${Math.round(open.rarity * 1000) / 10}%`} of players have this
+                  </Text>
+                ) : null}
+                <Text style={[styles.detailBody, { color: c.mutedForeground }]}>
+                  {open.earned
+                    ? `${open.detail}${open.awardedAt ? `\nAwarded ${new Date(open.awardedAt).toLocaleDateString()}` : ""}`
+                    : `How to earn: ${open.detail}`}
+                </Text>
+                {open.earned && open.trophyId ? (
+                  <Button
+                    label={featured === open.trophyId ? "Unpin From Profile" : "Pin to Profile"}
+                    icon={featured === open.trophyId ? "pin-off-outline" : "pin-outline"}
+                    onPress={() => void pin(featured === open.trophyId ? null : open.trophyId!)}
+                    style={{ alignSelf: "stretch" }}
+                  />
+                ) : null}
+                <Button label="Close" variant="secondary" onPress={() => setOpen(null)} style={{ alignSelf: "stretch" }} />
+              </GlassModalSurface>
             </Animated.View>
           </Animated.View>
         ) : null}
@@ -257,11 +278,11 @@ function Trophy({ piece, size }: { piece: Piece; size: number }) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   content: { padding: 16 },
-  cabinet: { borderRadius: 18, padding: 10, paddingTop: 0, shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 8 },
+  cabinet: { borderRadius: 22, padding: 10, paddingTop: 0, shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 8 },
   crown: { alignItems: "center", paddingVertical: 10 },
   nameplate: { paddingHorizontal: 16, paddingVertical: 4, borderRadius: 4 },
   nameplateText: { color: "#4A2C05", fontSize: 11, letterSpacing: 2.5, fontFamily: "Inter_900Black" },
-  glass: { borderRadius: 10, overflow: "hidden", paddingHorizontal: 8, paddingTop: 14, paddingBottom: 6, borderWidth: 2, borderColor: "rgba(0,0,0,0.5)" },
+  glass: { borderRadius: 12, overflow: "hidden", paddingHorizontal: 8, paddingTop: 14, paddingBottom: 6, borderWidth: 2, borderColor: "rgba(0,0,0,0.5)" },
   spot: { position: "absolute", top: 0, left: "15%", right: "15%", height: 220, borderBottomLeftRadius: 200, borderBottomRightRadius: 200 },
   shelfLabel: { color: "rgba(255,236,190,0.55)", fontSize: 10, letterSpacing: 2, fontFamily: "Inter_800ExtraBold", textAlign: "center", marginBottom: 6 },
   row: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 4 },
@@ -275,11 +296,10 @@ const styles = StyleSheet.create({
   plankShadow: { height: 12, marginBottom: -12 },
   emptyShelf: { alignItems: "center", gap: 6, paddingVertical: 26 },
   emptyText: { color: "rgba(255,255,255,0.4)", fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  glow: { position: "absolute", opacity: 0.16 },
   pinBadge: { position: "absolute", top: 4, right: "22%", width: 20, height: 20, borderRadius: 10, backgroundColor: "#F2B925", alignItems: "center", justifyContent: "center" },
-  iconWrap: { position: "absolute", left: 0, alignItems: "center", justifyContent: "center" },
   scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  detail: { width: "100%", maxWidth: 360, borderRadius: 22, borderWidth: 1.5, padding: 20, alignItems: "center", gap: 6 },
+  detailWrap: { width: "100%", maxWidth: 360 },
+  detail: { padding: 24, alignItems: "center", gap: 8 },
   detailTitle: { fontSize: 22, fontFamily: "Inter_900Black", textAlign: "center", marginTop: 6 },
   detailSub: { fontSize: 11, letterSpacing: 1.5, fontFamily: "Inter_800ExtraBold" },
   rarity: { fontSize: 13, fontFamily: "Inter_800ExtraBold" },
