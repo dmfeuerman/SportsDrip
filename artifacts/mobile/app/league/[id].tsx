@@ -4,7 +4,7 @@ import { useOptimisticReaction } from "@/hooks/useOptimisticReaction";
 import { haptic as buzz } from "@/lib/motion";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { Pressable, Switch } from "@/components/fx/Tap";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
@@ -46,6 +46,7 @@ import {
   useBottomPad,
   ActionChip,
 } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import * as api from "@/lib/api";
 import {
   BANK_PRINCIPAL_CAP_MULTIPLIER,
@@ -77,6 +78,7 @@ import { useToast } from "@/context/ToastContext";
 import { useLeague, useLeagueDetail } from "@/context/LeagueContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useColors } from "@/hooks/useColors";
+import { useDeferredMount } from "@/hooks/useDeferredMount";
 import { useFriends } from "@/hooks/useFriends";
 import { useGames } from "@/hooks/useGames";
 import { usePublicProfiles } from "@/hooks/usePublicProfiles";
@@ -104,6 +106,7 @@ export default function LeagueDetailScreen() {
   const c = useColors();
   const fmt = useOddsFormat();
   const bottom = useBottomPad(false);
+  const readyMount = useDeferredMount();
   const params = useLocalSearchParams<{ id: string; tab?: Tab; created?: string }>();
   const { leagues, getLeague, pendingLeague, dismissPending, ready, uid, error, clearError } = useLeague();
   const league = getLeague(params.id);
@@ -123,6 +126,7 @@ export default function LeagueDetailScreen() {
     // Chat is the front door once a league is running; before it starts, the table carries the invite and preseason cards.
     params.tab ?? (params.created || !league || !isLeagueStarted(league, Date.now()) ? "standings" : "feed")
   );
+  const deferredTab = useDeferredValue(tab);
   const seenAt = useChatSeen(league?.id);
 
   const unreadFeed = useMemo(() => {
@@ -144,6 +148,7 @@ export default function LeagueDetailScreen() {
   if (waiting?.error && (!league || league.optimistic)) {
     return (
       <View style={[styles.container, { backgroundColor: c.background }]}>
+        <ObsidianBackdrop />
         <ScreenHeader back title={waiting.name || "League"} />
         <View style={{ padding: 16 }}>
           <EmptyState
@@ -163,6 +168,7 @@ export default function LeagueDetailScreen() {
     const loading = (!!waiting || !ready) && !gaveUp;
     return (
       <View style={[styles.container, { backgroundColor: c.background }]}>
+        <ObsidianBackdrop />
         <ScreenHeader back title={waiting?.name || "League"} subtitle={loading && waiting ? "Joining…" : undefined} />
         <View style={{ padding: 16 }}>
           {loading ? (
@@ -209,6 +215,7 @@ export default function LeagueDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
+      <ObsidianBackdrop />
       <ScreenHeader
         back
         title={league.name}
@@ -285,7 +292,11 @@ export default function LeagueDetailScreen() {
       </ScreenHeader>
       <ErrorBanner message={error} onDismiss={clearError} />
 
-      {tab === "feed" ? (
+      {!readyMount ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={c.mutedForeground} />
+        </View>
+      ) : deferredTab === "feed" ? (
         <FeedTab
           league={league}
           activity={detail.activity}
@@ -326,15 +337,15 @@ export default function LeagueDetailScreen() {
                 onPress={() => router.push({ pathname: "/wrapped/[id]", params: { id: league.id } } as never)}
               />
             )}
-            {!closed && !started && !league.optimistic && tab === "standings" && <PreseasonCard league={league} uid={uid} onInvite={invite} />}
-            {!closed && !started && params.created && league.memberIds.length === 1 && tab === "standings" && (
+            {!closed && !started && !league.optimistic && deferredTab === "standings" && <PreseasonCard league={league} uid={uid} onInvite={invite} />}
+            {!closed && !started && params.created && league.memberIds.length === 1 && deferredTab === "standings" && (
               <Card tone="league" style={{ gap: 8 }}>
                 <Text style={[styles.cardTitle, { color: c.foreground }]}>League Created</Text>
                 <Text style={[styles.muted, { color: c.mutedForeground }]}>{league.code ? `Share code ${league.code} or invite friends below.` : "Your invite code is on its way."} Everyone starts with {league.startingLeagueTokens.toLocaleString()} tokens.</Text>
               </Card>
             )}
-            {tab === "standings" && !closed && !league.optimistic && <CoopGoalCard league={league} uid={uid} />}
-            {tab === "standings" && (
+            {deferredTab === "standings" && !closed && !league.optimistic && <CoopGoalCard league={league} uid={uid} />}
+            {deferredTab === "standings" && (
               <StandingsTab
                 league={league}
                 standings={detail.standings}
@@ -346,7 +357,7 @@ export default function LeagueDetailScreen() {
                 onInvite={invite}
               />
             )}
-            {tab === "bets" && (
+            {deferredTab === "bets" && (
               <BetsTab
                 league={league}
                 bets={detail.bets}
@@ -358,12 +369,17 @@ export default function LeagueDetailScreen() {
                 fmt={fmt}
               />
             )}
-            {tab === "bank" && <BankTab league={league} loans={detail.loans} uid={uid} me={me} tokens={myTokens} now={detail.now} closed={closed} />}
-            {tab === "info" && <InfoTab league={league} betsCount={detail.bets.length} audit={detail.audit} uid={uid} closed={closed} onInvite={invite} />}
+            {deferredTab === "bank" && <BankTab league={league} loans={detail.loans} uid={uid} me={me} tokens={myTokens} now={detail.now} closed={closed} />}
+            {deferredTab === "info" && <InfoTab league={league} betsCount={detail.bets.length} audit={detail.audit} uid={uid} closed={closed} onInvite={invite} />}
           </KeyboardAwareScrollViewCompat>
 
           {!closed && (
-            <View style={[styles.dock, { backgroundColor: c.background, borderTopColor: c.border, paddingBottom: bottom - 12 }]}>
+            <LiquidGlass
+              variant="bar"
+              borderWidth={0}
+              style={[styles.dock, { borderTopWidth: 1, borderTopColor: c.isDark ? c.alpha("#FFFFFF", 0.14) : c.border }]}
+              contentStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: bottom - 12 }}
+            >
               <Button
                 label={started ? `Bet with ${myTokens.toLocaleString()} league tokens` : `Betting opens ${startLabel}`}
                 icon={started ? "ticket-outline" : "lock-clock"}
@@ -372,7 +388,7 @@ export default function LeagueDetailScreen() {
                 disabled={!started}
                 onPress={() => router.navigate({ pathname: "/(tabs)/games", params: { wallet: league.id } })}
               />
-            </View>
+            </LiquidGlass>
           )}
         </>
       )}
@@ -556,15 +572,17 @@ function StandingsTab({
                 accessibilityRole="button"
                 accessibilityLabel={`First place, ${L.you ? "you" : L.name}, net worth ${leader.netWorth.toLocaleString()}. Open profile`}
                 onPress={() => setOpenUid(leader.uid)}
-                style={({ pressed }) => [styles.champ, { backgroundColor: c.card, borderColor: c.alpha(GOLD, 0.7), shadowColor: GOLD, transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+                style={({ pressed }) => [{ transform: [{ scale: pressed ? 0.985 : 1 }] }]}
               >
-                <LinearGradient
-                  colors={[c.alpha(GOLD, 0.26), c.alpha(GOLD, 0.06), "transparent"] as const}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                  pointerEvents="none"
-                />
+                <LiquidGlass
+                  variant="hero"
+                  radius={24}
+                  tintColor={c.alpha(GOLD, c.isDark ? 0.12 : 0.07)}
+                  borderColor={c.alpha(GOLD, 0.72)}
+                  borderWidth={1.5}
+                  contentStyle={styles.champ}
+                >
+                <GlassDomeSheen id="league_champ" glowColor={GOLD} intensity={0.34} />
                 <Shimmer color={GOLD} intensity={0.22} every={3400} sweep={1300} />
                 <View style={styles.champTop}>
                   <View style={[styles.champBadge, { backgroundColor: GOLD }]}>
@@ -620,6 +638,7 @@ function StandingsTab({
                   </View>
                   <MaterialCommunityIcons name="chevron-right" size={22} color={c.mutedForeground} />
                 </View>
+                </LiquidGlass>
               </Pressable>
             );
           })()}
@@ -640,7 +659,14 @@ function StandingsTab({
                 accessibilityRole="button"
                 accessibilityLabel={`Rank ${s.rank}, ${R.you ? "you" : R.name}, net worth ${s.netWorth.toLocaleString()}${s.debt ? `, owes ${s.debt.toLocaleString()}` : ""}. Open profile`}
                 onPress={() => setOpenUid(s.uid)}
-                style={({ pressed }) => [styles.member, { backgroundColor: R.you ? c.leagueSoft : c.card, borderColor: R.you ? c.alpha(c.league, 0.5) : c.border, opacity: pressed ? 0.85 : 1 }]}
+                style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
+              >
+              <LiquidGlass
+                variant="card"
+                radius={16}
+                tintColor={R.you ? c.alpha(c.league, c.isDark ? 0.16 : 0.1) : undefined}
+                borderColor={R.you ? c.alpha(c.league, 0.55) : undefined}
+                contentStyle={styles.member}
               >
                 <RoundBadge label={s.rank} color={rankColor} size={28} filled={s.rank <= 3} />
                 <MemberAvatar profile={p} name={R.name} color={R.color} catalog={byId} size={40} />
@@ -675,6 +701,7 @@ function StandingsTab({
                   {R.r && R.r.prizeTokens > 0 ? <Text style={[styles.memberSub, { color: c.primary }]}>won {R.r.prizeTokens.toLocaleString()}</Text> : null}
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={18} color={c.subtleForeground} />
+              </LiquidGlass>
               </Pressable>
             );
           })}
@@ -959,9 +986,12 @@ function BetsTab({
     const comments = betComments[b.id] ?? [];
 
     return (
-      <View
+      <LiquidGlass
         key={b.id}
-        style={[styles.betRow, { backgroundColor: c.card, borderColor: c.border, borderLeftColor: b.teamColor }]}
+        variant="card"
+        radius={16}
+        borderColor={c.alpha(b.teamColor, 0.42)}
+        contentStyle={[styles.betRow, { borderLeftWidth: 4, borderLeftColor: b.teamColor }]}
       >
         <View style={{ flex: 1, gap: 6 }}>
           <Pressable
@@ -1072,7 +1102,7 @@ function BetsTab({
             />
           )}
         </View>
-      </View>
+      </LiquidGlass>
     );
   };
 
@@ -2863,11 +2893,11 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
   muted: { fontSize: 13, lineHeight: 19, fontFamily: "Inter_400Regular" },
   inline: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  member: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 14, borderWidth: 1 },
+  member: { flexDirection: "row", alignItems: "center", gap: 10, padding: 11 },
   rankNum: { width: 22, textAlign: "center", fontSize: 16, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   memberName: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   memberSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  betRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12, borderWidth: 1, borderLeftWidth: 4 },
+  betRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12 },
   betTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   followRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   followBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1 },
@@ -2889,15 +2919,9 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   closedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   champ: {
-    borderWidth: 1.5,
-    borderRadius: 22,
     padding: 16,
     gap: 14,
     overflow: "hidden",
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
   },
   champTop: { flexDirection: "row", alignItems: "center", gap: 8 },
   champBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
@@ -2907,5 +2931,5 @@ const styles = StyleSheet.create({
   champStats: { flexDirection: "row", alignItems: "flex-end", gap: 12, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12 },
   champK: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginBottom: 2 },
   champV: { fontSize: 18, fontFamily: "Inter_800ExtraBold", fontVariant: ["tabular-nums"] },
-  dock: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  dock: { position: "absolute", left: 0, right: 0, bottom: 0 },
 });
