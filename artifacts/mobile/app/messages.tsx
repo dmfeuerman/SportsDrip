@@ -18,6 +18,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ReplyComposerBar, type ReplyQuote } from "@/components/chat/ReplyThread";
 import BetChatCard from "@/components/chat/BetChatCard";
 import TauntCard from "@/components/chat/TauntCard";
+import TauntPicker from "@/components/chat/TauntPicker";
+import { useSendTaunt } from "@/hooks/useSendTaunt";
 import FriendMoneyCard, { LeagueLoanChatCard, LoanNegotiateModal } from "@/components/chat/FriendMoneyCard";
 import FriendSendSheet from "@/components/chat/FriendSendSheet";
 import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
@@ -250,21 +252,13 @@ export default function MessagesScreen() {
   const params = useLocalSearchParams<{ uid?: string; name?: string; leagueId?: string }>();
   const { profile } = useApp();
   const { show: showToast } = useToast();
-  const [tauntBusy, setTauntBusy] = useState(false);
-  /** Taunt a friend in DMs: plays your first loadout move in the chat. One per friend per day. */
-  const sendFriendTaunt = async (friendUid: string, friendName: string) => {
-    if (tauntBusy) return;
-    setTauntBusy(true);
-    buzz.medium();
-    try {
-      await api.sendTaunt({ scope: "dm", receiverUid: friendUid, matchupId: "friend", moveId: profile?.moves?.[0] ?? "cheer" });
-      buzz.success();
-    } catch (e) {
-      buzz.error();
-      showToast({ kind: "warning", title: `Couldn't taunt ${friendName}`, body: api.friendlyError(e) });
-    } finally {
-      setTauntBusy(false);
-    }
+  const sendTaunt = useSendTaunt();
+  /** Taunting a friend in DMs: pick the dance, and it's in the chat the moment you send. */
+  const [tauntFor, setTauntFor] = useState<{ uid: string; name: string } | null>(null);
+  const sendFriendTaunt = (moveId: string) => {
+    if (!tauntFor) return;
+    const why = sendTaunt({ scope: "dm", receiverUid: tauntFor.uid, receiverName: tauntFor.name }, moveId);
+    if (why) showToast({ kind: "warning", title: `Couldn't taunt ${tauntFor.name}`, body: why });
   };
   const { byId } = useCatalog();
   const myUid = profile?.uid ?? "me";
@@ -491,7 +485,7 @@ export default function MessagesScreen() {
                   <MaterialCommunityIcons name="chevron-right" size={16} color={c.mutedForeground} />
                 </View>
                 <Text style={[styles.headerSub, { color: c.mutedForeground }]} numberOfLines={1}>
-                  iMessage · Tap for profile & H2H
+                  Chat · Tap for profile & H2H
                 </Text>
               </View>
             </Pressable>
@@ -500,10 +494,12 @@ export default function MessagesScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Taunt ${activeFriend.displayName} with a dance`}
-              disabled={tauntBusy}
-              onPress={() => void sendFriendTaunt(activeFriend.uid, activeFriend.displayName)}
+              onPress={() => {
+                buzz.tick();
+                setTauntFor({ uid: activeFriend.uid, name: activeFriend.displayName });
+              }}
               hitSlop={8}
-              style={({ pressed }) => [styles.tauntBtn, { backgroundColor: c.primary, opacity: tauntBusy ? 0.5 : pressed ? 0.8 : 1 }]}
+              style={({ pressed }) => [styles.tauntBtn, { backgroundColor: c.primary, opacity: pressed ? 0.8 : 1 }]}
             >
               <MaterialCommunityIcons name="human-handsup" size={16} color={c.primaryForeground} />
               <Text style={[styles.tauntText, { color: c.primaryForeground }]}>Taunt</Text>
@@ -1079,7 +1075,8 @@ export default function MessagesScreen() {
                           activeLeague.id,
                           m.kind === "loan" && m.loanId ? "loan" : "message",
                           m.kind === "loan" && m.loanId ? m.loanId : m.id,
-                          emoji as never
+                          emoji as never,
+                          myReaction
                         )
                       }
                       onReply={() =>
@@ -1229,6 +1226,7 @@ export default function MessagesScreen() {
         friend={sendOpen && activeFriend ? { uid: activeFriend.uid, name: activeFriend.displayName } : null}
         onClose={() => setSendOpen(false)}
       />
+      <TauntPicker visible={!!tauntFor} targetName={tauntFor?.name ?? ""} onClose={() => setTauntFor(null)} onPick={sendFriendTaunt} />
 
       {activeLeague ? (
         <LoanNegotiateModal

@@ -259,7 +259,7 @@ function Scoreboard({ game, now, c, fmt }: { game: Game; now: number; c: Colors;
 function HeroTeam({ side, neutral, sport, team, score, dim, c, fmt }: { side: "home" | "away"; neutral?: boolean | null; sport: string; team: TeamSide; score: number | null; dim: boolean; c: Colors; fmt: OddsFormat }) {
   return (
     <View style={styles.heroTeam}>
-      <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={56} sport={sport} />
+      <TeamCrest abbr={team.abbreviation} name={team.name} color={team.color} altColor={team.altColor} size={56} sport={sport} />
       <Text style={[styles.heroName, { color: c.foreground }]} numberOfLines={1}>
         {nickname(team.name, team.location)}
       </Text>

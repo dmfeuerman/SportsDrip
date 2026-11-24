@@ -43,7 +43,7 @@ export const AD_POLICY = {
 /** Launch loading screen: always at least MIN, never more than MAX. */
 export const BOOT_WINDOW = {
   minMs: 1_500,
-  maxMs: 30_000,
+  maxMs: 20_000,
   /** Don't start the launch ad this close to a loading screen that's ready to leave. */
   adCutoffMs: 4_000,
 } as const;

@@ -23,6 +23,7 @@ import { Button } from "@/components/ui";
 import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { levelFromXp, progressOf, scaledXp, XP } from "@/constants/progression";
 import { useApp } from "@/context/AppContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
 import { DEMO } from "@/lib/demo";
 import { getDb } from "@/lib/firebase";
@@ -135,12 +136,13 @@ let push: ((g: Gain) => void) | null = null;
  */
 export default function XpGainHost() {
   const { profile } = useApp();
+  const { popup, recap } = useNotifications();
   const uid = profile?.uid ?? null;
   const xp = typeof profile?.xp === "number" ? profile.xp : null;
   const xpLast = profile?.xpLast ?? null;
   const [seen, setSeen] = useState<number | null>(null);
   const [gain, setGain] = useState<Gain | null>(null);
-  const myTurn = useOverlayTurn("xpGain", !!gain, OVERLAY.xpGain);
+  const myTurn = useOverlayTurn("xpGain", !!gain && !popup && recap.length === 0, OVERLAY.xpGain);
 
   useEffect(() => {
     push = (g) => setGain(g);

@@ -445,7 +445,10 @@ export const repayFriendLoan = callable<
 /** Returning-player Prize Box (functions/src/callable/winBack.ts). */
 export const claimWinBackBox = callable<Record<string, never>, { ok: true; credits: number; balance: number | null }>("claimWinBackBox");
 /** Free "who scores next?" call on a live game (functions/src/callable/flash.ts). */
-export const makeFlashPick = callable<{ gameId: string; side: "home" | "away" }, { ok: true; id: string; left: number; leftToday: number }>("makeFlashPick");
+export const makeFlashPick = callable<
+  { gameId: string; side: "home" | "away"; stake?: number },
+  { ok: true; id: string; freeLeft?: number; stake?: number; reward?: number; paid?: boolean }
+>("makeFlashPick");
 /** Stake credits on adding 7 days to your pick streak (functions/src/callable/streakWager.ts). */
 export interface StreakWagerInfo {
   stake: number;
@@ -719,9 +722,10 @@ export async function placeLeagueBet(args: PlaceLeagueBetArgs): Promise<PlaceLea
   return res;
 }
 
+/** `clientId` names the taunt so the row the app shows at once is the one the server writes. */
 export type TauntInput =
-  | { scope: "league"; leagueId: string; matchupId: string; receiverUid: string; moveId: string }
-  | { scope: "dm"; receiverUid: string; matchupId: string; moveId: string };
+  | { scope: "league"; leagueId: string; matchupId: string; receiverUid: string; moveId: string; clientId?: string }
+  | { scope: "dm"; receiverUid: string; matchupId: string; moveId: string; clientId?: string };
 export const sendTaunt = callable<TauntInput, { ok: true; id: string }>("sendTaunt");
 export const setMuteTaunts = (args: { mute: boolean }) =>
   import("@/lib/onDevice").then((m) => m.setMuteTaunts(args));

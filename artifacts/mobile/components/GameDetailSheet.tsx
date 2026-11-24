@@ -67,6 +67,12 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game?.id]);
   const [nudge, setNudge] = useState<string | null>(null);
+  // Opened from a bet already placed on this game: the betting buttons start tucked away.
+  const [marketsOpen, setMarketsOpen] = useState(bets.length === 0);
+  useEffect(() => {
+    setMarketsOpen(bets.length === 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.id]);
   const choose = (p: Pick) => {
     haptic.tick();
     setNudge(null);
@@ -306,6 +312,23 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
             {/* 2026 Liquid Glass Bet Types & Action Deck */}
             {canBet && (priced || canSpread || canTotal || onChallenge) ? (
               <View style={[styles.footer, { borderTopColor: glassSubtleBorder, backgroundColor: c.isDark ? "rgba(8, 10, 16, 0.45)" : c.alpha(c.background, 0.4) }]}>
+                {bets.length > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: marketsOpen }}
+                    accessibilityLabel={marketsOpen ? "Hide bet options" : "Show bet options"}
+                    onPress={() => {
+                      haptic.tick();
+                      setMarketsOpen((o) => !o);
+                    }}
+                    style={({ pressed }) => [styles.marketsToggle, { opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <MaterialCommunityIcons name="cash-plus" size={16} color={c.primary} />
+                    <Text style={[styles.marketsToggleText, { color: c.foreground }]}>Bet again on this game</Text>
+                    <MaterialCommunityIcons name={marketsOpen ? "chevron-down" : "chevron-up"} size={20} color={c.mutedForeground} />
+                  </Pressable>
+                ) : null}
+                {marketsOpen ? (<>
                 {friendOnly ? (
                   <Text style={[styles.closedNote, { color: c.mutedForeground }]}>
                     {NO_LINE} — the book can't take this game, but you can challenge a friend on it.
@@ -528,6 +551,7 @@ export default function GameDetailSheet({ game, onClose, onBet, onChallenge, bet
                     }}
                   />
                 ) : null}
+                </>) : null}
               </View>
             ) : (
               <View style={[styles.closedFooter, { borderTopColor: glassSubtleBorder }]}>
@@ -585,7 +609,7 @@ function TeamColumn({
 }) {
   return (
     <View style={styles.teamCol}>
-      <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={54} sport={sport} />
+      <TeamCrest abbr={team.abbreviation} name={team.name} color={team.color} altColor={team.altColor} size={54} sport={sport} />
       <Text style={[styles.teamName, { color: c.foreground }]} numberOfLines={2}>
         {team.name}
       </Text>
@@ -640,6 +664,8 @@ function Row({
 }
 
 const styles = StyleSheet.create({
+  marketsToggle: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 },
+  marketsToggleText: { flex: 1, fontSize: 14, fontFamily: "Inter_700Bold" },
   scrim: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 14, paddingVertical: 28 },
   modalWrap: { width: "100%", maxWidth: 420, maxHeight: "90%" },
   modalSurface: { width: "100%", maxHeight: "100%", overflow: "hidden" },

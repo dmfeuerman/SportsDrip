@@ -9,6 +9,7 @@ import { AccessibilityInfo, Modal, Platform, StyleSheet, Text, View } from "reac
 import { Pressable } from "@/components/fx/Tap";
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
+import { untilKickoff } from "@/lib/odds";
 import Burst from "@/components/fx/Burst";
 import ResultRecap from "@/components/ResultRecap";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
@@ -20,11 +21,11 @@ import { useLeague } from "@/context/LeagueContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { useNotifications, type AppNotification } from "@/context/NotificationContext";
 import { useColors } from "@/hooks/useColors";
+import { bootElapsed } from "@/lib/bootGate";
 import { trace } from "@/lib/devtrace";
 import { OVERLAY, useOverlayTurn } from "@/lib/overlayTurns";
 import { haptic, REWARD_RARITY } from "@/lib/motion";
 import { useShake } from "@/hooks/useMotion";
-import { untilKickoff } from "@/lib/odds";
 import { useGames } from "@/hooks/useGames";
 import { shareViewOrText } from "@/lib/shareCard";
 
@@ -40,13 +41,17 @@ import { shareViewOrText } from "@/lib/shareCard";
 export default function ResultPopupHost() {
   const { popup, waiting, dismissPopup, dismissAllPopups, recap, dismissRecap } = useNotifications();
   const { breakpoint } = useAds();
-  // Native: hold results until launch has settled; a modal (and its 3D
-  // stage) presenting during launch is one more thing competing for the main thread.
-  // Results (incl. everything that settled while away) appear 5 s after the loading screen hides.
+  // Brief settle delay after the launch loading screen hides so the modal doesn't
+  // fight the first frame, clamped so won bets always appear well within 30s of load.
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (armed) return;
-    const t = setTimeout(() => setArmed(true), 5000);
+    const delay = Math.max(0, Math.min(1_500, 24_000 - bootElapsed()));
+    if (delay === 0) {
+      setArmed(true);
+      return;
+    }
+    const t = setTimeout(() => setArmed(true), delay);
     return () => clearTimeout(t);
   }, [armed]);
   useEffect(() => {
@@ -218,7 +223,19 @@ function ResultPopup({
             <View style={[styles.stage, { backgroundColor: soft }]}>
               {/* A still of the character, animated in 2D. A live 3D stage here meant a second GL
                   context starting inside a Modal while Home's was still setting up — that froze iOS. */}
-              {stageOn ? (
+              {/* Wins: the live character does the Cheer (the GL gate now queues contexts, so a stage in
+                  this Modal waits its turn instead of racing Home's); the still shows until it draws. */}
+              {stageOn && won ? (
+                <AvatarDisplay
+                  avatar={profile?.avatar}
+                  equipped={profile?.equipped}
+                  catalog={byId}
+                  size="lg"
+                  interactive={false}
+                  focus="dance"
+                  move={{ id: "cheer", n: 1 }}
+                />
+              ) : stageOn ? (
                 <ReactionStill won={won}>
                   <AvatarDisplay avatar={profile?.avatar} equipped={profile?.equipped} catalog={byId} size="hero" interactive={false} />
                 </ReactionStill>
@@ -307,17 +324,32 @@ function ResultPopup({
           )}
 
           {nextUp ? (
-            <Button
-              label={`${nextUp.sameTeam ? (won ? "Run It Back" : "Get It Back") : "Next Up"}: ${nextUp.game.awayTeam.abbreviation} @ ${nextUp.game.homeTeam.abbreviation} ${untilKickoff(nextUp.game.startsAt)}`}
-              icon={nextUp.sameTeam ? "replay" : "arrow-right-circle-outline"}
-              variant="league"
-              style={{ alignSelf: "stretch", marginTop: 10 }}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${nextUp.sameTeam ? (won ? "Run it back" : "Get it back") : "Next up"}: ${nextUp.game.awayTeam.abbreviation} at ${nextUp.game.homeTeam.abbreviation}, ${untilKickoff(nextUp.game.startsAt)}`}
               onPress={() => {
                 onDismissAll();
                 // Home opens the game's bet sheet from this param.
                 router.navigate({ pathname: "/(tabs)", params: { game: nextUp.game.id } });
               }}
-            />
+              style={({ pressed }) => [
+                styles.next,
+                { borderColor: c.alpha(c.league, 0.55), backgroundColor: c.alpha(c.league, 0.16), opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
+              ]}
+            >
+              <View style={[styles.nextIcon, { backgroundColor: c.league }]}>
+                <MaterialCommunityIcons name={nextUp.sameTeam ? "replay" : "arrow-right"} size={18} color="#120A24" />
+              </View>
+              <View style={{ flex: 1, gap: 1 }}>
+                <Text style={[styles.nextTitle, { color: c.foreground }]} numberOfLines={1}>
+                  {nextUp.sameTeam ? (won ? "Run It Back" : "Get It Back") : "Next Up"}
+                </Text>
+                <Text style={[styles.nextSub, { color: c.mutedForeground }]} numberOfLines={1}>
+                  {nextUp.game.awayTeam.abbreviation} @ {nextUp.game.homeTeam.abbreviation} · {untilKickoff(nextUp.game.startsAt).replace(/^in\s+/i, "")} till next game
+                </Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={22} color={c.league} />
+            </Pressable>
           ) : null}
           <View style={styles.actions}>
             {won && (
@@ -485,7 +517,11 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
   rowValue: { fontSize: 13, fontFamily: "Inter_600SemiBold", flexShrink: 1, textAlign: "right" },
   balance: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginHorizontal: 20, marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
-  actions: { flexDirection: "row", gap: 10, paddingHorizontal: 16, marginTop: 16 },
+  actions: { flexDirection: "row", gap: 10, paddingHorizontal: 16, marginTop: 12 },
+  next: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: 16, marginTop: 14, paddingVertical: 12, paddingLeft: 12, paddingRight: 10, borderRadius: 22, borderWidth: 1 },
+  nextIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  nextTitle: { fontSize: 15, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.1 },
+  nextSub: { fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
   more: { alignSelf: "center", marginTop: 12 },
   moreText: { fontSize: 12, fontFamily: "Inter_500Medium" },
 });

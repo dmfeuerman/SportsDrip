@@ -1,8 +1,9 @@
 import React, { memo } from "react";
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import Svg, { ClipPath, Defs, G, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SPORT_COLORS } from "@/constants/colors";
+import { resolveCrestAsset } from "@/constants/crestAssets";
 import { secondaryFor } from "@/constants/teamColors";
 import { crestStyle, isLight, normHex, pickTrim, shade, type CrestPattern, type CrestShape } from "@/lib/teamIdentity";
 
@@ -67,14 +68,14 @@ function Pattern({ kind, trim, base }: { kind: CrestPattern; trim: string; base:
 }
 
 /**
- * Team crest: an original two-tone badge in the team's colours with its
- * abbreviation as a monogram. The silhouette (shield, roundel, hex or plate)
- * and the field pattern (band, chevron, pinstripes, sash or halves) are picked
- * deterministically per team, so a team always looks the same and two teams
- * in a matchup rarely look alike. No league or club logos are used.
+ * Team crest:
+ *  1. Renders the original team PNG from `assets/crests/version_2/<league>/<ABBR>.png` when available.
+ *  2. Falls back to a generic animal/mascot PNG from `assets/crests/version_2/generic/` for college & international clubs.
+ *  3. Falls back to the deterministic two-tone SVG monogram crest when no image matches.
  */
 function TeamCrest({
   abbr,
+  name,
   color,
   altColor,
   size = 32,
@@ -82,6 +83,8 @@ function TeamCrest({
   style,
 }: {
   abbr: string;
+  /** Optional full team name for Tier 2 generic animal/mascot fallback matching. */
+  name?: string | null;
   color: string;
   altColor?: string | null;
   /** Adds a sport badge (sport-coloured ring) in the corner, at 26px and up. */
@@ -90,6 +93,38 @@ function TeamCrest({
   size?: number;
   style?: StyleProp<ViewStyle>;
 }) {
+  const h = size * (46 / 40);
+  const asset = size >= 22 ? resolveCrestAsset(abbr, sport, name) : null;
+  const cornerBadge =
+    sport && SPORT_BADGE[sport] && size >= 26 ? (
+      <View
+        pointerEvents="none"
+        accessibilityLabel={sport}
+        style={[
+          styles.badge,
+          {
+            width: Math.round(size * 0.5),
+            height: Math.round(size * 0.5),
+            borderRadius: size * 0.25,
+            right: -size * 0.16,
+            bottom: -size * 0.08,
+            borderColor: SPORT_COLORS[sport] ?? "#9aa0a6",
+          },
+        ]}
+      >
+        <MaterialCommunityIcons name={SPORT_BADGE[sport] as never} size={Math.round(size * 0.3)} color={SPORT_COLORS[sport] ?? "#ffffff"} />
+      </View>
+    ) : null;
+
+  if (asset) {
+    return (
+      <View style={[{ width: size, height: h }, style]} accessible accessibilityLabel={`${name ?? abbr} crest`}>
+        <Image source={asset} style={{ width: size, height: h }} resizeMode="contain" />
+        {cornerBadge}
+      </View>
+    );
+  }
+
   const base = normHex(color) ?? "#4A5568";
   const trim = pickTrim(base, altColor, secondaryFor(sport, abbr));
   const { shape, pattern: picked } = crestStyle(abbr, sport);
@@ -100,10 +135,9 @@ function TeamCrest({
   const gid = `cg_${key}`;
   const cid = `cc_${shape}`;
   const label = abbr.slice(0, 4);
-  const h = size * (46 / 40);
   const ink = isLight(base) ? "#0B1220" : "#FFFFFF";
   return (
-    <View style={[{ width: size, height: h }, style]} accessible accessibilityLabel={`${abbr} crest`}>
+    <View style={[{ width: size, height: h }, style]} accessible accessibilityLabel={`${name ?? abbr} crest`}>
       <Svg width={size} height={h} viewBox="0 0 40 46">
         <Defs>
           <LinearGradient id={gid} x1="0" y1="0" x2="0.35" y2="1">
@@ -149,25 +183,7 @@ function TeamCrest({
           {label}
         </Text>
       </View>
-      {sport && SPORT_BADGE[sport] && size >= 26 ? (
-        <View
-          pointerEvents="none"
-          accessibilityLabel={sport}
-          style={[
-            styles.badge,
-            {
-              width: Math.round(size * 0.5),
-              height: Math.round(size * 0.5),
-              borderRadius: size * 0.25,
-              right: -size * 0.16,
-              bottom: -size * 0.08,
-              borderColor: SPORT_COLORS[sport] ?? "#9aa0a6",
-            },
-          ]}
-        >
-          <MaterialCommunityIcons name={SPORT_BADGE[sport] as never} size={Math.round(size * 0.3)} color={SPORT_COLORS[sport] ?? "#ffffff"} />
-        </View>
-      ) : null}
+      {cornerBadge}
     </View>
   );
 }

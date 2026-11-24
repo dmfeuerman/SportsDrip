@@ -136,6 +136,10 @@ interface LeagueContextType {
   /** Bets and picks made on this phone that the server hasn't echoed back yet. */
   optimisticBets: LeagueBet[];
   optimisticPicks: LeaguePick[];
+  /** Chat rows written by a server call (taunts), shown at once until the listener has them. */
+  optimisticMessages: Array<LeagueMessage & { leagueId: string }>;
+  /** Shows a chat row now; returns how to settle it (`false` takes it back off). */
+  showMessage: (leagueId: string, message: LeagueMessage) => (ok: boolean) => void;
   isClosed: (id: string) => boolean;
   /** Your open + settled league bets, per league. */
   myLeagueBets: Record<string, LeagueBet[]>;
@@ -162,12 +166,19 @@ interface LeagueContextType {
   placeLeagueBet: (args: api.PlaceLeagueBetArgs & { preview?: LeagueBetPreview }) => Result;
   reportResult: (leagueId: string, betId: string, reason: string) => Result;
   voidLeagueBet: (leagueId: string, betId: string, reason: string) => Result;
+  /**
+   * `current`: my reaction on it as shown. Passed by callers that don't keep their own
+   * optimistic state (the chat's tapback tray), so a chat message shows the change at once.
+   */
   reactToItem: (
     leagueId: string,
     targetType: "message" | "messages" | "activity" | "bet" | "leagueBets" | "loan" | "loans",
     targetId: string,
-    emoji: ReactionEmoji
+    emoji: ReactionEmoji,
+    current?: string | null
   ) => Result;
+  /** My chat-message reactions shown ahead of the server ("leagueId|messageId" → emoji, null = cleared). */
+  optimisticReactions: Record<string, string | null>;
   sendMessage: (leagueId: string, text: string, replyTo?: LeagueMessage["replyTo"], gameId?: string) => Result;
   makePick: (leagueId: string, gameId: string, side: "home" | "away", preview?: PickPreview) => Result;
   createGroupParlay: (args: Parameters<typeof api.createGroupParlay>[0]) => Result;
@@ -177,6 +188,8 @@ interface LeagueContextType {
   takeBankLoan: (leagueId: string, amount: number) => Result;
   repayLoan: (leagueId: string, loanId: string, amount: number) => Result;
   requestLoan: (leagueId: string, amount: number, rate: number, message?: string) => Result;
+  /** Once per league, on an empty wallet: back to 25% of the starting stack. */
+  requestReset: (leagueId: string) => Result;
   peerLoanAction: (leagueId: string, loanId: string, action: api.PeerLoanActionName, rate?: number, amount?: number, message?: string) => Result;
   /** Bank stimulus vote: ask, vote yes/no, or withdraw. */
   stimulus: (args: api.LeagueStimulusArgs) => Result;
@@ -185,6 +198,7 @@ interface LeagueContextType {
 const LeagueContext = createContext<LeagueContextType | null>(null);
 
 const NO_LEAGUES: League[] = [];
+const NO_MSGS: Array<LeagueMessage & { leagueId: string }> = [];
 
 function normalizeLeagueBet(id: string, raw: Record<string, unknown>): LeagueBet {
   return {
@@ -217,6 +231,8 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
   const [left, setLeft] = useState<Record<string, true>>({});
   const [optBets, setOptBets] = useState<Record<string, LeagueBet>>({});
   const [optPicks, setOptPicks] = useState<Record<string, LeaguePick>>({});
+  const [optMsgs, setOptMsgs] = useState<Record<string, LeagueMessage & { leagueId: string }>>({});
+  const [optReact, setOptReact] = useState<Record<string, string | null>>({});
   const [holds, setHolds] = useState<Record<string, TokenHold>>({});
   const [voteOpt, setVoteOpt] = useState<Record<string, boolean>>({});
   const dropKey = <T,>(set: React.Dispatch<React.SetStateAction<Record<string, T>>>, key: string) =>
@@ -258,6 +274,18 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
     const list = Object.values(optPicks);
     return list.length ? list : NO_PICKS;
   }, [optPicks]);
+  const optimisticMessages = useMemo(() => {
+    const list = Object.values(optMsgs);
+    return list.length ? list : NO_MSGS;
+  }, [optMsgs]);
+  const showMessage = useCallback((leagueId: string, message: LeagueMessage) => {
+    const key = `${leagueId}:${message.id}`;
+    const row = { ...message, leagueId };
+    setOptMsgs((p) => ({ ...p, [key]: row }));
+    const drop = () => setOptMsgs((p) => (p[key] === row ? Object.fromEntries(Object.entries(p).filter(([k]) => k !== key)) : p));
+    // Confirmed rows linger (hidden behind the listener's copy, same id) long enough for the snapshot to land.
+    return (ok: boolean) => (ok ? setTimeout(drop, 30_000) : drop());
+  }, []);
   const myLeagueBets = useMemo(() => {
     if (!optimisticBets.length) return serverLeagueBets;
     const out = { ...serverLeagueBets };
@@ -301,6 +329,8 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
     setLeft({});
     setOptBets({});
     setOptPicks({});
+    setOptMsgs({});
+    setOptReact({});
     setHolds({});
     setVoteOpt({});
   }, [uid]);
@@ -671,6 +701,8 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
         },
         optimisticBets,
         optimisticPicks,
+        optimisticMessages,
+        showMessage,
         isClosed: (id) => {
           const l = leaguesRef.current.find((x) => x.id === id);
           return !!l && isLeagueClosed(l);
@@ -750,11 +782,26 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
           instant(leagueId, `dispute:${betId}`, () => api.reportResult({ leagueId, betId, reason })),
         voidLeagueBet: (leagueId, betId, reason) =>
           instant(leagueId, `void:${betId}`, () => api.voidLeagueBet({ leagueId, betId, reason })),
-        reactToItem: (leagueId, targetType, targetId, emoji) =>
-          instant(leagueId, `react:${targetId}:${emoji}`, () => {
-            trackEvent("reaction_sent", { target_type: targetType });
-            return api.reactToItem({ leagueId, targetType, targetId, emoji });
-          }),
+        reactToItem: (leagueId, targetType, targetId, emoji, current) =>
+          instant(
+            leagueId,
+            `react:${targetId}:${emoji}`,
+            () => {
+              trackEvent("reaction_sent", { target_type: targetType });
+              return api.reactToItem({ leagueId, targetType, targetId, emoji });
+            },
+            current === undefined || (targetType !== "message" && targetType !== "messages")
+              ? undefined
+              : () => {
+                  // Same toggle the server applies: the same emoji again clears it.
+                  const key = `${leagueId}|${targetId}`;
+                  const next = current === emoji ? null : emoji;
+                  setOptReact((p) => ({ ...p, [key]: next }));
+                  const drop = () => setOptReact((p) => (key in p && p[key] === next ? Object.fromEntries(Object.entries(p).filter(([k]) => k !== key)) : p));
+                  return (ok) => (ok ? setTimeout(drop, SETTLE_MS) : drop());
+                }
+          ),
+        optimisticReactions: optReact,
         sendMessage,
         makePick: (leagueId, gameId, side, preview) =>
           instant(
@@ -817,15 +864,44 @@ export function LeagueProvider({ children, uid }: { children: React.ReactNode; u
             setError(LOAN_REQUESTS_CLOSED_MESSAGE);
             return Promise.resolve(LOAN_REQUESTS_CLOSED_MESSAGE);
           }
-          return instant(leagueId, `request:${leagueId}`, () =>
-            api.requestPeerLoan({ leagueId, amount, rate, message, idempotencyKey: api.newIdempotencyKey() })
+          const idempotencyKey = api.newIdempotencyKey();
+          return instant(
+            leagueId,
+            `request:${leagueId}`,
+            () => api.requestPeerLoan({ leagueId, amount, rate, message, idempotencyKey }),
+            () => {
+              if (!uid) return () => {};
+              // The chat row the server writes (requestPeerLoan), same id, shown now; the loan card fills in when the loan lands.
+              const r = Math.round(rate * 100) / 100;
+              const name = myNameRef.current;
+              const loanId = `peer_${uid}_${idempotencyKey}`;
+              return showMessage(leagueId, {
+                id: `loan_${loanId}`,
+                uid,
+                name,
+                kind: "loan",
+                loanId,
+                amount,
+                rate: r,
+                text: `${name} asked to borrow ${amount.toLocaleString("en-US")} at ${r}% flat${message ? `: "${message}"` : ""}`,
+                at: Date.now(),
+                reactions: {},
+                reactors: {},
+              });
+            }
           );
+        },
+        // Fresh start: the reset balance shows at once (and the offer goes away); the server confirms behind it.
+        requestReset: (leagueId) => {
+          const league = leaguesRef.current.find((l) => l.id === leagueId);
+          const amount = league ? Math.max(1, Math.floor(league.startingLeagueTokens * 0.25)) : 0;
+          return instant(leagueId, `reset:${leagueId}`, () => api.requestReset({ leagueId }), () => holdTokens(leagueId, `reset:${leagueId}`, amount));
         },
         peerLoanAction: (leagueId, loanId, action, rate, amount, message) =>
           instant(leagueId, `peer:${loanId}`, () => api.peerLoanAction({ leagueId, loanId, action, rate, amount, message })),
       };
     },
-    [ready, uid, leagues, drafts, pending, optimisticBets, optimisticPicks, closedKey, myLeagueBets, error, createLeague, startLeague, joinLeague, guarded, instant, holdTokens, run, sendMessage]
+    [ready, uid, leagues, drafts, pending, optimisticBets, optimisticPicks, optimisticMessages, showMessage, optReact, closedKey, myLeagueBets, error, createLeague, startLeague, joinLeague, guarded, instant, holdTokens, run, sendMessage]
   );
 
   return <LeagueContext.Provider value={value}>{children}</LeagueContext.Provider>;
@@ -859,14 +935,43 @@ export interface LeagueDetail {
  * or a loan is repaid, with no write.
  */
 export function useLeagueDetail(league: League | undefined): LeagueDetail {
-  const { optimisticBets, optimisticPicks } = useLeague();
+  const { optimisticBets, optimisticPicks, optimisticMessages, optimisticReactions, uid: myUid } = useLeague();
   const [loans, setLoans] = useState<LeagueLoan[]>([]);
   const [serverBets, setBets] = useState<LeagueBet[]>([]);
   const [activity, setActivity] = useState<LeagueActivity[]>([]);
   const [rawMessages, setMessages] = useState<LeagueMessage[]>([]);
   const blockedUids = useBlockedUids();
-  // Blocked players' chat is hidden (their bets still count in standings).
-  const messages = useMemo(() => (blockedUids.size ? rawMessages.filter((m) => !m.uid || !blockedUids.has(m.uid)) : rawMessages), [rawMessages, blockedUids]);
+  // Blocked players' chat is hidden (their bets still count in standings). Rows sent from
+  // this phone through a server call (taunts) show at once, newest first like the listener.
+  const messages = useMemo(() => {
+    const visible = blockedUids.size ? rawMessages.filter((m) => !m.uid || !blockedUids.has(m.uid)) : rawMessages;
+    const mine = optimisticMessages.filter((m) => m.leagueId === league?.id && !rawMessages.some((x) => x.id === m.id));
+    const list = mine.length ? [...mine, ...visible].sort((a, b) => b.at - a.at) : visible;
+    // Tapback reactions made on this phone, ahead of the server.
+    const lid = league?.id;
+    if (!lid || !myUid || !Object.keys(optimisticReactions).some((k) => k.startsWith(`${lid}|`))) return list;
+    return list.map((m) => {
+      const key = `${lid}|${m.id}`;
+      if (!(key in optimisticReactions)) return m;
+      const next = optimisticReactions[key] ?? null;
+      const prev = m.reactors?.[myUid] ?? null;
+      if (prev === next) return m;
+      const reactors = { ...(m.reactors ?? {}) };
+      if (next) reactors[myUid] = next;
+      else delete reactors[myUid];
+      let reactions = m.reactions;
+      if (reactions && Object.keys(reactions).length) {
+        reactions = { ...reactions };
+        if (prev) {
+          const n = Math.max(0, (reactions[prev] ?? 1) - 1);
+          if (n) reactions[prev] = n;
+          else delete reactions[prev];
+        }
+        if (next) reactions[next] = (reactions[next] ?? 0) + 1;
+      }
+      return { ...m, reactors, reactions };
+    });
+  }, [rawMessages, blockedUids, optimisticMessages, optimisticReactions, myUid, league?.id]);
   const [audit, setAudit] = useState<LeagueAuditEntry[]>([]);
   const [reports, setReports] = useState<LeagueReport[]>([]);
   const [matchups, setMatchups] = useState<LeagueMatchupDoc[]>([]);

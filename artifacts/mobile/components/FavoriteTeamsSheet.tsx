@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { FlatList, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import KeyboardSheet from "@/components/KeyboardSheet";
+import TeamCrest from "@/components/TeamCrest";
 import { Button } from "@/components/ui";
 import { MAX_FAVORITE_TEAMS, onColor, teamKey, TEAMS } from "@/constants/teams";
 import { useColors } from "@/hooks/useColors";
@@ -96,6 +97,7 @@ export default function FavoriteTeamsSheet({
               accessibilityLabel={`Remove ${t.name}`}
               style={[styles.pickedChip, { backgroundColor: t.color }]}
             >
+              <TeamCrest abbr={t.abbr} name={t.name} color={t.color} sport={t.sport} size={22} />
               <Text style={[styles.pickedText, { color: onColor(t.color) }]}>{t.abbr}</Text>
               <MaterialCommunityIcons name="close" size={12} color={onColor(t.color)} />
             </Pressable>
@@ -153,9 +155,7 @@ export default function FavoriteTeamsSheet({
               accessibilityLabel={`${t.name}, ${t.sport}`}
               style={({ pressed }) => [styles.row, { borderBottomColor: c.border, opacity: disabled ? 0.4 : pressed ? 0.8 : 1 }]}
             >
-              <View style={[styles.swatch, { backgroundColor: t.color }]}>
-                <Text style={[styles.swatchText, { color: onColor(t.color) }]}>{t.abbr}</Text>
-              </View>
+              <TeamCrest abbr={t.abbr} name={t.name} color={t.color} sport={t.sport} size={34} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.teamName, { color: c.foreground }]} numberOfLines={1}>
                   {t.name}

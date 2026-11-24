@@ -92,6 +92,7 @@ export interface Profile {
   equipped: Partial<Record<Slot, string>>;
   stats: UserStats;
   streak?: StreakInfo | null;
+  flashToday?: { day?: string; count?: number; freeCount?: number } | null;
   /** Open streak wager (callable/streakWager.ts). */
   streakWager?: api.StreakWagerInfo | null;
   /** Pending returning-player Prize Box (functions/src/scheduled/winBack.ts). */
@@ -165,6 +166,12 @@ interface AppContextType {
   reportSyncFailure: (message: string, note?: string) => void;
   /** Shows profile fields now and saves them with `call` behind the scenes (rolled back if it fails). */
   writeProfile: (fields: Partial<Omit<Profile, "uid" | "balance">>, call: () => Promise<unknown>) => void;
+  /**
+   * Runs a server call after every write this phone has already queued, so it
+   * sees the player's latest look, purchases and balance (e.g. a taunt sent
+   * right after changing outfit or buying the move).
+   */
+  runQueued: <T>(fn: () => Promise<T>) => Promise<T>;
 
   placeBet: (args: {
     gameId: string;
@@ -222,6 +229,13 @@ interface Opt {
 const EMPTY_OPT: Opt = { items: {}, moves: {}, bgs: {}, bets: {}, cancelled: {}, profile: {} };
 /** How long a confirmed overlay may wait for its snapshot before it's dropped anyway. */
 const SETTLE_MS = 5000;
+
+/** JSON with object keys sorted: the server's copy of a map can list its keys in another order. */
+function stableJson(v: unknown): string {
+  return JSON.stringify(v, (_k, x) =>
+    x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x
+  );
+}
 
 /** The display fields of a bet, for showing it before the server has written it. */
 export type BetPreview = Omit<Bet, "id" | "uid" | "stake" | "status" | "placedAt" | "settledAt">;
@@ -358,7 +372,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       const prof = { ...o.profile };
       if (serverProfile) {
         for (const k of Object.keys(prof) as (keyof ProfileOverlay)[]) {
-          if (JSON.stringify(serverProfile[k] ?? null) === JSON.stringify(prof[k] ?? null)) {
+          if (stableJson(serverProfile[k] ?? null) === stableJson(prof[k] ?? null)) {
             delete prof[k];
             changed = true;
           }
@@ -1010,6 +1024,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       syncFailure,
       reportSyncFailure,
       writeProfile,
+      runQueued: enqueue,
       placeBet,
       cancelBet,
       placeFreeBet,
@@ -1048,6 +1063,7 @@ export function AppProvider({ children, uid }: { children: React.ReactNode; uid:
       syncFailure,
       reportSyncFailure,
       writeProfile,
+      enqueue,
       placeBet,
       cancelBet,
       placeFreeBet,

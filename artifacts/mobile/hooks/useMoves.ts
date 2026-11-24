@@ -1,7 +1,6 @@
-import { subscribeBundle } from "@/lib/bundles";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useBundle } from "@/lib/bundleStore";
 import { isFreeMove, MOVE_LIBRARY, type MoveInfo, type MoveRarity } from "@/constants/moves";
-import { getDb } from "@/lib/firebase";
 import { DEMO } from "@/lib/demo";
 
 export interface StoreMove extends MoveInfo {
@@ -26,26 +25,16 @@ interface MoveDoc {
  * switched off) still plays for anyone who owns it; it just isn't for sale.
  * Without a backend (demo mode) every move is listed at its default price.
  */
-export function useMoves() {
-  const [docs, setDocs] = useState<Map<string, MoveDoc> | null>(null);
-  const [loading, setLoading] = useState(!DEMO);
+const NO_DOCS: never[] = [];
 
-  useEffect(() => {
-    const db = DEMO ? null : getDb();
-    if (!db) {
-      setLoading(false);
-      return;
-    }
-    return subscribeBundle(
-      db,
-      "moves",
-      (items) => {
-        setDocs(new Map(items.map(({ id, ...d }) => [id, d as unknown as MoveDoc])));
-        setLoading(false);
-      },
-      () => setLoading(false)
-    );
-  }, []);
+export function useMoves() {
+  // Shared listener + the phone's last copy (lib/bundleStore.ts). Demo: built-in defaults.
+  const bundle = useBundle("moves", DEMO ? NO_DOCS : null);
+  const docs = useMemo(
+    () => (DEMO || !bundle.items ? null : new Map(bundle.items.map(({ id, ...d }) => [id, d as unknown as MoveDoc]))),
+    [bundle.items]
+  );
+  const loading = bundle.loading;
 
   const moves = useMemo<StoreMove[]>(() => {
     const now = Date.now();

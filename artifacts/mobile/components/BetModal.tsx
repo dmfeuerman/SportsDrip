@@ -268,6 +268,8 @@ export default function BetModal({
 
   const stake = Number.parseInt(amount, 10) || 0;
   const { tour: tourOn, step: tourStep } = useTourState();
+  // First-bet tutorial: the stake is fixed; only its quick button works.
+  const lockedStake = tourOn ? tourStake() : null;
   useEffect(() => {
     if (!visible || !tourOn) return;
     if (tourStake() != null && stake === tourStake()) Keyboard.dismiss();
@@ -297,7 +299,7 @@ export default function BetModal({
   const lockingSoon = minsToStart !== null && minsToStart <= 60;
 
   const quick = useMemo(() => {
-    return [100, 500, 1000].filter((x) => x >= MIN_STAKE && x <= available);
+    return [100, 1000, 5000].filter((x) => x >= MIN_STAKE && x <= available);
   }, [available]);
 
   function focusInput() {
@@ -511,7 +513,7 @@ export default function BetModal({
                       borderWidth={1.5}
                       contentStyle={styles.heroPick}
                     >
-                      <TeamCrest abbr={teamAbbr} color={teamColor} size={48} sport={game?.sport} />
+                      <TeamCrest abbr={teamAbbr} name={teamName} color={teamColor} size={48} sport={game?.sport} />
                       <View style={{ flex: 1, gap: 2 }}>
                         <View style={styles.heroBadges}>
                           <View style={[styles.marketPill, { backgroundColor: c.alpha(teamColor, 0.28), borderColor: c.alpha(teamColor, 0.55) }]}>
@@ -646,7 +648,7 @@ export default function BetModal({
                       </Text>
                     </View>
 
-                    <Pressable onPress={focusInput} accessible={false}>
+                    <Pressable onPress={focusInput} accessible={false} disabled={lockedStake != null}>
                       <LiquidGlass
                         variant="tile"
                         radius={18}
@@ -677,7 +679,7 @@ export default function BetModal({
                           placeholderTextColor={c.subtleForeground}
                           keyboardType="number-pad"
                           doneBar={false}
-                          editable={!busy}
+                          editable={!busy && lockedStake == null}
                           accessibilityLabel={`Stake amount in ${wallet?.label ?? "credits"} ${unit}`}
                         />
                         <ActionChip
@@ -686,7 +688,7 @@ export default function BetModal({
                           chevron={false}
                           tone={isLeague ? "league" : "money"}
                           onPress={() => setAmount(String(available))}
-                          disabled={busy}
+                          disabled={busy || lockedStake != null}
                         />
                       </LiquidGlass>
                     </Pressable>
@@ -696,14 +698,17 @@ export default function BetModal({
                         {quick.map((q) => {
                           const active = stake === q;
                           return (
+                            <TourTarget key={q} id={`slip.quick.${q}`} style={{ flex: 1 }}>
                             <PressableScale
-                              key={q}
                               accessibilityRole="button"
                               style={{ flex: 1 }}
                               scaleTo={0.94}
                               haptic="tick"
-                              onPress={() => setAmount(String(q))}
-                              disabled={busy}
+                              onPress={() => {
+                                setAmount(String(q));
+                                tourEvent("slip:quick");
+                              }}
+                              disabled={busy || (lockedStake != null && q !== lockedStake)}
                             >
                               <LiquidGlass
                                 variant="pill"
@@ -718,6 +723,7 @@ export default function BetModal({
                                 </Text>
                               </LiquidGlass>
                             </PressableScale>
+                            </TourTarget>
                           );
                         })}
                       </View>
@@ -876,7 +882,9 @@ export default function BetModal({
               </TourTarget>
             </View>
 
-            {!friendMode && onAddToParlay && priced && !focused && !tourPractice() && tourStake() == null ? (
+            {/* Practice tours use it too (a parlay is local until placed); the real first-bet tour doesn't. */}
+            {!friendMode && onAddToParlay && priced && !focused && tourStake() == null ? (
+              <TourTarget id="slip.parlay">
               <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Add to Parlay"
@@ -899,6 +907,7 @@ export default function BetModal({
                 <MaterialCommunityIcons name="link-variant" size={16} color={c.primary} />
                 <Text style={[styles.parlayBtnText, { color: c.foreground }]}>Add to Parlay Instead</Text>
               </PressableScale>
+              </TourTarget>
             ) : null}
           </View>
         </GlassModalSurface>

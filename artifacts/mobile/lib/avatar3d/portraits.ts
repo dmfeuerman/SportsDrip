@@ -12,7 +12,7 @@ import type { Framing } from "./spec";
 import { withTimeout } from "../devtrace";
 
 /** Bump when lighting/camera/assets change in a way that should re-render every cached portrait. */
-export const RENDER_VERSION = 5;
+export const RENDER_VERSION = 6;
 
 export type PortraitJob =
   | { kind: "avatar"; key: string; avatar: AvatarConfig; outfit: ResolvedOutfit; framing: Framing }

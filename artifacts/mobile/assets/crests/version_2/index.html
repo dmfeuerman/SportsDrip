@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Crests – version_2</title>
+<style>
+  body{margin:0;padding:24px;background:#12161e;color:#e6e8ee;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif}
+  h2{margin:32px 0 12px;font-size:18px;text-transform:uppercase;letter-spacing:.08em;color:#9aa3b5}
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;width:100%}
+  .cell{background:#1c2230;border-radius:10px;padding:14px;display:flex;flex-direction:column;align-items:center}
+  .cell img{width:100%;aspect-ratio:1/1;object-fit:contain}
+  .cell span{margin-top:8px;font-size:13px;color:#b8bfcc}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const files = ["generic/alligator.png", "generic/badger.png", "generic/bear.png", "generic/bison.png", "generic/boar.png", "generic/cannon.png", "generic/clover.png", "generic/cougar.png", "generic/crown.png", "generic/dog.png", "generic/duck.png", "generic/eagle.png", "generic/elephant.png", "generic/hawk.png", "generic/husky.png", "generic/knight.png", "generic/lion.png", "generic/longhorn.png", "generic/oak_leaf.png", "generic/owl.png", "generic/ram.png", "generic/rooster.png", "generic/seagull.png", "generic/spear.png", "generic/stallion.png", "generic/tiger.png", "generic/train.png", "generic/trident.png", "generic/turtle.png", "generic/wildcat.png", "generic/wolf.png", "generic/wolverine.png", "mlb/ARI.png", "mlb/ATH.png", "mlb/ATL.png", "mlb/BAL.png", "mlb/BOS.png", "mlb/CHC.png", "mlb/CHW.png", "mlb/CIN.png", "mlb/CLE.png", "mlb/COL.png", "mlb/DET.png", "mlb/HOU.png", "mlb/KC.png", "mlb/LAA.png", "mlb/LAD.png", "mlb/MIA.png", "mlb/MIL.png", "mlb/MIN.png", "mlb/NYM.png", "mlb/NYY.png", "mlb/PHI.png", "mlb/PIT.png", "mlb/SD.png", "mlb/SEA.png", "mlb/SF.png", "mlb/STL.png", "mlb/TB.png", "mlb/TEX.png", "mlb/TOR.png", "mlb/WSH.png", "mls/ATL.png", "mls/ATX.png", "mls/CHI.png", "mls/CIN.png", "mls/CLB.png", "mls/CLT.png", "mls/COL.png", "mls/DAL.png", "mls/DC.png", "mls/HOU.png", "mls/LAFC.png", "mls/LAG.png", "mls/MIA.png", "mls/MIN.png", "mls/MTL.png", "mls/NE.png", "mls/NSH.png", "mls/NYC.png", "mls/ORL.png", "mls/PHI.png", "mls/POR.png", "mls/RBNY.png", "mls/RSL.png", "mls/SD.png", "mls/SEA.png", "mls/SJ.png", "mls/SKC.png", "mls/STL.png", "mls/TOR.png", "mls/VAN.png", "nba/ATL.png", "nba/BKN.png", "nba/BOS.png", "nba/CHA.png", "nba/CHI.png", "nba/CLE.png", "nba/DAL.png", "nba/DEN.png", "nba/DET.png", "nba/GS.png", "nba/HOU.png", "nba/IND.png", "nba/LAC.png", "nba/LAL.png", "nba/MEM.png", "nba/MIA.png", "nba/MIL.png", "nba/MIN.png", "nba/NO.png", "nba/NYK.png", "nba/OKC.png", "nba/ORL.png", "nba/PHI.png", "nba/PHX.png", "nba/POR.png", "nba/SA.png", "nba/SAC.png", "nba/TOR.png", "nba/UTAH.png", "nba/WSH.png", "nfl/ARI.png", "nfl/ATL.png", "nfl/BAL.png", "nfl/BUF.png", "nfl/CAR.png", "nfl/CHI.png", "nfl/CIN.png", "nfl/CLE.png", "nfl/DAL.png", "nfl/DEN.png", "nfl/DET.png", "nfl/GB.png", "nfl/HOU.png", "nfl/IND.png", "nfl/JAX.png", "nfl/KC.png", "nfl/LAC.png", "nfl/LAR.png", "nfl/LV.png", "nfl/MIA.png", "nfl/MIN.png", "nfl/NE.png", "nfl/NO.png", "nfl/NYG.png", "nfl/NYJ.png", "nfl/PHI.png", "nfl/PIT.png", "nfl/SEA.png", "nfl/SF.png", "nfl/TB.png", "nfl/TEN.png", "nfl/WSH.png", "nhl/ANA.png", "nhl/BOS.png", "nhl/BUF.png", "nhl/CAR.png", "nhl/CBJ.png", "nhl/CGY.png", "nhl/CHI.png", "nhl/COL.png", "nhl/DAL.png", "nhl/DET.png", "nhl/EDM.png", "nhl/FLA.png", "nhl/LA.png", "nhl/MIN.png", "nhl/MTL.png", "nhl/NJ.png", "nhl/NSH.png", "nhl/NYI.png", "nhl/NYR.png", "nhl/OTT.png", "nhl/PHI.png", "nhl/PIT.png", "nhl/SEA.png", "nhl/SJ.png", "nhl/STL.png", "nhl/TB.png", "nhl/TOR.png", "nhl/UTA.png", "nhl/VAN.png", "nhl/VGK.png", "nhl/WPG.png", "nhl/WSH.png"];
+const root = document.getElementById('root');
+const groups = {};
+for (const f of files) { const [dir] = f.split('/'); (groups[dir] = groups[dir] || []).push(f); }
+for (const dir of Object.keys(groups)) {
+  const h = document.createElement('h2'); h.textContent = dir; root.appendChild(h);
+  const grid = document.createElement('div'); grid.className = 'grid';
+  for (const f of groups[dir]) {
+    const cell = document.createElement('div'); cell.className = 'cell';
+    const img = document.createElement('img'); img.src = f; img.alt = f; img.loading = 'lazy';
+    const label = document.createElement('span'); label.textContent = f.split('/')[1].replace('.png','');
+    cell.append(img, label); grid.appendChild(cell);
+  }
+  root.appendChild(grid);
+}
+</script>
+</body>
+</html>

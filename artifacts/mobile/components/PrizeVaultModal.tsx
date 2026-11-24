@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   useWindowDimensions,
+  Dimensions,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -26,6 +27,11 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import DailyPickCard from "@/components/DailyPickCard";
+import { TourModalLayer } from "@/components/tour/TourHost";
+import { useTourState } from "@/lib/tour/store";
+import { LiquidGlass } from "@/components/ui/LiquidGlass";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
 import PressableScale from "@/components/fx/PressableScale";
 import Shimmer from "@/components/fx/Shimmer";
 import { Pressable } from "@/components/fx/Tap";
@@ -45,6 +51,7 @@ import { nyDayOf } from "@/lib/streakGrid";
 
 interface Props {
   visible: boolean;
+  initialView?: "boxes" | "freeBet";
   onClose: () => void;
 }
 
@@ -69,7 +76,18 @@ function formatCountdown(ms: number): string {
  *  4. Clear swipe affordance: tappable left/right glass chevrons, tier indicator, swipe hint, and pagination dots
  *  5. Split dual-action footer (`Close` | primary action)
  */
-export default function PrizeVaultModal({ visible, onClose }: Props) {
+export default function PrizeVaultModal({ visible, initialView = "boxes", onClose }: Props) {
+  const safe = useSafeAreaInsets();
+  // A tutorial that walked through the vault closes it when it moves on (or ends).
+  const { tour: tourNow, step: tourStepNow } = useTourState();
+  const tourTarget = tourNow?.steps[tourStepNow]?.target ?? null;
+  const wasVaultStep = useRef(false);
+  useEffect(() => {
+    const inVault = !!tourTarget?.startsWith("vault.");
+    if (wasVaultStep.current && !inVault && visible) onClose();
+    wasVaultStep.current = inVault;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourTarget, tourNow]);
   const { width: winW } = useWindowDimensions();
   const reduced = useReducedMotion();
   const { profile, bets, prizeBoxes, openBox, claimBox, resetBox, error } = useApp();
@@ -99,6 +117,8 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
   const [now, setNow] = useState(Date.now());
 
   const pagerRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const freeBetScroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const tourScroll = useTourScroll(freeBetScroll);
   const opening = useRef(false);
 
   // Optimistic box states so taps feel instant while server commits.
@@ -148,11 +168,11 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
   // Card inner width for paging math.
   const cardWidth = Math.min(358, Math.max(288, winW - 40));
 
-  // When opening the popup, focus the most actionable tier (ready -> idle -> soonest waiting).
+  // When opening the popup, focus the requested sub-view or the most actionable tier.
   const wasVisible = useRef(false);
   useEffect(() => {
     if (visible && !wasVisible.current) {
-      setSubView("boxes");
+      setSubView(initialView);
       const tNow = Date.now();
       const readyIdx = BOX_TIERS.findIndex((t) => {
         const b = boxes[t];
@@ -171,17 +191,49 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
         });
       }
       setActiveIndex(bestIdx);
+      settledIdx.current = bestIdx;
+      visibleIdx.current = bestIdx;
+      pendingIdx.current = bestIdx;
       requestAnimationFrame(() => {
         pagerRef.current?.scrollTo({ x: bestIdx * cardWidth, animated: false });
       });
     }
     wasVisible.current = visible;
-  }, [visible, boxes, cardWidth]);
+  }, [visible, initialView, boxes, cardWidth]);
+
+  // Index to scroll to once the pager has real size (a scrollTo before layout is dropped).
+  const pendingIdx = useRef<number | null>(null);
+  const settledIdx = useRef(0);
+  const visibleIdx = useRef(0);
+  const targetIdx = useRef<number | null>(null);
+  const onPagerSize = useCallback(() => {
+    const idx = pendingIdx.current;
+    if (idx === null) return;
+    pendingIdx.current = null;
+    pagerRef.current?.scrollTo({ x: idx * cardWidth, animated: false });
+  }, [cardWidth]);
+
+  // The visible page is the source of truth: keep activeIndex (chevrons, Start button) in
+  // step with wherever the pager actually is, including after a dropped scrollTo.
+  const onPagerScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const idx = Math.max(0, Math.min(BOX_TIERS.length - 1, Math.round(e.nativeEvent.contentOffset.x / cardWidth)));
+      visibleIdx.current = idx;
+      // Ignore in-flight frames of an arrow/button jump so the index doesn't flicker back.
+      if (targetIdx.current !== null && idx !== targetIdx.current) return;
+      targetIdx.current = null;
+      setActiveIndex((cur) => (cur === idx ? cur : idx));
+    },
+    [cardWidth]
+  );
 
   const jumpTo = useCallback(
     (idx: number) => {
       const clamped = Math.max(0, Math.min(BOX_TIERS.length - 1, idx));
       haptic.tick();
+      if (clamped === targetIdx.current) return; // double tap while already heading there
+      settledIdx.current = clamped;
+      targetIdx.current = clamped;
       setActiveIndex(clamped);
       pagerRef.current?.scrollTo({ x: clamped * cardWidth, animated: true });
     },
@@ -192,7 +244,10 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const idx = Math.round(e.nativeEvent.contentOffset.x / cardWidth);
       const clamped = Math.max(0, Math.min(BOX_TIERS.length - 1, idx));
-      if (clamped !== activeIndex) {
+      visibleIdx.current = clamped;
+      targetIdx.current = null;
+      if (clamped !== settledIdx.current) {
+        settledIdx.current = clamped;
         haptic.tick();
         setActiveIndex(clamped);
       }
@@ -233,10 +288,14 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
       recordXpReason(`Opened ${BOX_DISPLAY[tier].label}`, "gift-outline");
       setCharging(tier);
       setSpinning(tier);
+      // The rattle always lasts CHARGE_MS; a slow server no longer stretches it. The wheel
+      // then shows and starts spinning as soon as the result lands.
+      const stopShake = setTimeout(() => setCharging(null), CHARGE_MS);
       try {
-        const [result] = await Promise.all([claimBox(tier), new Promise((r) => setTimeout(r, CHARGE_MS))]);
+        const result = await claimBox(tier);
         setReward(result);
       } finally {
+        clearTimeout(stopShake);
         setCharging(null);
         setBusy(null);
       }
@@ -360,6 +419,19 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
             ]}
           />
 
+          {/* Close */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            hitSlop={10}
+            onPress={handleClose}
+            style={({ pressed }) => [styles.closeBtn, { top: safe.top + 12, opacity: pressed ? 0.7 : 1 }]}
+          >
+            <LiquidGlass variant="pill" interactive radius={22} contentStyle={styles.closeInner}>
+              <MaterialCommunityIcons name="close" size={22} color="#FFFFFF" />
+            </LiquidGlass>
+          </Pressable>
+
           {/* Centered Liquid Glass Dialog Card */}
           <View
             style={[
@@ -462,12 +534,19 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
 
             {subView === "freeBet" ? (
               <ScrollView
+                ref={freeBetScroll}
+                onScroll={tourScroll.onScroll}
+                scrollEventThrottle={tourScroll.scrollEventThrottle}
                 style={styles.subScroll}
                 contentContainerStyle={styles.subScrollContent}
                 showsVerticalScrollIndicator={false}
               >
-                <WinBackCard />
-                <DailyPickCard />
+                <tourScroll.Provider>
+                  <WinBackCard />
+                  <TourTarget id="vault.freeBet">
+                    <DailyPickCard onLeave={onClose} />
+                  </TourTarget>
+                </tourScroll.Provider>
               </ScrollView>
             ) : subView === "odds" ? (
               <View style={styles.oddsWrap}>
@@ -492,6 +571,8 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
                     pagingEnabled
                     showsHorizontalScrollIndicator={false}
                     onMomentumScrollEnd={onMomentumEnd}
+                    onScroll={onPagerScroll}
+                    onContentSizeChange={onPagerSize}
                     scrollEventThrottle={16}
                     bounces={false}
                   >
@@ -514,7 +595,7 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
                       accessibilityRole="button"
                       accessibilityLabel={`Previous box: ${BOX_DISPLAY[BOX_TIERS[activeIndex - 1]!].label}`}
                       hitSlop={10}
-                      onPress={() => jumpTo(activeIndex - 1)}
+                      onPress={() => jumpTo((targetIdx.current ?? visibleIdx.current) - 1)}
                       style={({ pressed }) => [styles.navArrow, styles.navArrowLeft, { opacity: pressed ? 0.65 : 1 }]}
                     >
                       <MaterialCommunityIcons name="chevron-left" size={20} color="rgba(255,255,255,0.88)" />
@@ -526,7 +607,7 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
                       accessibilityRole="button"
                       accessibilityLabel={`Next box: ${BOX_DISPLAY[BOX_TIERS[activeIndex + 1]!].label}`}
                       hitSlop={10}
-                      onPress={() => jumpTo(activeIndex + 1)}
+                      onPress={() => jumpTo((targetIdx.current ?? visibleIdx.current) + 1)}
                       style={({ pressed }) => [styles.navArrow, styles.navArrowRight, { opacity: pressed ? 0.65 : 1 }]}
                     >
                       <MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.88)" />
@@ -631,6 +712,7 @@ export default function PrizeVaultModal({ visible, onClose }: Props) {
             )}
           </View>
         </View>
+        <TourModalLayer />
       </Modal>
 
       {spinning ? (
@@ -794,6 +876,8 @@ function BoxSlide({
 }
 
 const styles = StyleSheet.create({
+  closeBtn: { position: "absolute", right: 16, zIndex: 10 },
+  closeInner: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   backdrop: {
     flex: 1,
     alignItems: "center",
@@ -1043,7 +1127,9 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
   subScroll: {
-    maxHeight: 440,
+    // Fits the whole free-bet card; only scrolls on a screen too short for it.
+    flexGrow: 0,
+    maxHeight: Dimensions.get("window").height * 0.8,
     paddingHorizontal: 14,
     marginTop: 6,
   },

@@ -8,11 +8,16 @@ import { nyDay } from "../lib/streak";
  * Avatar taunts: a chat row of kind "taunt" that plays one of the sender's
  * dance moves. Server-posted so the checks hold:
  *   - the sender owns the move (free moves count)
- *   - at most one per matchup per sender per ET day (deterministic doc id)
  *   - the receiver hasn't muted taunts (users/{uid}.muteTaunts)
+ * As many as you like: the app names each one (`clientId`), so the row it
+ * shows straight away has the same id as the one written here, and a retry
+ * of the same taunt is a no-op. (Builds without `clientId` keep the old
+ * one-per-matchup-per-day id.)
  * League taunts target your H2H opponent in that week's matchup; DM taunts
  * target a friend, with matchupId naming the challenge/bet being rubbed in.
  */
+const ClientId = z.string().regex(/^[A-Za-z0-9_-]{6,40}$/).optional();
+
 const Input = z.discriminatedUnion("scope", [
   z.object({
     scope: z.literal("league"),
@@ -21,16 +26,19 @@ const Input = z.discriminatedUnion("scope", [
     matchupId: z.string().min(1).max(64),
     receiverUid: z.string().min(1).max(128),
     moveId: z.string().regex(MOVE_ID_RE),
+    clientId: ClientId,
   }),
   z.object({
     scope: z.literal("dm"),
     receiverUid: z.string().min(1).max(128),
     matchupId: z.string().min(1).max(64),
     moveId: z.string().regex(MOVE_ID_RE),
+    clientId: ClientId,
   }),
 ]);
 
-export function tauntDocId(matchupId: string, uid: string, now: number): string {
+export function tauntDocId(matchupId: string, uid: string, now: number, clientId?: string): string {
+  if (clientId) return `taunt_${uid}_${clientId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120);
   return `taunt_${matchupId}_${uid}_${nyDay(now)}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120);
 }
 
@@ -41,7 +49,7 @@ export const sendTaunt = onCall({ region: "us-central1" }, async (req) => {
   const now = Date.now();
   const userRef = db.collection("users").doc(uid);
   const receiverRef = db.collection("users").doc(input.receiverUid);
-  const id = tauntDocId(input.matchupId, uid, now);
+  const id = tauntDocId(input.matchupId, uid, now, input.clientId);
 
   const msgRef =
     input.scope === "league"
@@ -65,7 +73,11 @@ export const sendTaunt = onCall({ region: "us-central1" }, async (req) => {
       input.scope === "league" ? tx.get(db.collection("leagues").doc(input.leagueId).collection("matchups").doc(input.matchupId)) : null,
     ]);
     const [me, receiver, owned, existing, move, scopeDoc, matchup] = reads;
-    if (existing.exists) throw new HttpsError("resource-exhausted", input.scope === "dm" ? "You already taunted them today." : "One taunt per matchup a day.");
+    // Same clientId: this taunt already went through (a retry). Legacy ids: the old daily cap.
+    if (existing.exists) {
+      if (input.clientId) return { ok: true, id };
+      throw new HttpsError("resource-exhausted", input.scope === "dm" ? "You already taunted them today." : "One taunt per matchup a day.");
+    }
     if (!me.exists || !receiver.exists) throw new HttpsError("not-found", "Player not found.");
     if (!isFreeMove(input.moveId) && !owned.exists) throw new HttpsError("permission-denied", "You don't own that move.");
     if (receiver.get("muteTaunts") === true) throw new HttpsError("failed-precondition", "They've muted taunts.");

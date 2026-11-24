@@ -70,7 +70,7 @@ export function Block({
 }
 
 export function TeamMark({ team, size = 20 }: { team: TeamSide; size?: number }) {
-  return <TeamCrest abbr={size < 22 ? "" : team.abbreviation} color={team.color} altColor={team.altColor} size={size} />;
+  return <TeamCrest abbr={size < 22 ? "" : team.abbreviation} name={team.name} color={team.color} altColor={team.altColor} size={size} />;
 }
 
 export function FormStrip({ results, size = 18 }: { results: Array<"W" | "L" | "D" | null>; size?: number }) {

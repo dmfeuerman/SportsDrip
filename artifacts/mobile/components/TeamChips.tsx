@@ -32,10 +32,10 @@ function TeamChips({
     >
       {shown.map((t) =>
         compact ? (
-          <TeamCrest key={teamKey(t)} abbr={t.abbr} color={t.color} size={26} sport={t.sport} style={styles.crestSm} />
+          <TeamCrest key={teamKey(t)} abbr={t.abbr} name={t.name} color={t.color} size={26} sport={t.sport} style={styles.crestSm} />
         ) : (
           <View key={teamKey(t)} style={[styles.chip, { backgroundColor: c.secondary, borderColor: c.alpha(c.foreground, 0.12) }]}>
-            <TeamCrest abbr={t.abbr} color={t.color} size={28} sport={t.sport} />
+            <TeamCrest abbr={t.abbr} name={t.name} color={t.color} size={28} sport={t.sport} />
             <Text style={[styles.name, { color: c.foreground }]} numberOfLines={1}>
               {t.name}
             </Text>

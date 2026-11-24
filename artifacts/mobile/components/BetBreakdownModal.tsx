@@ -7,7 +7,7 @@ import { Amount, Button, CloseButton, Pill, StatTile } from "@/components/ui";
 import { GlassModalSurface } from "@/components/ui/LiquidGlass";
 import { useColors } from "@/hooks/useColors";
 import { describeBet } from "@/lib/markets";
-import { formatOdds, formatPercent, impliedProbability, untilKickoff } from "@/lib/odds";
+import { formatOdds, formatPercent, impliedProbability, kickoffLabel, untilKickoff } from "@/lib/odds";
 import type { Game, TeamSide } from "@/types/game";
 import { useOddsFormat } from "@/lib/settings";
 import { shareViewOrText } from "@/lib/shareCard";
@@ -292,7 +292,7 @@ export default function BetBreakdownModal({
               <View style={[styles.detailBox, { backgroundColor: c.card, borderColor: c.border }]}>
                 <Text style={[styles.sectionTitle, { color: c.foreground }]}>Matchup</Text>
                 {game.status === "upcoming" ? (
-                  <DetailRow label="Kickoff" value={`${game.startTimeLabel} · in ${untilKickoff(game.startsAt)}`} />
+                  <DetailRow label="Kickoff" value={`${kickoffLabel(game.startsAt)} · ${untilKickoff(game.startsAt)}`} />
                 ) : null}
                 {game.venue ? <DetailRow label="Venue" value={[game.venue, game.city].filter(Boolean).join(", ")} /> : null}
                 {game.broadcast ? <DetailRow label="Watch on" value={game.broadcast} /> : null}

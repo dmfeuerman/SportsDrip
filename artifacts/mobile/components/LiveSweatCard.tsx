@@ -85,7 +85,7 @@ export default function LiveSweatCard({ bets, gameById, onOpen }: { bets: SweatB
         ]}
       >
         <View style={styles.tileTop}>
-          <TeamCrest abbr={b.teamAbbr} color={b.teamColor} size={26} sport={g.sport} />
+          <TeamCrest abbr={b.teamAbbr} name={(b.side === "home" ? g.homeTeam : g.awayTeam)?.name} color={b.teamColor} size={26} sport={g.sport} />
           <View style={[styles.typePill, { backgroundColor: c.secondary, borderColor: c.border }]}>
             <Text style={[styles.typeText, { color: c.foreground }]}>{typeLabel}</Text>
           </View>

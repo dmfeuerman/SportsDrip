@@ -184,6 +184,8 @@ function scrollAllToTop() {
 }
 
 export function openTourMenu() {
+  // Mid-tour the ? press is itself a step (first-bet tour): don't queue the menu behind it.
+  if (state.tour) return;
   set({ menu: true });
 }
 
@@ -208,6 +210,8 @@ export interface TargetEntry {
   ref: React.RefObject<{ measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null>;
   /** Scrolls the target's list by dy (positive: down the page). */
   scrollBy?: (dy: number) => void;
+  /** The target's list on screen (window space), so it is brought into the list's visible part. */
+  measureList?: (cb: (x: number, y: number, w: number, h: number) => void) => void;
 }
 
 const targets = new Map<string, TargetEntry>();

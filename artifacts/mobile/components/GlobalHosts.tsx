@@ -7,6 +7,7 @@ import ParlayLeaveGuard from "@/components/ParlayLeaveGuard";
 import KickoffSheet from "@/components/KickoffSheet";
 import CreditsEarnedPopup from "@/components/ads/CreditsEarnedPopup";
 import XpGainPopup from "@/components/XpGainPopup";
+import MyPlayerCardHost from "@/components/MyPlayerCardHost";
 
 /**
  * App-wide overlays and background helpers for a signed-in player. Kept out
@@ -24,6 +25,7 @@ export default function GlobalHosts() {
       <KickoffSheet />
       <CreditsEarnedPopup />
       <XpGainPopup />
+      <MyPlayerCardHost />
     </>
   );
 }

@@ -35,7 +35,10 @@ export default function TauntCard({ taunt }: { taunt: TauntPayload }) {
         }}
         style={[styles.row, { borderColor: c.border, backgroundColor: c.secondary }]}
       >
-        <AvatarDisplay avatar={taunt.avatar} equipped={taunt.equipped} catalog={byId} size="sm" interactive={false} />
+        {/* Stills fill their parent: give it a frame so it sits beside the text, not over the whole row. */}
+        <View style={[styles.thumb, { backgroundColor: c.background }]}>
+          <AvatarDisplay avatar={taunt.avatar} equipped={taunt.equipped} catalog={byId} size="sm" interactive={false} />
+        </View>
         <Text style={[styles.text, { color: c.foreground }]} numberOfLines={1}>
           Tap to play the dance
         </Text>
@@ -44,16 +47,19 @@ export default function TauntCard({ taunt }: { taunt: TauntPayload }) {
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)} statusBarTranslucent>
         <View style={[styles.scrim, { backgroundColor: c.overlay }]}>
           <View accessibilityViewIsModal style={[styles.stage, { backgroundColor: c.elevated, borderColor: c.border }]}>
-            {open && taunt.moveId ? (
-              <AvatarDisplay
-                avatar={taunt.avatar}
-                equipped={taunt.equipped}
-                catalog={byId}
-                size="lg"
-                interactive={false}
-                move={{ id: taunt.moveId, n }}
-              />
-            ) : null}
+            <View style={[styles.dance, { backgroundColor: c.secondary }]}>
+              {open && taunt.moveId ? (
+                <AvatarDisplay
+                  avatar={taunt.avatar}
+                  equipped={taunt.equipped}
+                  catalog={byId}
+                  size="lg"
+                  interactive={false}
+                  focus="dance"
+                  move={{ id: taunt.moveId, n }}
+                />
+              ) : null}
+            </View>
             <Text style={[styles.text, { color: c.foreground, textAlign: "center" }]}>{taunt.text}</Text>
             <Button label="Replay" variant="secondary" onPress={() => setN((x) => x + 1)} />
             <Button label="Close" variant="ghost" onPress={() => setOpen(false)} />
@@ -65,7 +71,9 @@ export default function TauntCard({ taunt }: { taunt: TauntPayload }) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, padding: 8 },
+  row: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, padding: 8, minWidth: 200 },
+  thumb: { width: 40, height: 50, borderRadius: 8, overflow: "hidden" },
+  dance: { height: 340, borderRadius: 16, overflow: "hidden" },
   text: { ...theme.type.bodyStrong, flex: 1 },
   play: theme.type.heading,
   scrim: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },

@@ -142,7 +142,7 @@ function Fighter({
         {who.toUpperCase()}
       </Text>
       <View style={[styles.teamRow, right && { flexDirection: "row-reverse" }]}>
-        <TeamCrest abbr={team.abbreviation} color={team.color} size={40} sport={sport} />
+        <TeamCrest abbr={team.abbreviation} name={team.name} color={team.color} size={40} sport={sport} />
         {score !== null ? <Text style={[styles.score, { color: c.foreground }]}>{score}</Text> : null}
       </View>
       <Text style={[styles.stake, { color: c.cardForeground }]}>{stake.toLocaleString()} in</Text>

@@ -81,6 +81,13 @@ function startStudio(gl: THREE.WebGLRenderer, scene: THREE.Scene, shoot: Shoot) 
     if (job.kind === "avatar") {
       const rig = await rigFor(job.avatar.base);
       const [garments, parts] = await Promise.all([loadGarments(job.outfit.pieces), loadParts(job.avatar)]);
+      // A still is cached (and saved) under the look's key: never keep one missing a piece of the
+      // outfit (a shirt that failed to download would stay off that thumbnail for good). Fail the
+      // render instead so the queue retries it.
+      if (garments.length < job.outfit.pieces.length) {
+        const got = new Set(garments.map((g) => g.piece.itemId));
+        throw new Error(`garments not loaded: ${job.outfit.pieces.filter((p) => !got.has(p.itemId)).map((p) => p.itemId).join(", ")}`);
+      }
       rig.setBaseVisible(true);
       rig.setAppearance(job.avatar, parts);
       rig.setOutfit(job.outfit, garments);

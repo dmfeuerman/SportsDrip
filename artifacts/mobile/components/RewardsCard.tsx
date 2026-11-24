@@ -100,10 +100,14 @@ export default function RewardsCard() {
       // The overlay opens at once with the box rattling in it; the wheel takes over in the same overlay.
       setCharging(tier);
       setSpinning(tier);
+      // The rattle always lasts CHARGE_MS; a slow server no longer stretches it. The wheel
+      // then shows and starts spinning as soon as the result lands.
+      const stopShake = setTimeout(() => setCharging(null), CHARGE_MS);
       try {
-        const [result] = await Promise.all([claimBox(tier), new Promise((r) => setTimeout(r, CHARGE_MS))]);
+        const result = await claimBox(tier);
         setReward(result);
       } finally {
+        clearTimeout(stopShake);
         setCharging(null);
         setBusy(null);
       }

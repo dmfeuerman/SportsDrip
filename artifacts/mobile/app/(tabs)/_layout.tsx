@@ -8,6 +8,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useRef } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { useGames } from "@/hooks/useGames";
 import { haptic } from "@/lib/motion";
 import { useChallenges } from "@/context/ChallengeContext";
 import { useApp } from "@/context/AppContext";
@@ -23,6 +24,7 @@ function useTabBadges(): Partial<Record<string, number>> {
   const { notifications } = useNotifications();
   const { unreadLeagueTokens } = useChat();
   const { incoming } = useChallenges();
+  const { live } = useGames();
   const segments = useSegments() as string[];
   const current = segments[0] === "(tabs)" ? segments[1] ?? "index" : null;
   const { leagueIds, friendIds } = useMemo(() => {
@@ -38,7 +40,9 @@ function useTabBadges(): Partial<Record<string, number>> {
   // A tab's badge counts only what's new since you last opened that tab.
   const all = useMemo(() => [...leagueIds, ...friendIds], [leagueIds, friendIds]);
   const leagues = useUnseenCount("tab.leagues", all, current === "leagues");
-  return { leagues };
+  const liveIds = useMemo(() => live.map((g) => g.id), [live]);
+  const games = useUnseenCount("tab.games.live", liveIds, current === "games");
+  return { leagues, games: games > 0 ? games : undefined };
 }
 
 const badgeText = (n?: number) => (n && n > 0 ? (n > 99 ? "99+" : String(n)) : undefined);
@@ -119,7 +123,7 @@ function ClassicTabLayout() {
             title: t.title,
             tabBarAccessibilityLabel: badges[t.name] ? `${t.title}, ${badges[t.name]} new` : t.title,
             tabBarBadge: badgeText(badges[t.name]),
-            tabBarBadgeStyle: { backgroundColor: colors.accent, fontSize: 11, fontFamily: "Inter_700Bold" },
+            tabBarBadgeStyle: { backgroundColor: t.name === "games" ? colors.live : colors.accent, fontSize: 11, fontFamily: "Inter_700Bold" },
             tabBarIcon: ({ color }) =>
               isIOS ? (
                 <SymbolView name={t.sf as never} tintColor={color} size={22} />

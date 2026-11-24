@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
@@ -28,7 +28,7 @@ import type { CatalogItem } from "@/types/catalog";
 
 type Key = "bodyFrame" | "skinTone" | "height" | "bodyType" | "faceShape" | "eyeShape" | "eyeColor" | "eyebrows" | "noseShape" | "hairStyle" | "hairColor" | "facialHair";
 
-type StepDef = { key: Key; title: string; sub: string; label: string; focus: Focus } & (
+type StepDef = { key: Key; title: string; sub: string; label: string; focus: Focus; color?: { key: Key; label: string; options: string[]; fallback: string } } & (
   | { kind: "swatch"; options: string[]; fallback: string }
   | { kind: "chips"; options: Array<{ id: string; label: string }>; fallback: string }
   | { kind: "stops"; ends: [string, string] }
@@ -41,12 +41,10 @@ const STEPS: StepDef[] = [
   { key: "height", title: "Height", sub: "How tall do you stand?", label: "Height", focus: "full", kind: "stops", ends: ["Shorter", "Taller"] },
   { key: "bodyType", title: "Build", sub: "Slim, broad or somewhere between.", label: "Build", focus: "full", kind: "stops", ends: ["Slim", "Broad"] },
   { key: "faceShape", title: "Face Shape", sub: "Let's get a closer look.", label: "Face shape", focus: "head", kind: "chips", options: FACE_SHAPES, fallback: "oval" },
-  { key: "eyeShape", title: "Eye Shape", sub: "The look in your eyes.", label: "Eye shape", focus: "head", kind: "chips", options: EYE_SHAPES, fallback: "round" },
-  { key: "eyeColor", title: "Eye Color", sub: "Pick a preset or go custom.", label: "Eye color", focus: "head", kind: "swatch", options: EYE_COLORS, fallback: EYE_COLORS[0]! },
+  { key: "eyeShape", title: "Eyes", sub: "The look in your eyes.", label: "Eye shape", focus: "head", kind: "chips", options: EYE_SHAPES, fallback: "round", color: { key: "eyeColor", label: "Eye color", options: EYE_COLORS, fallback: EYE_COLORS[0]! } },
   { key: "eyebrows", title: "Brows", sub: "Every reaction starts here.", label: "Brows", focus: "head", kind: "chips", options: EYEBROWS, fallback: "soft" },
   { key: "noseShape", title: "Nose", sub: "Pick a profile.", label: "Nose", focus: "head", kind: "chips", options: NOSE_SHAPES, fallback: "button" },
-  { key: "hairStyle", title: "Hairstyle", sub: "Fresh cut or nothing at all.", label: "Hairstyle", focus: "hairSide", kind: "chips", options: HAIR_STYLES, fallback: "bald" },
-  { key: "hairColor", title: "Hair Color", sub: "Natural or loud.", label: "Hair color", focus: "hairSide", kind: "swatch", options: HAIR_COLORS, fallback: HAIR_COLORS[0]! },
+  { key: "hairStyle", title: "Hair", sub: "Fresh cut or nothing at all.", label: "Hairstyle", focus: "hairSide", kind: "chips", options: HAIR_STYLES, fallback: "bald", color: { key: "hairColor", label: "Hair color", options: HAIR_COLORS, fallback: HAIR_COLORS[0]! } },
   { key: "facialHair", title: "Facial Hair", sub: "Last detail.", label: "Facial hair", focus: "head", kind: "chips", options: FACIAL_HAIR, fallback: "none" },
 ];
 
@@ -83,8 +81,7 @@ export default function CharacterDesigner({ avatar, onChange, catalog, displayNa
   const moveN = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Hair colour has nothing to show on a bald head.
-  const steps = useMemo(() => STEPS.filter((s) => !(s.key === "hairColor" && avatar.hairStyle === "bald")), [avatar.hairStyle]);
+  const steps = STEPS;
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
@@ -208,6 +205,9 @@ export default function CharacterDesigner({ avatar, onChange, catalog, displayNa
             ) : (
               <Stops label={step.label} value={Number(avatar[step.key] ?? 0.5)} ends={step.ends} onChange={(v) => set(step.key, v)} />
             )}
+            {step.color && !(step.key === "hairStyle" && avatar.hairStyle === "bald") ? (
+              <Swatches label={step.color.label} options={step.color.options} value={String(avatar[step.color.key] ?? step.color.fallback)} onChange={(v) => set(step.color!.key, v)} />
+            ) : null}
             <Button
               label={picked.has(step.key) ? (phase.i + 1 < steps.length ? `Next: ${steps[phase.i + 1]!.title}` : "Finish") : "Make a pick"}
               icon={picked.has(step.key) ? "arrow-right" : undefined}

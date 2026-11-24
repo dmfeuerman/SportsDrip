@@ -126,10 +126,10 @@ export default function TourHost() {
  */
 function AutoFirstBet({ run, onDone }: { run: boolean; onDone: () => void }) {
   const { upcoming } = useGames(["upcoming"]);
-  const { profile, placeBet } = useApp();
+  const { profile, placeBet, bets } = useApp();
   const { show } = useToast();
-  const latest = useRef({ upcoming, balance: profile?.balance ?? 0 });
-  latest.current = { upcoming, balance: profile?.balance ?? 0 };
+  const latest = useRef({ upcoming, balance: profile?.balance ?? 0, paidBets: 0 });
+  latest.current = { upcoming, balance: profile?.balance ?? 0, paidBets: bets.filter((b) => !b.freeBet && b.status !== "cancelled").length };
   const started = useRef(false);
   const [popup, setPopup] = useState<{ auto: boolean; close: () => void } | null>(null);
   useEffect(() => {
@@ -150,8 +150,9 @@ function AutoFirstBet({ run, onDone }: { run: boolean; onDone: () => void }) {
         const game = calledGame ?? latest.current.upcoming.find((g) => g.priced && !g.disrupted && g.startsAt > now);
         const qs = game ? (["home", "away"] as const).map((sd) => quoteMarket(game, "ml", sd)).filter((q) => q.odds) : [];
         const q = (calledGame && called ? qs.find((x) => x.side === called.side) : undefined) ?? qs.sort((a, b) => (a.odds ?? 99) - (b.odds ?? 99))[0];
+        // Never on top of a bet the player placed themselves.
         const ok =
-          !!game && !!q && latest.current.balance >= stake
+          !!game && !!q && latest.current.paidBets === 0 && latest.current.balance >= stake
             ? await placeBet({
                 gameId: game.id,
                 side: q.side ?? undefined,
@@ -191,7 +192,9 @@ function AutoFirstBet({ run, onDone }: { run: boolean; onDone: () => void }) {
           kind: "info",
           icon: "gift-outline",
           title: "Don't forget your free bet",
-          body: "You get a free 100-credit bet every day. Place it from Daily Free Bet on Home.",
+          body: "You get a free 100-credit bet every day. Tap to use it now.",
+          cta: "Open",
+          onPress: () => router.navigate({ pathname: "/", params: { vault: "freeBet" } } as never),
           durationMs: 8000,
         });
       } finally {
@@ -242,7 +245,7 @@ function PlacedScene({ onDone, auto }: { onDone: () => void; auto?: boolean }) {
         </View>
       ) : null}
       <Text style={[styles.body, { color: c.mutedForeground, textAlign: "center" }]}>
-        It's under My Bets on Home. Results pop up the moment the game goes final.
+        It's in My Bets on Home. Results pop up the moment the game goes final.
       </Text>
       <Pressable accessibilityRole="button" onPress={onDone} style={[styles.btn, styles.wide, { backgroundColor: c.primary, borderColor: c.primary }]}>
         <Text style={[styles.btnText, { color: c.primaryForeground, textAlign: "center" }]}>{auto ? "Got it" : "Next: your free bet"}</Text>
@@ -331,7 +334,17 @@ function TourOverlay() {
       if (target.startsWith("tab:")) {
         const i = TABS.indexOf(target.slice(4));
         const barH = isLiquidGlassAvailable() ? 49 + insets.bottom : Platform.OS === "web" ? 72 : 64;
-        found(i < 0 ? null : { x: (W / TABS.length) * i, y: H - barH, w: W / TABS.length, h: Math.min(barH, 58) });
+        if (i < 0) return found(null);
+        if (isLiquidGlassAvailable()) {
+          // Floating glass pill: inset from the sides, sits just above the home indicator.
+          const side = 20;
+          const pillH = 62;
+          const pillBottom = H - Math.max(insets.bottom - 14, 8);
+          const cell = (W - side * 2) / TABS.length;
+          return found({ x: side + cell * i + 4, y: pillBottom - pillH + 4, w: cell - 8, h: pillH - 8 });
+        }
+        const cell = W / TABS.length;
+        found({ x: cell * i + 6, y: H - barH + 4, w: cell - 12, h: Math.min(barH, 58) - 8 });
         return;
       }
       const t = getTarget(target);
@@ -341,12 +354,28 @@ function TourOverlay() {
         if (!w && !h) return found(null);
         const x = wx - origin.current.x;
         const y = wy - origin.current.y;
-        const off = y < insets.top + 40 || y + h > (kbRef.current ? H - kbRef.current - 16 : H * 0.7);
-        if (off && t.scrollBy && Date.now() - lastScroll > 1200) {
-          lastScroll = Date.now();
-          t.scrollBy(kbRef.current ? y + h - (H - kbRef.current - 24) : y - H * 0.28);
-        }
-        found({ x, y, w, h });
+        const fallback = () => {
+          const off = y < insets.top + 40 || y + h > (kbRef.current ? H - kbRef.current - 16 : H * 0.7);
+          if (off && t.scrollBy && Date.now() - lastScroll > 1200) {
+            lastScroll = Date.now();
+            t.scrollBy(kbRef.current ? y + h - (H - kbRef.current - 24) : y - H * 0.28);
+          }
+          found({ x, y, w, h });
+        };
+        if (!t.measureList || kbRef.current) return fallback();
+        // Keep it inside the visible part of its own list (which may start low, under a stage).
+        t.measureList((lx, ly, lw, lh) => {
+          if (!lw && !lh) return fallback();
+          ly -= origin.current.y;
+          const top = Math.max(ly, insets.top + 40);
+          const bottom = Math.max(Math.min(H * 0.7, ly + lh), Math.min(ly + lh, ly + h + 24));
+          if ((y < top || y + h > bottom) && Date.now() - lastScroll > 1200) {
+            lastScroll = Date.now();
+            const want = Math.max(top + 12, Math.min(H * 0.28, bottom - h - 12));
+            t.scrollBy?.(y - want);
+          }
+          found({ x, y, w, h });
+        });
       });
       if (s.glow?.length) {
         const out: Rect[] = [];
@@ -444,9 +473,11 @@ function TourOverlay() {
           <Text style={[styles.count, { color: c.primary }]}>
             {tour.title.toUpperCase()} · {step + 1}/{tour.steps.length}
           </Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="End tutorial" hitSlop={10} onPress={() => endTour()}>
-            <Text style={[styles.end, { color: c.mutedForeground }]}>End tutorial</Text>
-          </Pressable>
+          {tour.hidden ? null : (
+            <Pressable accessibilityRole="button" accessibilityLabel="End tutorial" hitSlop={10} onPress={() => endTour()}>
+              <Text style={[styles.end, { color: c.mutedForeground }]}>End tutorial</Text>
+            </Pressable>
+          )}
         </View>
         <Text style={[styles.title, { color: c.foreground }]}>{s.title}</Text>
         <Text style={[styles.body, { color: c.mutedForeground }]}>{s.body}</Text>
@@ -533,6 +564,7 @@ function PressHint({ hole, below, color, fg, label }: { hole: Rect; below: boole
 /* ── full-screen moments ─────────────────────────────────────────────────── */
 
 function Scene({ scene, tourTitle, step, total }: { scene: "cold" | "prize" | "placed"; tourTitle: string; step: number; total: number }) {
+  const firstRun = !!useTourState().tour?.hidden;
   const c = useColors();
   if (scene === "placed")
     return (
@@ -547,9 +579,11 @@ function Scene({ scene, tourTitle, step, total }: { scene: "cold" | "prize" | "p
           <Text style={[styles.count, { color: c.primary }]}>
             {tourTitle.toUpperCase()} · {step + 1}/{total}
           </Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="End tutorial" hitSlop={10} onPress={() => endTour()}>
-            <Text style={[styles.end, { color: c.mutedForeground }]}>End tutorial</Text>
-          </Pressable>
+          {firstRun ? null : (
+            <Pressable accessibilityRole="button" accessibilityLabel="End tutorial" hitSlop={10} onPress={() => endTour()}>
+              <Text style={[styles.end, { color: c.mutedForeground }]}>End tutorial</Text>
+            </Pressable>
+          )}
         </View>
         {scene === "cold" ? <ColdScene /> : <PrizeScene />}
       </Animated.View>
@@ -569,7 +603,12 @@ function ColdScene() {
     fall.value = withRepeat(withTiming(1, { duration: 2600, easing: Easing.linear }), -1, false);
     buzz.medium();
   }, [shake, fall]);
-  const shiver = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value * 3 }, { rotate: `${shake.value * 1.2}deg` }] }));
+  // The character's own shiver (dances.ts), restarted before each run ends.
+  const [shiverMove, setShiverMove] = useState({ id: "shiver", n: 1 });
+  useEffect(() => {
+    const id = setInterval(() => setShiverMove((m) => ({ id: "shiver", n: m.n + 1 })), 11_000);
+    return () => clearInterval(id);
+  }, []);
   const text = useAnimatedStyle(() => ({ transform: [{ translateX: -shake.value * 2 }, { translateY: shake.value }] }));
   const flakes = useAnimatedStyle(() => ({ transform: [{ translateY: fall.value * 260 - 40 }] }));
   return (
@@ -580,9 +619,9 @@ function ColdScene() {
             <MaterialCommunityIcons key={i} name="snowflake" size={f.s} color="#CFEAFF" style={{ position: "absolute", left: `${f.x}%`, top: f.y, opacity: 0.85 }} />
           ))}
         </Animated.View>
-        <Animated.View style={[styles.coldAvatar, shiver]}>
-          <AvatarDisplay avatar={profile?.avatar} equipped={{}} catalog={byId} size="lg" interactive={false} />
-        </Animated.View>
+        <View style={StyleSheet.absoluteFill}>
+          <AvatarDisplay avatar={profile?.avatar} equipped={{}} catalog={byId} size="lg" interactive={false} move={shiverMove} loadingSpinner />
+        </View>
       </View>
       <Animated.Text style={[styles.brr, { color: "#9AD4FF" }, text]}>BRRRRR</Animated.Text>
       <Text style={[styles.title, { color: c.foreground, textAlign: "center" }]}>You must be cold. Let's buy some clothes.</Text>
@@ -739,16 +778,16 @@ function PrizeScene() {
         )
       ) : null}
       <Text style={[styles.title, { color: c.foreground, textAlign: "center" }]}>
-        {phase === "open" ? "Now let's make your first bet." : "A treasure chest for your first bet!"}
+        {phase === "open" ? "Your free bet is ready." : "This time, we'll give you a free bet!"}
       </Text>
       <Text style={[styles.body, { color: c.mutedForeground, textAlign: "center" }]}>
         {phase === "open"
-          ? "We'll walk you through putting 100 credits on a game. Win and it pays out automatically when the game ends."
+          ? "We'll walk you through placing it on a game. Win and it pays out automatically when the game ends."
           : phase === "error"
             ? "Couldn't open it — check your connection and try again."
             : phase === "ineligible"
               ? "This chest is only for players who haven't placed a bet yet."
-            : "Tap the chest to open it."}
+            : "Tap the chest to open it — your first bet is on the house."}
       </Text>
       <Pressable
         accessibilityRole="button"

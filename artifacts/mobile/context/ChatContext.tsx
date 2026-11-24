@@ -107,6 +107,11 @@ interface ChatContextType {
   unreadForFriend: (friendUid: string) => number;
   /** Mark a DM thread or league chat as seen. */
   markThreadRead: (threadOrLeagueId: string) => void;
+  /**
+   * Shows a DM row written by a server call (a taunt) at once; returns how to
+   * settle it (`false` takes it back off, `true` leaves it until the listener has it).
+   */
+  showPendingDm: (msg: DirectMessage) => (ok: boolean) => void;
   /** Currently active chat room id (suppresses duplicate banner while viewing that room). */
   activeChatId: string | null;
   setActiveChatId: (id: string | null) => void;
@@ -301,13 +306,25 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [rawBetComments, setBetComments] = useState<Record<string, BetComment[]>>(() =>
     uid && DEMO ? buildInitialDemoComments(uid) : {}
   );
+  /** Rows sent from this phone through a server call (taunts), until the thread listener has them. */
+  const [pendingDms, setPendingDms] = useState<Record<string, DirectMessage>>({});
   // Blocked players' messages and replies are hidden everywhere.
   const dmMessagesByThread = useMemo(() => {
-    if (!blockedUids.size) return rawDmMessagesByThread;
+    const pending = Object.values(pendingDms);
+    if (!blockedUids.size && !pending.length) return rawDmMessagesByThread;
     const out: Record<string, DirectMessage[]> = {};
-    for (const [tId, list] of Object.entries(rawDmMessagesByThread)) out[tId] = list.filter((m) => !blockedUids.has(m.senderUid));
+    for (const [tId, list] of Object.entries(rawDmMessagesByThread)) out[tId] = blockedUids.size ? list.filter((m) => !blockedUids.has(m.senderUid)) : list;
+    for (const m of pending) {
+      const list = out[m.threadId] ?? [];
+      if (!list.some((x) => x.id === m.id)) out[m.threadId] = [...list, m].sort((a, b) => a.at - b.at);
+    }
     return out;
-  }, [rawDmMessagesByThread, blockedUids]);
+  }, [rawDmMessagesByThread, blockedUids, pendingDms]);
+  const showPendingDm = useCallback((msg: DirectMessage) => {
+    setPendingDms((p) => ({ ...p, [msg.id]: msg }));
+    const drop = () => setPendingDms((p) => (p[msg.id] === msg ? Object.fromEntries(Object.entries(p).filter(([k]) => k !== msg.id)) : p));
+    return (ok: boolean) => (ok ? setTimeout(drop, 30_000) : drop());
+  }, []);
   const betComments = useMemo(() => {
     if (!blockedUids.size) return rawBetComments;
     const out: Record<string, BetComment[]> = {};
@@ -555,15 +572,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (firebaseConfigured && !DEMO) {
         const db = getDb();
         if (db) {
+          // Shown already; the write runs behind it and is taken back if the server refuses it.
           setDoc(doc(db, "directMessages", tId, "messages", msgId), {
             ...msg,
             createdAt: serverTimestamp(),
-          }).catch(() => {});
+          }).catch(() => {
+            setRawDmMessagesByThread((prev) => {
+              const next = { ...prev, [tId]: (prev[tId] ?? []).filter((m) => m.id !== msgId) };
+              AsyncStorage.setItem(STORAGE_DM_KEY, JSON.stringify(next)).catch(() => {});
+              return next;
+            });
+            reportSyncFailure("Your message wasn't sent.", "Check your connection and try again.");
+          });
         }
       }
       return null;
     },
-    [uid, myName]
+    [uid, myName, reportSyncFailure]
   );
 
   const recordLeagueMessageQuote = useCallback((messageId: string, quote: ReplyQuote) => {
@@ -717,6 +742,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       unreadLeagueTokens,
       unreadForFriend,
       markThreadRead,
+      showPendingDm,
       activeChatId,
       setActiveChatId,
     }),
@@ -735,6 +761,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       unreadLeagueTokens,
       unreadForFriend,
       markThreadRead,
+      showPendingDm,
       activeChatId,
     ]
   );

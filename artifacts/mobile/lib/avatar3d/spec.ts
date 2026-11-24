@@ -25,7 +25,7 @@ export const hairAssetKey = (style: string | undefined | null) => (style && styl
 export const facialHairAssetKey = (style: string | undefined | null) => (style && style !== "none" ? `beard_${style}` : null);
 
 /** Camera framings, in the avatar's rest-pose metres (sd_base_v3: 1.78 tall, eyes at 1.64). */
-export type Focus = "full" | "head" | "hairSide" | "torso" | "legs" | "feet" | "reaction" | "hero";
+export type Focus = "full" | "head" | "hairSide" | "torso" | "legs" | "feet" | "reaction" | "hero" | "dance";
 
 export const FOCUS: Record<Focus, { target: [number, number, number]; distance: number; height: number; yaw?: number }> = {
   full: { target: [0, 0.9, 0], distance: 4.5, height: 0.02 },
@@ -39,6 +39,8 @@ export const FOCUS: Record<Focus, { target: [number, number, number]; distance: 
   reaction: { target: [0, 1.18, 0], distance: 3.2, height: 0.05 },
   /** Head to toe filling the Home hero stage cleanly (Home). */
   hero: { target: [0, 0.83, 0], distance: 4.55, height: 0.03 },
+  /** Floor to raised hands with headroom for the tallest build: a stage that exists to show a dance (taunts). */
+  dance: { target: [0, 1.12, 0], distance: 5.5, height: 0.03 },
 };
 
 export const CAMERA_FOV = 28;

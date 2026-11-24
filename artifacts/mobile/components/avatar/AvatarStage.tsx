@@ -15,9 +15,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTim
 import Svg, { Circle } from "react-native-svg";
 import { Pressable } from "@/components/fx/Tap";
 import * as THREE from "three";
-import AvatarSilhouette from "@/components/avatar/AvatarSilhouette";
 import { markAvatarDrawn } from "@/lib/bootSignal";
-import AvatarPortrait from "@/components/avatar/AvatarPortrait";
 import { addStudioLights, AvatarRig, contactShadow, fitDepthRange, type AppearanceParts, type GarmentSource } from "@/lib/avatar3d/avatarRig";
 import { Canvas } from "@/lib/avatar3d/canvas";
 import type { ResolvedOutfit } from "@/lib/avatar3d/outfit";
@@ -72,8 +70,10 @@ export interface AvatarStageProps {
   /** Keeps the character centred and fully visible in the uncovered part of the stage. */
   insets?: React.MutableRefObject<StageInsets>;
   style?: ViewStyle;
-  /** Show a spinner while the equipped garments are still loading (try-on). */
+  /** Kept for callers; the stage always shows a spinner until the whole character is ready. */
   loadingSpinner?: boolean;
+  /** The look isn't known yet (no profile / catalog): spinner, nothing drawn. */
+  waiting?: boolean;
 }
 
 interface ViewState {
@@ -124,11 +124,11 @@ const touchMid = (e: GestureResponderEvent): [number, number] => {
  * AvatarPortrait, which is rendered from the same rig offscreen.
  */
 const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function AvatarStage(
-  { avatar, outfit, focus = "full", interactive = true, controls, onGesture, autoRotate = false, cheerSignal = 0, reaction = null, move = null, active = true, insets, style, backdropCam, onTap, loadingSpinner = false },
+  { avatar, outfit, focus = "full", interactive = true, controls, onGesture, autoRotate = false, cheerSignal = 0, reaction = null, move = null, active = true, insets, style, backdropCam, onTap, waiting = false },
   ref
 ) {
   const assets = useAvatarAssets(avatar, outfit);
-  const glReady = useSettledLayout();
+  const glReady = useSettledLayout(!waiting && assets.status === "ready");
   useEffect(() => {
     trace("avatar", `stage mounted (${focus})`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,15 +242,22 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
       }
     : null;
 
-  // The stand-in still stays up until the live character has actually drawn.
+  // Nothing shows until the whole character is ready: body, hair and every garment bound,
+  // camera on its framing. Until then the canvas is invisible and a spinner shows, so the
+  // character never appears in pieces (bare body → clothes → jump into position).
   const [drawn, setDrawn] = useState(false);
   const onFirstFrame = useRef(() => setDrawn(true)).current;
-
-  // Tell the boot splash the character is on screen as it should look: final body, hair and
-  // every equipped garment. Two frames' grace so the garments that just attached have drawn.
-  const complete = drawn && assets.status === "ready" && assets.garments.length >= outfit.pieces.length;
+  const ready = !waiting && assets.status === "ready" && !!assets.base;
+  const shown = drawn && ready;
+  const fade = useSharedValue(0);
   useEffect(() => {
-    if (!complete) return;
+    fade.value = shown ? withTiming(1, { duration: 220, easing: Easing.out(Easing.quad) }) : 0;
+  }, [shown, fade]);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+
+  // Tell the boot splash the character is on screen as it should look. Two frames' grace.
+  useEffect(() => {
+    if (!shown) return;
     let b = 0;
     const a = requestAnimationFrame(() => {
       b = requestAnimationFrame(markAvatarDrawn);
@@ -259,12 +266,10 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
       cancelAnimationFrame(a);
       cancelAnimationFrame(b);
     };
-  }, [complete]);
+  }, [shown]);
 
-  const topColor = outfit.pieces.find((p) => p.slot === "outerwear" || p.slot === "top")?.primary;
-  const bottomColor = outfit.pieces.find((p) => p.slot === "bottom")?.primary;
   const overlayInsets = insets ? { top: insets.current.top, bottom: insets.current.bottom } : null;
-  const showControls = (controls ?? interactive) && !!assets.base;
+  const showControls = (controls ?? interactive) && shown;
 
   return (
     <View
@@ -273,28 +278,18 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
       {...(interactive ? pan.panHandlers : {})}
       accessibilityLabel="Your avatar. Drag to turn, pinch to zoom."
     >
-      {!drawn ? (
-        <View style={[StyleSheet.absoluteFill, overlayInsets]} pointerEvents="none">
-          {/* The last still of this exact look (cached across launches) stands in until the live
-              character's first frame, so the player sees themselves at once rather than a silhouette. */}
-          {/* Try-on screens skip the still: it can disagree with the live look; the spinner covers the wait. */}
-          {loadingSpinner ? null : <AvatarPortrait avatar={avatar} outfit={outfit} framing="hero" />}
-          <View style={[StyleSheet.absoluteFill, styles.centre]}>
-            {assets.status !== "error" ? null : (
-              <>
-                <Text style={styles.failText}>Couldn't load the 3D character</Text>
-                {__DEV__ && lastLoadError ? (
-                  <Text style={styles.devError} numberOfLines={4}>
-                    {lastLoadError}
-                  </Text>
-                ) : null}
-              </>
-            )}
-          </View>
+      {assets.status === "error" && !shown ? (
+        <View style={[StyleSheet.absoluteFill, overlayInsets, styles.centre]} pointerEvents="none">
+          <Text style={styles.failText}>Couldn't load the 3D character</Text>
+          {__DEV__ && lastLoadError ? (
+            <Text style={styles.devError} numberOfLines={4}>
+              {lastLoadError}
+            </Text>
+          ) : null}
         </View>
       ) : null}
-      {assets.base && glReady.ready ? (
-        <View style={styles.fill} {...(tapHandlers ?? {})}>
+      {ready && assets.base && glReady.ready ? (
+        <Animated.View style={[styles.fill, fadeStyle]} {...(tapHandlers ?? {})}>
         <Canvas
           style={styles.fill}
           frameloop={active ? "always" : "never"}
@@ -314,8 +309,8 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
             base={assets.base}
             parts={assets.parts}
             garments={assets.garments}
-            avatar={avatar}
-            outfit={outfit}
+            avatar={assets.avatar}
+            outfit={assets.outfit}
             focus={focus}
             view={view}
             insets={insets}
@@ -328,10 +323,10 @@ const AvatarStage = forwardRef<AvatarStageHandle, AvatarStageProps>(function Ava
             onFirstFrame={onFirstFrame}
           />
         </Canvas>
-        </View>
+        </Animated.View>
       ) : null}
-      {loadingSpinner && !drawn && assets.status !== "error" ? (
-        <View style={[StyleSheet.absoluteFill, styles.centre]} pointerEvents="none">
+      {!shown && assets.status !== "error" ? (
+        <View style={[StyleSheet.absoluteFill, overlayInsets, styles.centre]} pointerEvents="none">
           <View style={styles.spinnerPill}>
             <RotatingLineSpinner />
           </View>
@@ -377,8 +372,9 @@ async function createStageRenderer(defaults: Record<string, unknown>) {
   }
   return new THREE.WebGLRenderer({ ...defaults, antialias: true, alpha: true, preserveDrawingBuffer: false } as THREE.WebGLRendererParameters);
 }
-function useSettledLayout() {
+function useSettledLayout(enabled: boolean) {
   const [ready, setReady] = useState(Platform.OS === "web");
+  const [settled, setSettled] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const turn = useRef<GlTurn | null>(null);
   const alive = useRef(true);
@@ -398,19 +394,26 @@ function useSettledLayout() {
     const key = `${Math.round(width)}x${Math.round(height)}`;
     if (key === last.current && timer.current) return;
     last.current = key;
-    // Restart the wait on every size change; once it has held still, queue
-    // for a GL turn (after launch, one context at a time).
+    // Restart the wait on every size change.
+    setSettled(false);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      trace("avatar", "stage layout settled; waiting for a GL turn");
-      const t = (turn.current = takeGlTurn());
-      t.ready.then(() => {
-        trace("avatar", "stage got its GL turn");
-        if (alive.current) setReady(true);
-        else t.done();
-      });
+      trace("avatar", "stage layout settled");
+      if (alive.current) setSettled(true);
     }, SETTLE_MS);
   };
+  // Queue for a GL turn (after launch, one context at a time) only once the character is
+  // ready to draw, so a stage still waiting on its look doesn't hold up everyone else's.
+  useEffect(() => {
+    if (ready || turn.current || !settled || !enabled) return;
+    trace("avatar", "stage waiting for a GL turn");
+    const t = (turn.current = takeGlTurn());
+    t.ready.then(() => {
+      trace("avatar", "stage got its GL turn");
+      if (alive.current) setReady(true);
+      else t.done();
+    });
+  }, [ready, settled, enabled]);
   const done = () => turn.current?.done();
   return { ready, onLayout, done };
 }
@@ -585,8 +588,11 @@ function StageScene({
   // Report the first frame drawn with the outfit bound (the frame after this one is on screen).
   const frames = useRef(0);
   useFrame((state, dt) => {
+    // The first frames are drawn hidden: snap the camera and turn straight to where they
+    // belong instead of easing in, so the character appears already in position.
+    const settling = frames.current < 3;
     rig.update(Math.min(dt, 0.05));
-    if (frames.current < 3 && ++frames.current === 3) onFirstFrame?.();
+    if (settling && ++frames.current === 3) onFirstFrame?.();
 
     const v = view.current;
     if (!v.dragging) {
@@ -597,7 +603,7 @@ function StageScene({
     }
     // Framings like hairSide turn the character to a profile; dragging still spins from there.
     const yawGoal = v.free || v.manual ? 0 : FOCUS[focus].yaw ?? 0;
-    yaw.current += (yawGoal - yaw.current) * (1 - Math.pow(0.0005, Math.min(dt, 0.5)));
+    yaw.current = settling ? yawGoal : yaw.current + (yawGoal - yaw.current) * (1 - Math.pow(0.0005, Math.min(dt, 0.5)));
     rig.root.rotation.y = v.angle + yaw.current;
 
     // Overlays cover part of the stage: frame the character inside what's
@@ -647,7 +653,7 @@ function StageScene({
         : FOCUS[focus];
     // Real elapsed time, so a slow device still lands on the new framing in
     // ~0.6s rather than crawling there frame by frame.
-    const k = 1 - Math.pow(0.0005, Math.min(dt, 0.5));
+    const k = settling ? 1 : 1 - Math.pow(0.0005, Math.min(dt, 0.5));
     goalTarget.set(goal.target[0], goal.target[1], goal.target[2]);
     cam.current.target.lerp(goalTarget, k);
     cam.current.distance += (goal.distance - cam.current.distance) * k;

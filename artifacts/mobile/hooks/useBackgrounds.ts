@@ -1,7 +1,6 @@
-import { subscribeBundle } from "@/lib/bundles";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useBundle } from "@/lib/bundleStore";
 import { BACKGROUND_LIBRARY, isFreeBackground, type BackgroundInfo, type BackgroundRarity } from "@/constants/backgrounds";
-import { getDb } from "@/lib/firebase";
 import { DEMO } from "@/lib/demo";
 
 export interface StoreBackground extends BackgroundInfo {
@@ -27,19 +26,15 @@ interface BackgroundDoc {
  * (constants/backgrounds.ts), priced and gated from Firestore
  * `backgrounds/{id}`. Without a backend (demo) the defaults are used.
  */
-export function useBackgrounds() {
-  const [docs, setDocs] = useState<Map<string, BackgroundDoc> | null>(null);
+const NO_DOCS: never[] = [];
 
-  useEffect(() => {
-    const db = DEMO ? null : getDb();
-    if (!db) return;
-    return subscribeBundle(
-      db,
-      "backgrounds",
-      (items) => setDocs(new Map(items.map(({ id, ...d }) => [id, d as unknown as BackgroundDoc]))),
-      () => {}
-    );
-  }, []);
+export function useBackgrounds() {
+  // Shared listener + the phone's last copy (lib/bundleStore.ts). Demo: built-in defaults.
+  const bundle = useBundle("backgrounds", DEMO ? NO_DOCS : null);
+  const docs = useMemo(
+    () => (DEMO || !bundle.items ? null : new Map(bundle.items.map(({ id, ...d }) => [id, d as unknown as BackgroundDoc]))),
+    [bundle.items]
+  );
 
   const backgrounds = useMemo<StoreBackground[]>(() => {
     const now = Date.now();

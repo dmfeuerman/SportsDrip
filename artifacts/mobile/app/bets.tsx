@@ -1,21 +1,25 @@
 import { adAfterRow } from "@/constants/ads";
 import SponsoredCard from "@/components/ads/SponsoredCard";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useUnseenCount } from "@/lib/settings";
 import React, { useDeferredValue, useMemo, useState } from "react";
 import ParlayTicket from "@/components/ParlayTicket";
 import ChallengeCard from "@/components/ChallengeCard";
 import BetRecordPanel, { betNet } from "@/components/BetRecordPanel";
+import { Pressable } from "@/components/fx/Tap";
+import { useMyFlashPicks, type FlashPick } from "@/hooks/useFlashPicks";
 import { useNow } from "@/hooks/useNow";
 import { useMyParlays } from "@/hooks/useMyParlays";
 import { useToast } from "@/context/ToastContext";
 import * as api from "@/lib/api";
+import { openGameCenter } from "@/lib/gameCenter";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import BetBreakdownModal, { type BetBreakdownItem } from "@/components/BetBreakdownModal";
 import BetTicket, { type TicketBet } from "@/components/BetTicket";
 import GameQuickView from "@/components/GameQuickView";
-import { ActionChip, Amount, ConfirmDialog, EmptyState, FilterPills, LoadingState, ScreenHeader, TabStrip, useBottomPad } from "@/components/ui";
-import { GlassDomeSheen, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
+import { ActionChip, Amount, ConfirmDialog, EmptyState, FilterPills, LoadingState, Pill, ScreenHeader, TabStrip, useBottomPad } from "@/components/ui";
+import { GlassDomeSheen, LiquidGlass, ObsidianBackdrop } from "@/components/ui/LiquidGlass";
 import { useApp } from "@/context/AppContext";
 import { useChallenges, viewOf } from "@/context/ChallengeContext";
 import { useLeague } from "@/context/LeagueContext";
@@ -35,6 +39,7 @@ export default function MyBetsScreen() {
   const params = useLocalSearchParams<{ wallet?: string; tab?: Tab }>();
   const { bets, betsLoaded, balance, cancelBet, profile } = useApp();
   const parlays = useMyParlays(profile?.uid);
+  const flashPicks = useMyFlashPicks(profile?.uid);
   const { show } = useToast();
   const { leagues, myLeagueBets } = useLeague();
   const { games } = useGames();
@@ -88,10 +93,31 @@ export default function MyBetsScreen() {
 
   const open = rows.filter((r) => r.bet.status === "pending");
   const settled = rows.filter((r) => r.bet.status !== "pending");
+  const shownFlash = useMemo(() => {
+    if (deferredWallet !== "all" && deferredWallet !== "credits") return [];
+    return flashPicks.filter((p) => (deferredTab === "open" ? p.status === "pending" : p.status !== "pending"));
+  }, [flashPicks, deferredWallet, deferredTab]);
   const list = deferredTab === "open" ? open : settled;
   // Red badges count only bets you haven't looked at yet.
-  const openNew = useUnseenCount("bets.open", open.map((r) => r.key), tab === "open");
-  const settledNew = useUnseenCount("bets.settled", settled.map((r) => r.key), tab === "settled");
+  const openIds = useMemo(
+    () => [...open.map((r) => r.key), ...flashPicks.filter((p) => p.status === "pending").map((p) => `fp_${p.id}`)],
+    [open, flashPicks]
+  );
+  const settledIds = useMemo(
+    () => [...settled.map((r) => r.key), ...flashPicks.filter((p) => p.status !== "pending").map((p) => `fp_${p.id}`)],
+    [settled, flashPicks]
+  );
+  // Everything under Open for this wallet: bets, plus (own wallet) flash picks, parlays and live challenges.
+  const ownWallet = deferredWallet === "all" || deferredWallet === "credits";
+  const openCount =
+    open.length +
+    (ownWallet
+      ? flashPicks.filter((p) => p.status === "pending").length +
+        parlays.filter((p) => p.status === "pending" && !cancelledParlays[p.id]).length +
+        openChallenges
+      : 0);
+  const openNew = useUnseenCount("bets.open", openIds, tab === "open");
+  const settledNew = useUnseenCount("bets.settled", settledIds, tab === "settled");
   const won = settled.filter((r) => r.bet.status === "won").length;
   const lost = settled.filter((r) => r.bet.status === "lost").length;
   const pushes = settled.filter((r) => r.bet.status === "push").length;
@@ -219,7 +245,7 @@ export default function MyBetsScreen() {
           value={tab}
           onChange={setTab}
           options={[
-            { value: "open", label: "Open", badge: openNew || undefined },
+            { value: "open", label: openCount > 0 ? `Open (${openCount})` : "Open", badge: openNew || undefined },
             { value: "settled", label: "Settled", badge: settledNew || undefined },
           ]}
         />
@@ -290,6 +316,14 @@ export default function MyBetsScreen() {
         ListHeaderComponent={
           wallet === "all" || wallet === "credits" ? (
             <View style={{ gap: 10, marginBottom: 10 }}>
+              {shownFlash.map((fp) => (
+                <FlashPickTicket
+                  key={`fp_${fp.id}`}
+                  pick={fp}
+                  game={gameById.get(fp.gameId) ?? null}
+                  onOpen={() => openGameCenter(fp.gameId, "live")}
+                />
+              ))}
               {challengeViews.map((v) => (
                 <ChallengeCard
                   key={`ch_${v.ch.id}`}
@@ -342,7 +376,7 @@ export default function MyBetsScreen() {
           ) : undefined
         }
         ListEmptyComponent={
-          (challengeViews.length > 0 || parlays.some((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending"))) && (wallet === "all" || wallet === "credits") ? undefined : !betsLoaded ? (
+          (shownFlash.length > 0 || challengeViews.length > 0 || parlays.some((p) => (tab === "open" ? p.status === "pending" : p.status !== "pending"))) && (wallet === "all" || wallet === "credits") ? undefined : !betsLoaded ? (
           <LoadingState label="Loading your bets…" />
           ) : (
           <EmptyState
@@ -404,8 +438,82 @@ export default function MyBetsScreen() {
   );
 }
 
+function FlashPickTicket({
+  pick,
+  game,
+  onOpen,
+}: {
+  pick: FlashPick;
+  game: ReturnType<typeof useGames>["games"][number] | null;
+  onOpen: () => void;
+}) {
+  const c = useColors();
+  const pending = pick.status === "pending";
+  const won = pick.status === "won";
+  const lost = pick.status === "lost";
+  const stake = pick.stake ?? 0;
+  const matchup = game
+    ? `${game.awayTeam.abbreviation} ${game.awayScore ?? 0} – ${game.homeScore ?? 0} ${game.homeTeam.abbreviation}`
+    : pick.sport ?? "Live Game";
+  return (
+    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1 })}>
+      <LiquidGlass
+        variant="card"
+        borderColor={pending ? c.alpha(c.live, 0.5) : won ? c.alpha(c.positive, 0.45) : undefined}
+        borderWidth={pending ? 1.25 : 1}
+        contentStyle={styles.flashCard}
+      >
+        <View style={styles.flashHead}>
+          <View style={[styles.flashBadge, { backgroundColor: c.alpha(c.live, 0.16) }]}>
+            <MaterialCommunityIcons name="flash" size={12} color={c.live} />
+            <Text style={[styles.flashBadgeText, { color: c.live }]}>LIVE BET</Text>
+          </View>
+          {pick.sport ? <Text style={[styles.flashMeta, { color: c.mutedForeground }]}>{pick.sport}</Text> : null}
+          <View style={{ marginLeft: "auto" }}>
+            <Pill
+              label={pending ? "LIVE" : won ? "WON" : lost ? "LOST" : "PUSH"}
+              tone={pending ? "accent" : won ? "positive" : lost ? "negative" : "neutral"}
+            />
+          </View>
+        </View>
+        <View style={styles.flashBody}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={[styles.flashTitle, { color: c.foreground }]} numberOfLines={1}>
+              {pick.teamAbbr} to score next
+            </Text>
+            <Text style={[styles.flashMeta, { color: c.mutedForeground }]} numberOfLines={1}>
+              {matchup} · {stake > 0 ? `Stake ${stake.toLocaleString()} (${pick.odds ?? 1.91}x)` : "Free daily pick"}
+            </Text>
+          </View>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text
+              style={[
+                styles.flashPayout,
+                { color: won ? c.positive : lost ? c.negative : "#FCE092" },
+              ]}
+            >
+              {lost && stake > 0 ? `-${stake.toLocaleString()}` : lost ? "0" : `+${pick.reward.toLocaleString()}`}
+            </Text>
+            <Text style={[styles.flashMeta, { color: c.subtleForeground }]}>
+              {pending ? "to win" : won ? "won" : lost ? "missed" : stake > 0 ? "refunded" : "push"}
+            </Text>
+          </View>
+        </View>
+      </LiquidGlass>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  flashCard: { padding: 13, gap: 8 },
+  flashHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  flashBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  flashBadgeText: { fontSize: 10.5, fontFamily: "Inter_800ExtraBold", letterSpacing: 0.7 },
+  flashBody: { flexDirection: "row", alignItems: "center", gap: 10 },
+  flashTitle: { fontSize: 15, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.2 },
+  flashMeta: { fontSize: 12, fontFamily: "Inter_500Medium", fontVariant: ["tabular-nums"] },
+  flashPayout: { fontSize: 16, fontFamily: "Inter_900Black", fontVariant: ["tabular-nums"] },
   stats: { flexDirection: "row", gap: 8 },
   statsDrawer: { gap: 8 },
   bentoStatsRow: { flexDirection: "row", gap: 8 },

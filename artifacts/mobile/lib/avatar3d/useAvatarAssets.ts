@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { AvatarConfig, Equipped } from "@/types/avatar";
 import type { CatalogItem } from "@/types/catalog";
@@ -9,7 +9,11 @@ import { pieceLook, resolveOutfit, type OutfitPiece, type ResolvedOutfit } from 
 import { facialHairAssetKey, hairAssetKey } from "./spec";
 
 export function useResolvedOutfit(equipped: Equipped, catalog: Map<string, CatalogItem>): ResolvedOutfit {
-  const sig = JSON.stringify(equipped);
+  // Key order varies between the phone's copy and the server's: don't re-resolve for that.
+  const sig = Object.keys(equipped)
+    .sort()
+    .map((k) => `${k}=${equipped[k as keyof Equipped] ?? ""}`)
+    .join("|");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => resolveOutfit(equipped, catalog), [sig, catalog]);
 }
@@ -76,41 +80,87 @@ export interface AvatarAssets {
   parts: AppearanceParts;
   garments: GarmentSource[];
   status: "loading" | "ready" | "error";
+  /** The look these assets dress: always draw `avatar` + `outfit` from here, never the props. */
+  avatar: AvatarConfig;
+  outfit: ResolvedOutfit;
 }
 
+const outfitSig = (outfit: ResolvedOutfit) =>
+  outfit.pieces.map((p) => `${p.slot}:${pieceLook(p)}:${p.attach ? JSON.stringify(p.attach) : ""}:${p.hides?.join("+") ?? "-"}:${p.layer}`).join(",");
+
+/** Everything the look needs, if it's all already in memory (no await, no flash). */
+function peekAll(avatar: AvatarConfig, outfit: ResolvedOutfit): Omit<AvatarAssets, "status" | "avatar" | "outfit"> | null {
+  const base = peekAsset({ key: baseEntry(avatar.base).key });
+  if (!base) return null;
+  const parts = peekParts(avatar);
+  if (!parts) return null;
+  const garments: GarmentSource[] = [];
+  for (const piece of outfit.pieces) {
+    const gltf = peekAsset(pieceRef(piece));
+    if (!gltf) return null;
+    garments.push({ piece, gltf });
+  }
+  return { base, parts, garments };
+}
+
+type Loaded = { key: string; base: GLTF; parts: AppearanceParts; garments: GarmentSource[] } | { key: string; error: true };
+
 /**
- * Base + hair + facial hair + garments for a look. Keeps showing the previous
- * parts and garments while new ones download, so changing a hat or a
- * hairstyle doesn't blank the character.
+ * Base + hair + facial hair + garments for a look, all or nothing: a look is
+ * only ever handed over complete. Already-cached looks (anything tried on in
+ * the Drip Shop) are returned on the same render; while a new one downloads,
+ * the previous complete look stays up, so a character never shows a body
+ * without its clothes or an outfit missing a piece.
  */
 export function useAvatarAssets(avatar: AvatarConfig, outfit: ResolvedOutfit): AvatarAssets {
-  const base = baseEntry(avatar.base);
-  const baseRef = { key: base.key };
-  const [state, setState] = useState<AvatarAssets>(() => {
-    const b = peekAsset(baseRef) ?? null;
-    const parts = peekParts(avatar);
-    const g = outfit.pieces
-      .map((piece) => ({ piece, gltf: peekAsset(pieceRef(piece)) }))
-      .filter((x): x is GarmentSource => !!x.gltf);
-    const complete = b && parts && g.length === outfit.pieces.length;
-    return { base: b, parts: parts ?? { hair: null, facialHair: null }, garments: g, status: complete ? "ready" : "loading" };
-  });
-
-  const sig = outfit.pieces.map((p) => `${p.slot}:${pieceLook(p)}:${p.attach ? JSON.stringify(p.attach) : ""}:${p.hides?.join("+") ?? "-"}:${p.layer}`).join(",");
+  const baseKey = baseEntry(avatar.base).key;
   const keys = partKeys(avatar);
+  const key = `${baseKey}|${keys.hair ?? "-"}|${keys.facialHair ?? "-"}|${outfitSig(outfit)}`;
+
+  // Cheap Map lookups; recomputed when the look changes.
+  const peeked = useMemo(() => peekAll(avatar, outfit), [avatar, outfit]);
+  const need = !peeked;
+
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   useEffect(() => {
+    if (!need) return;
     let alive = true;
-    Promise.all([loadAsset(baseRef), loadParts(avatar), loadGarments(outfit.pieces)])
-      .then(([b, parts, g]) => alive && setState({ base: b, parts, garments: g, status: "ready" }))
+    Promise.all([loadAsset({ key: baseKey }), loadParts(avatar), loadGarments(outfit.pieces)])
+      .then(([base, parts, garments]) => alive && setLoaded({ key, base, parts, garments }))
       .catch((e) => {
         console.warn("[avatar] base model failed to load", e);
-        if (alive) setState((s) => ({ ...s, status: "error" }));
+        if (alive) setLoaded({ key, error: true });
       });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base.key, sig, keys.hair, keys.facialHair]);
+  }, [key, need]);
 
-  return state;
+  // The last complete look handed out, shown while the next one loads.
+  const last = useRef<AvatarAssets | null>(null);
+  const fresh = peeked ?? (loaded && loaded.key === key && !("error" in loaded) ? loaded : null);
+  if (fresh) {
+    const prev = last.current;
+    // Same objects as last render when nothing changed, so the scene doesn't rebind.
+    if (!prev || prev.base !== fresh.base || prev.avatar !== avatar || prev.outfit !== outfit || !sameParts(prev.parts, fresh.parts) || !sameGarments(prev.garments, fresh.garments)) {
+      last.current = { base: fresh.base, parts: fresh.parts, garments: fresh.garments, status: "ready", avatar, outfit };
+    }
+    return last.current!;
+  }
+  if (last.current) return last.current;
+  return {
+    base: null,
+    parts: NO_PARTS,
+    garments: NO_GARMENTS,
+    status: loaded && loaded.key === key && "error" in loaded ? "error" : "loading",
+    avatar,
+    outfit,
+  };
 }
+
+const NO_PARTS: AppearanceParts = { hair: null, facialHair: null };
+const NO_GARMENTS: GarmentSource[] = [];
+const sameParts = (a: AppearanceParts, b: AppearanceParts) => a.hair === b.hair && a.facialHair === b.facialHair;
+const sameGarments = (a: GarmentSource[], b: GarmentSource[]) =>
+  a.length === b.length && a.every((g, i) => g.gltf === b[i]!.gltf && g.piece === b[i]!.piece);

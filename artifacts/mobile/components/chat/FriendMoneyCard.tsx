@@ -31,6 +31,12 @@ function setLocalFriendLoan(loan: api.FriendLoan) {
   localFriendLoans.set(loan.id, loan);
   localFriendListeners.forEach((fn) => fn());
 }
+/** Drops a local override (the server refused it): back to the live copy. */
+function clearLocalFriendLoan(id: string, only?: api.FriendLoan) {
+  if (only && localFriendLoans.get(id) !== only) return;
+  localFriendLoans.delete(id);
+  localFriendListeners.forEach((fn) => fn());
+}
 
 /** Live state of a friend loan, for the card's buttons. */
 function useFriendLoan(m: DirectMessage) {
@@ -424,19 +430,23 @@ function FriendLoanCard({
   // Only the opening card (loan_<id>) carries the interactive controls; later turn receipts show a compact summary badge.
   const opener = m.id === `loan_${m.loanId}`;
 
+  // Instant: the card shows the new state the moment you tap; the server call runs behind it
+  // and the card goes back (with a toast saying why) if it's refused.
   const act = async (key: string, fn: () => Promise<unknown>, done: string, optimisticPatch?: Partial<api.FriendLoan>) => {
-    setBusy(key);
-    try {
-      if (DEMO && loan && optimisticPatch) {
-        setLocalFriendLoan({ ...loan, ...optimisticPatch });
-      } else {
-        await fn();
-        if (loan && optimisticPatch) setLocalFriendLoan({ ...loan, ...optimisticPatch });
-      }
-      haptic.success();
+    const shown = loan && optimisticPatch ? { ...loan, ...optimisticPatch } : null;
+    if (shown) setLocalFriendLoan(shown);
+    haptic.success();
+    setQuickCounterOpen(false);
+    if (DEMO) {
       show({ kind: "win", title: done });
-      setQuickCounterOpen(false);
+      return;
+    }
+    if (!shown) setBusy(key);
+    try {
+      await fn();
+      show({ kind: "win", title: done });
     } catch (e) {
+      if (shown) clearLocalFriendLoan(shown.id, shown);
       haptic.error();
       show({ kind: "warning", title: "Couldn't do that", body: api.friendlyError(e) });
     } finally {

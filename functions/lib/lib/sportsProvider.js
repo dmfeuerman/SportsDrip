@@ -106,15 +106,23 @@ function toDisrupted(name) {
     }
     return null;
 }
-function toStatus(name) {
+function toStatus(name, state) {
     if (name === "STATUS_IN_PROGRESS" ||
         name === "STATUS_HALFTIME" ||
         name === "STATUS_END_PERIOD" ||
         name === "STATUS_FIRST_HALF" ||
-        name === "STATUS_SECOND_HALF") {
+        name === "STATUS_SECOND_HALF" ||
+        name === "STATUS_OVERTIME" ||
+        name === "STATUS_SHOOTOUT" ||
+        name === "STATUS_END_OF_REGULATION" ||
+        state === "in") {
         return "live";
     }
-    if (name === "STATUS_FINAL" || name === "STATUS_FULL_TIME" || name === "STATUS_FINAL_PEN") {
+    if (name === "STATUS_FINAL" ||
+        name === "STATUS_FULL_TIME" ||
+        name === "STATUS_FINAL_PEN" ||
+        name === "STATUS_FINAL_AET" ||
+        state === "post") {
         return "final";
     }
     return "upcoming";
@@ -287,8 +295,9 @@ function parseEvent(event, sport, sportIcon, seasonLabel, providerPath) {
     if (!home || !away)
         return null;
     const rawStatusName = event.status?.type?.name ?? "STATUS_SCHEDULED";
+    const rawStatusState = typeof event.status?.type?.state === "string" ? event.status.type.state : undefined;
     const disrupted = toDisrupted(rawStatusName);
-    const status = disrupted ? "upcoming" : toStatus(rawStatusName);
+    const status = disrupted ? "upcoming" : toStatus(rawStatusName, rawStatusState);
     const scored = status !== "upcoming";
     const bookOdds = comp.odds?.[0];
     const ml = extractMoneylines(bookOdds);

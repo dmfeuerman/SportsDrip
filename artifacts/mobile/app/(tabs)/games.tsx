@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import BetModal, { type BetWallet, type SlipExtras } from "@/components/BetModal";
 import GameCard, { type MyPosition } from "@/components/GameCard";
+import LiveFlashCard from "@/components/LiveFlashCard";
 import FeaturedGameCard, { pickFeatured } from "@/components/FeaturedGameCard";
 import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
 import TailSheet from "@/components/TailSheet";
@@ -48,9 +49,11 @@ import { quoteMarket, weekKey, type Market, type Selection } from "@/lib/markets
 import { SPORTS, sideOdds, type Game, type Side } from "@/types/game";
 
 const ALL = "ALL";
+const LIVE_ONLY = "LIVE";
 
 type Row =
   | { kind: "section"; id: string; title: string; live?: boolean }
+  | { kind: "liveBanner"; id: string; count: number }
   | { kind: "game"; id: string; game: Game }
   | { kind: "ad"; id: string }
   | { kind: "thin"; id: string };
@@ -146,12 +149,17 @@ export default function GamesScreen() {
 
   // Thin banners only for players with a real social graph (10+ friends or leagues).
   const thinOn = AD_POLICY.boardThinBanners && (friends.length > 10 || leagues.length > 10);
+  useEffect(() => {
+    if (sport === LIVE_ONLY && live.length === 0) setSport(ALL);
+  }, [sport, live.length]);
+
   const rows: Row[] = useMemo(() => {
     const q = deferredQuery.trim().toLowerCase();
     const teamHit = (t: { name: string; abbreviation: string }) => t.name.toLowerCase().includes(q) || t.abbreviation.toLowerCase().includes(q);
-    const match = (g: Game) => (deferredSport === ALL || g.sport === deferredSport) && (!q || teamHit(g.homeTeam) || teamHit(g.awayTeam));
+    const isLiveFilter = deferredSport === LIVE_ONLY;
+    const match = (g: Game) => (deferredSport === ALL || isLiveFilter || g.sport === deferredSport) && (!q || teamHit(g.homeTeam) || teamHit(g.awayTeam));
     const l = live.filter(match);
-    const u = upcoming.filter(match);
+    const u = isLiveFilter ? [] : upcoming.filter(match);
     const out: Row[] = [];
     let seen = 0;
     let ads = 0;
@@ -182,7 +190,8 @@ export default function GamesScreen() {
     };
     if (l.length) {
       flush();
-      out.push({ kind: "section", id: "sec-live", title: "Live Now", live: true });
+      out.push({ kind: "section", id: "sec-live", title: `Live Now · ${l.length}`, live: true });
+      out.push({ kind: "liveBanner", id: "live-betting-banner", count: l.length });
       l.forEach(pushGame);
     }
     let lastDay = "";
@@ -214,8 +223,8 @@ export default function GamesScreen() {
     return pickFeatured(pool, boardSides, favs, Date.now());
   }, [upcoming, deferredSport, boardSides, profile?.favoriteTeams]);
 
-  // The game of the day steps aside while searching.
-  const featuredShown = !!featured && !deferredQuery.trim();
+  // The game of the day steps aside while searching or filtering to Live.
+  const featuredShown = !!featured && !deferredQuery.trim() && deferredSport !== LIVE_ONLY;
 
   const openBetSheet = useCallback(
     (game: Game, side: Side, friend?: boolean, market?: Market, selection?: Selection) => {
@@ -233,6 +242,7 @@ export default function GamesScreen() {
     [openBetSheet]
   );
   const onCardChallenge = useCallback((g: Game, s: Side) => openBetSheet(g, s, true), [openBetSheet]);
+  const onCardLiveBet = useCallback((g: Game) => openGameCenter(g.id, "live"), []);
 
   const onChallengeSent = useCallback(
     (sent: { friendName: string; teamAbbr: string; teamColor: string; stake: number; pot: number }) => {
@@ -511,6 +521,9 @@ export default function GamesScreen() {
           onChange={handleSportChange}
           options={[
             { value: ALL, label: "All", icon: "trophy-outline" as const },
+            ...(live.length > 0
+              ? [{ value: LIVE_ONLY, label: `Live (${live.length})`, icon: "flash" as const, color: colors.live }]
+              : []),
             ...SPORTS.map((sp) => ({ value: sp, label: sp, icon: SPORT_ICONS[sp] as never, color: SPORT_COLORS[sp] })),
           ]}
         />
@@ -599,6 +612,26 @@ export default function GamesScreen() {
               <SponsoredCard compact style={styles.adRow} />
             ) : item.kind === "thin" ? (
               <BannerSlot thin style={styles.adRow} />
+            ) : item.kind === "liveBanner" ? (
+              <LiquidGlass
+                variant="tile"
+                tintColor={colors.alpha(colors.live, colors.isDark ? 0.16 : 0.1)}
+                borderColor={colors.alpha(colors.live, 0.45)}
+                style={styles.liveBannerWrap}
+                contentStyle={styles.liveBanner}
+              >
+                <View style={[styles.liveBannerIcon, { backgroundColor: colors.alpha(colors.live, 0.22) }]}>
+                  <MaterialCommunityIcons name="flash" size={17} color={colors.live} />
+                </View>
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Text style={[styles.liveBannerTitle, { color: colors.foreground }]}>
+                    Live Betting Open · Flash Picks
+                  </Text>
+                  <Text style={[styles.liveBannerSub, { color: colors.mutedForeground }]}>
+                    3 free live picks/day (+200 credits each), then 1.91x quick-stake live bets.
+                  </Text>
+                </View>
+              </LiquidGlass>
             ) : item.kind === "section" ? (
               <View style={styles.sectionHeaderWrap}>
                 <LiquidGlass
@@ -615,12 +648,15 @@ export default function GamesScreen() {
                   <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{item.title}</Text>
                 </LiquidGlass>
               </View>
+            ) : deferredSport === LIVE_ONLY ? (
+              <LiveFlashCard game={item.game} onOpenGame={onCardLiveBet} />
             ) : (
               <GameCard
                 tourKey={item.game.id === firstGameId ? "first" : item.game.id === secondGameId ? "second" : undefined}
                 game={item.game}
                 onBet={onCardBet}
                 onChallenge={onCardChallenge}
+                onLiveBet={onCardLiveBet}
                 onOpenDetail={touring ? undefined : setDetail}
                 position={positions.get(item.game.id) ?? null}
                 leagueMembers={boardSides.get(item.game.id)}
@@ -857,6 +893,23 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
+  liveBannerWrap: { marginBottom: 10 },
+  liveBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  liveBannerIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  liveBannerTitle: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.2 },
+  liveBannerSub: { fontSize: 11.5, fontFamily: "Inter_500Medium", lineHeight: 16 },
   adRow: { marginBottom: 10 },
   sectionTitle: { fontSize: 15, fontFamily: "Inter_800ExtraBold" },
   skeletonWrap: { marginBottom: 10 },

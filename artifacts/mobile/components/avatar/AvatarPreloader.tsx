@@ -4,6 +4,7 @@ import { useApp } from "@/context/AppContext";
 import { useCatalog } from "@/hooks/useCatalog";
 import { baseEntry } from "@/lib/avatar3d/assets";
 import { loadAsset } from "@/lib/avatar3d/loader";
+import { avatarJob, requestPortrait } from "@/lib/avatar3d/portraits";
 import { resolveOutfit } from "@/lib/avatar3d/outfit";
 import { loadGarments, loadParts } from "@/lib/avatar3d/useAvatarAssets";
 
@@ -32,7 +33,13 @@ export default function AvatarPreloader() {
       done.current = sig;
       void loadAsset({ key: baseEntry(look.base).key }).catch(() => {});
       void loadParts(look);
-      if (catalogReady) void loadGarments(resolveOutfit(equipped ?? {}, byId).pieces);
+      if (catalogReady) {
+        const outfit = resolveOutfit(equipped ?? {}, byId);
+        void loadGarments(outfit.pieces);
+        // The bet-result popup shows your character as a large still: have it drawn before a result
+        // arrives, so it never opens on the flat stand-in.
+        requestPortrait(avatarJob(look, outfit, "hero"));
+      }
     }, 50);
     return () => clearTimeout(task);
   }, [avatar, equipped, byId, catalogReady]);

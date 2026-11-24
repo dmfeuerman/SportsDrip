@@ -37,7 +37,7 @@ const FRESH_MS = 7 * 24 * 3_600_000;
  * plays once per account, not once per device.
  */
 export default function TrophyCelebrationHost() {
-  const { notifications, markRead } = useNotifications();
+  const { notifications, markRead, popup, recap } = useNotifications();
   const now = Date.now();
   const pending = useMemo(
     () =>
@@ -48,7 +48,7 @@ export default function TrophyCelebrationHost() {
     [notifications]
   );
   const n = pending[0] ?? null;
-  const myTurn = useOverlayTurn("trophy", !!n, OVERLAY.trophy);
+  const myTurn = useOverlayTurn("trophy", !!n && !popup && recap.length === 0, OVERLAY.trophy);
   if (!n || !myTurn) return null;
   return <TrophyCelebration key={n.id} n={n} onClose={() => markRead([n.id])} />;
 }

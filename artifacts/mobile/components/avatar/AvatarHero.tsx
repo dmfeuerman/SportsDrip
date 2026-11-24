@@ -3,7 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { haptic as buzz } from "@/lib/motion";
 import { reportChallengeAction } from "@/lib/api";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { Pressable } from "@/components/fx/Tap";
 import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import AvatarDisplay from "@/components/AvatarDisplay";
@@ -41,6 +41,7 @@ export default function AvatarHero({
   active = true,
   loadingSpinner = false,
   onGesture,
+  cropBottom = 0,
   style,
 }: {
   /** null while the profile is still loading. */
@@ -74,6 +75,13 @@ export default function AvatarHero({
   loadingSpinner?: boolean;
   /** True while a spin / pinch owns the touch, so the parent can pause scrolling. */
   onGesture?: (active: boolean) => void;
+  /**
+   * Cards only: trims this many points off the bottom of the card. The stage
+   * keeps its full height behind the clip, so the character stays the same
+   * size and position; only floor is cut (the footer and dance button move up
+   * with the edge).
+   */
+  cropBottom?: number;
   style?: StyleProp<ViewStyle>;
 }) {
   const c = useColors();
@@ -121,6 +129,7 @@ export default function AvatarHero({
         bleed ? styles.heroBleedWrap : styles.heroShadow,
         { backgroundColor: bleed ? c.background : c.elevated },
         bleed && { height: heroH },
+        !bleed && cropBottom > 0 && { height: AVATAR_HERO_HEIGHT - cropBottom },
         style,
       ]}
     >
@@ -132,6 +141,7 @@ export default function AvatarHero({
           : { backgroundColor: c.elevated, borderColor: c.isDark ? "rgba(125, 175, 235, 0.28)" : c.alpha(c.primary, 0.28) },
       ]}
     >
+      <View style={[StyleSheet.absoluteFill, !bleed && cropBottom > 0 && { bottom: -cropBottom }]} pointerEvents="box-none">
       <ZoomingBackdrop
         id={background}
         cam={cam}
@@ -156,27 +166,23 @@ export default function AvatarHero({
         </>
       ) : null}
       <View style={styles.avatar}>
-        {avatar ? (
-          <AvatarDisplay
-            avatar={avatar}
-            equipped={equipped ?? {}}
-            catalog={catalog}
-            size="lg"
-            controls={false}
-            onGesture={onGesture}
-            focus="hero"
-            move={move}
-            active={active}
-            backdropCam={cam}
-            insets={stageInsets}
-            onTap={onTapCharacter}
-            loadingSpinner={loadingSpinner}
-          />
-        ) : (
-          <View style={styles.loading}>
-            <ActivityIndicator color={c.mutedForeground} />
-          </View>
-        )}
+        {/* Null while the profile loads: the stage shows its spinner, never a stand-in body. */}
+        <AvatarDisplay
+          avatar={avatar}
+          equipped={equipped ?? {}}
+          catalog={catalog}
+          size="lg"
+          controls={false}
+          onGesture={onGesture}
+          focus="hero"
+          move={move}
+          active={active}
+          backdropCam={cam}
+          insets={stageInsets}
+          onTap={onTapCharacter}
+          loadingSpinner={loadingSpinner}
+        />
+      </View>
       </View>
       {avatar && picking ? (
         <>

@@ -21,7 +21,7 @@ import AvatarBackdrop from "@/components/avatar/AvatarBackdrop";
 import MoveCard from "@/components/MoveCard";
 import BackgroundCard from "@/components/BackgroundCard";
 import StarterKitCard from "@/components/StarterKitCard";
-import { TourTarget } from "@/components/tour/TourTarget";
+import { TourTarget, useTourScroll } from "@/components/tour/TourTarget";
 import { tourEvent, useTourState } from "@/lib/tour/store";
 import { MAX_LOADOUT } from "@/constants/moves";
 import { useMoves, type StoreMove } from "@/hooks/useMoves";
@@ -140,6 +140,8 @@ export default function CustomizeScreen() {
   const [cheer, setCheer] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const catScroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const panelScroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const panelTour = useTourScroll(panelScroll);
   const pendingNav = useRef<unknown>(null);
 
   // Follow the server copy until the user starts editing (first load, or a
@@ -431,7 +433,7 @@ export default function CustomizeScreen() {
     setBusyId(null);
   };
 
-  // Free starter kit: wearing it puts it in the cart (see the cart effect above).
+  // Free starter kit: puts it on and in the cart.
   const starterMissing = useMemo(
     () => STARTER_ITEMS.filter((id) => !owned.has(id)).map((id) => byId.get(id)).filter((i): i is NonNullable<typeof i> => !!i),
     [owned, byId]
@@ -440,6 +442,7 @@ export default function CustomizeScreen() {
     buzz.medium();
     touched.current = true;
     setEquipped((e) => ({ ...e, ...Object.fromEntries(starterMissing.map((i) => [i.slot, i.id])) }));
+    for (const i of starterMissing) if (!cart.has(i.id)) cart.add(i.id);
   };
 
   const focus = CATS.find((x) => x.id === cat)!.focus;
@@ -585,7 +588,8 @@ export default function CustomizeScreen() {
 
       {/* panel */}
       <TourTarget id="shop.list" style={styles.fill}>
-      <ScrollView style={styles.fill} contentContainerStyle={[styles.panel, { paddingBottom: insets.bottom + (unowned.length ? 96 : 28) }]} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={panelScroll} onScroll={panelTour.onScroll} scrollEventThrottle={panelTour.scrollEventThrottle} style={styles.fill} contentContainerStyle={[styles.panel, { paddingBottom: insets.bottom + (unowned.length ? 96 : 28) }]} showsVerticalScrollIndicator={false}>
+        <panelTour.Provider>
         {activeCat === "body" && (
           <>
             <Chips label="Body" options={BODY_FRAMES} value={avatar.bodyFrame ?? "masc"} onChange={(bodyFrame) => edit({ bodyFrame })} />
@@ -639,9 +643,7 @@ export default function CustomizeScreen() {
         )}
 
         {isSlot(activeCat) && starterMissing.length ? (
-          <TourTarget id="shop.starterKit">
-            <StarterKitCard items={starterMissing} inCart={starterMissing.every((i) => cart.has(i.id))} onAdd={addStarterKit} />
-          </TourTarget>
+          <StarterKitCard items={starterMissing} inCart={starterMissing.every((i) => cart.has(i.id))} onAdd={addStarterKit} />
         ) : null}
 
         {activeCat === "moves" && (
@@ -709,6 +711,7 @@ export default function CustomizeScreen() {
           />
         )}
 
+        </panelTour.Provider>
       </ScrollView>
       </TourTarget>
 

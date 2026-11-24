@@ -2,12 +2,14 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Platform, View, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from "react-native";
 import { registerScrollTop, registerTarget, tourPressed } from "@/lib/tour/store";
 
-type ScrollBy = (dy: number) => void;
-const TourScrollContext = createContext<ScrollBy | undefined>(undefined);
+type MeasureCb = (x: number, y: number, w: number, h: number) => void;
+type ScrollCtx = { scrollBy: (dy: number) => void; measureList: (cb: MeasureCb) => void };
+const TourScrollContext = createContext<ScrollCtx | undefined>(undefined);
 
 type Scrollable = {
   scrollTo?: (o: { y: number; animated?: boolean }) => void;
   scrollToOffset?: (o: { offset: number; animated?: boolean }) => void;
+  measureInWindow?: (cb: MeasureCb) => void;
 };
 
 /**
@@ -18,8 +20,8 @@ export function useTourScroll(ref: React.RefObject<Scrollable | null>, onScrollE
   const y = useRef(0);
   const extra = useRef(onScrollExtra);
   extra.current = onScrollExtra;
-  const scrollBy = useCallback<ScrollBy>(
-    (dy) => {
+  const scrollBy = useCallback(
+    (dy: number) => {
       const to = Math.max(0, y.current + dy);
       const list = ref.current;
       if (list?.scrollToOffset) list.scrollToOffset({ offset: to, animated: true });
@@ -41,12 +43,21 @@ export function useTourScroll(ref: React.RefObject<Scrollable | null>, onScrollE
     y.current = e.nativeEvent.contentOffset.y;
     extra.current?.(e);
   }, []);
+  const measureList = useCallback(
+    (cb: MeasureCb) => {
+      const list = ref.current;
+      if (typeof list?.measureInWindow === "function") list.measureInWindow(cb);
+      else cb(0, 0, 0, 0);
+    },
+    [ref]
+  );
+  const ctx = useMemo(() => ({ scrollBy, measureList }), [scrollBy, measureList]);
   const Provider = useMemo(
     () =>
       function TourScrollProvider({ children }: { children: React.ReactNode }) {
-        return <TourScrollContext.Provider value={scrollBy}>{children}</TourScrollContext.Provider>;
+        return <TourScrollContext.Provider value={ctx}>{children}</TourScrollContext.Provider>;
       },
-    [scrollBy]
+    [ctx]
   );
   return { onScroll, scrollEventThrottle: 32, Provider };
 }
@@ -57,8 +68,8 @@ export function useTourScroll(ref: React.RefObject<Scrollable | null>, onScrollE
  */
 export function TourTarget({ id, children, style }: { id: string; children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   const ref = useRef<React.ComponentRef<typeof View>>(null);
-  const scrollBy = useContext(TourScrollContext);
-  useEffect(() => registerTarget(id, { ref, scrollBy }), [id, scrollBy]);
+  const scroll = useContext(TourScrollContext);
+  useEffect(() => registerTarget(id, { ref, scrollBy: scroll?.scrollBy, measureList: scroll?.measureList }), [id, scroll]);
 
   // A tap, not a scroll that happened to start here.
   const start = useRef<{ x: number; y: number } | null>(null);

@@ -57,8 +57,10 @@ interface Props {
   locked?: boolean;
   /** Tapping the "League is on this" chip (opens the tail sheet). */
   onLeaguePress?: (game: Game) => void;
-  /** Head-to-head with a friend on the picked side (opens the slip in friend mode). */
+  /** No longer used by the card: one tap opens the slip, whose Challenge Friend toggle covers this. */
   onChallenge?: (game: Game, side: Side) => void;
+  /** Opens live betting (Flash Picks in Game Center) for an in-progress game. */
+  onLiveBet?: (game: Game) => void;
   /** Tutorial handle: "first" / "second" mark this card's odds and buttons as tour targets. */
   tourKey?: string;
 }
@@ -70,7 +72,7 @@ function MaybeTarget({ id, style, children }: { id?: string; style?: object; chi
 
 type Pick = { side: Side; market: Market; selection: Selection; label: string };
 
-function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, onLeaguePress, onChallenge, tourKey }: Props) {
+function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, onLeaguePress, onLiveBet, tourKey }: Props) {
   const tid = (part: string) => (tourKey ? `game.${tourKey}.${part}` : undefined);
   const c = useColors();
   const oddsFormat = useOddsFormat();
@@ -93,6 +95,11 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
   useEffect(() => {
     if (isLocked) setPick(null);
   }, [isLocked]);
+  // Highlighting only exists while a parlay is being built.
+  const building = parlay.legs.length > 0;
+  useEffect(() => {
+    if (!building) setPick(null);
+  }, [building]);
   const isPicked = (market: Market, selection: Selection) => pick?.market === market && pick.selection === selection;
 
   function handleBet(side: Side, market: Market = "ml", selection?: Selection, label?: string) {
@@ -102,6 +109,12 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
       return;
     }
     const sel = selection ?? side;
+    // One tap opens the slip. Stake, Challenge Friend and Add to Parlay are all on it.
+    if (!building) {
+      buzz.medium();
+      onBet(game, side, market, sel);
+      return;
+    }
     buzz.tick();
     const next = pick && pick.market === market && pick.selection === sel ? null : { side, market, selection: sel, label: label ?? (side === "home" ? game.homeTeam.abbreviation : game.awayTeam.abbreviation) };
     setPick(next);
@@ -132,8 +145,8 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
     >
       <LiquidGlass
         variant="card"
-        borderColor={position ? c.alpha(c.primary, 0.5) : undefined}
-        borderWidth={position ? 1.25 : 1}
+        borderColor={position ? c.alpha(c.primary, 0.5) : game.status === "live" && !game.disrupted ? c.alpha(c.live, 0.45) : undefined}
+        borderWidth={position || (game.status === "live" && !game.disrupted) ? 1.25 : 1}
         contentStyle={styles.card}
       >
       <Header game={game} c={c} />
@@ -141,7 +154,9 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
       <MaybeTarget id={tid("odds")} style={styles.teams}>
         <View style={styles.colHead} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           <Text style={[styles.colLabel, { color: c.subtleForeground }]}>MONEYLINE · WHO WINS</Text>
-          <Text style={[styles.colLabel, styles.colOdds, { color: c.subtleForeground }]}>TAP TO PICK</Text>
+          <Text style={[styles.colLabel, styles.colOdds, { color: c.subtleForeground }]}>
+            {game.status === "live" ? "PRE-GAME" : building ? "TAP TO ADD" : "TAP TO BET"}
+          </Text>
         </View>
         <TeamRow
           sport={game.sport}
@@ -228,8 +243,8 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
             Your Pick: <Text style={{ color: c.primary }}>{pick.label}</Text>
           </Text>
           <View style={styles.ctaRow}>
-            {parlay.legs.length ? (
-              // A parlay is being built: picks can only go on it (or the parlay is called off).
+            {/* A parlay is being built: picks can only go on it (or the parlay is called off). */}
+            {building ? (
               <>
                 <MaybeTarget id={tid("parlay")} style={{ flex: 1.3 }}>
                 <Button
@@ -254,55 +269,46 @@ function GameCard({ game, onBet, onOpenDetail, position, leagueMembers, locked, 
                   }}
                 />
               </>
-            ) : (
-              <>
-            <MaybeTarget id={tid("bet")} style={{ flex: 1.3 }}>
-            <Button
-              label="Choose Bet Amount"
-              icon="cash-multiple"
-              size="sm"
-              accessibilityHint="Opens the bet slip to choose how much to stake"
-              onPress={() => {
-                buzz.medium();
-                onBet(game, pick.side, pick.market, pick.selection);
-                setPick(null);
-              }}
-            />
-            </MaybeTarget>
-            <MaybeTarget id={tid("parlay")} style={{ flex: 0.9 }}>
-            <Button
-              label="+ Parlay"
-              icon="link-variant"
-              size="sm"
-              variant="secondary"
-              accessibilityHint="Starts a parlay with this pick"
-              onPress={addToParlay}
-            />
-            </MaybeTarget>
-            {onChallenge && pick.market === "ml" ? (
-              <Button
-                label="Select Friend"
-                icon="sword-cross"
-                size="sm"
-                variant="secondary"
-                style={{ flex: 1 }}
-                accessibilityHint="Pick a friend to challenge, then choose the amount"
-                onPress={() => {
-                  onChallenge(game, pick.side);
-                  setPick(null);
-                }}
-              />
             ) : null}
-              </>
-            )}
           </View>
         </View>
+      ) : null}
+
+      {game.status === "live" && !game.disrupted && onLiveBet ? (
+        <PressableScale
+          scaleTo={0.97}
+          onPress={() => {
+            buzz.medium();
+            onLiveBet(game);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`Live Flash Pick for ${game.awayTeam.abbreviation} at ${game.homeTeam.abbreviation}. Call who scores next to win 20 credits`}
+        >
+          <View style={[styles.liveBetCta, { backgroundColor: c.alpha(c.live, 0.14), borderColor: c.alpha(c.live, 0.52) }]}>
+            <View style={[styles.liveBetIcon, { backgroundColor: c.alpha(c.live, 0.22) }]}>
+              <MaterialCommunityIcons name="flash" size={16} color={c.live} />
+            </View>
+            <View style={{ flex: 1, gap: 1 }}>
+              <Text style={[styles.liveBetTitle, { color: c.foreground }]} numberOfLines={1}>
+                Live Flash Pick · Open
+              </Text>
+              <Text style={[styles.liveBetSub, { color: c.mutedForeground }]} numberOfLines={1}>
+                Who scores next? 3 free/day (+200) · 1.91x live
+              </Text>
+            </View>
+            <View style={[styles.liveBetPill, { backgroundColor: c.live }]}>
+              <Text style={styles.liveBetPillText}>Play Live</Text>
+              <MaterialCommunityIcons name="chevron-right" size={14} color="#FFFFFF" />
+            </View>
+          </View>
+        </PressableScale>
       ) : null}
 
       <Footer
         game={game}
         c={c}
         isLocked={isLocked}
+        hasLiveBet={game.status === "live" && !game.disrupted && !!onLiveBet}
         priced={priced}
         leagueMembers={leagueMembers}
         onLeaguePress={onLeaguePress ? () => onLeaguePress(game) : undefined}
@@ -611,7 +617,7 @@ function OddsButton({
 /** Team colour + abbreviation. Official logos aren't shown (trademarked). */
 function TeamMark({ team, sport, c: _c }: { team: TeamSide; sport: string; c: Colors }) {
   return (
-    <TeamCrest abbr={team.abbreviation} color={team.color} altColor={team.altColor} size={32} sport={sport} />
+    <TeamCrest abbr={team.abbreviation} name={team.name} color={team.color} altColor={team.altColor} size={32} sport={sport} />
   );
 }
 
@@ -637,6 +643,7 @@ function Footer({
   game,
   c,
   isLocked,
+  hasLiveBet = false,
   priced,
   leagueMembers,
   onLeaguePress,
@@ -644,6 +651,7 @@ function Footer({
   game: Game;
   c: Colors;
   isLocked: boolean;
+  hasLiveBet?: boolean;
   priced: boolean;
   leagueMembers?: LeagueActionMember[];
   onLeaguePress?: () => void;
@@ -657,7 +665,8 @@ function Footer({
   if (game.venue && game.status === "upcoming") bits.push(game.venue);
 
   const hasLeagueAction = !!leagueMembers && leagueMembers.length > 0;
-  if (bits.length === 0 && !isLocked && !noLine && !modelLine && !hasLeagueAction) return null;
+  const showClosedLabel = isLocked && game.status === "live" && !hasLiveBet;
+  if (bits.length === 0 && !showClosedLabel && !noLine && !modelLine && !hasLeagueAction) return null;
 
   return (
     <View style={styles.footer}>
@@ -693,8 +702,8 @@ function Footer({
       <Text style={[styles.meta, { color: c.subtleForeground, flex: 1 }]} numberOfLines={1}>
         {bits.join("   ")}
       </Text>
-      {isLocked && game.status === "live" && (
-        <Text style={[styles.meta, { color: c.mutedForeground }]}>Betting Closed</Text>
+      {showClosedLabel && (
+        <Text style={[styles.meta, { color: c.mutedForeground }]}>Pre-game Closed</Text>
       )}
       {modelLine && (
         <View
@@ -800,6 +809,34 @@ const styles = StyleSheet.create({
   avatarPip: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   avatarPipText: { color: "#fff", fontSize: 11, fontFamily: "Inter_800ExtraBold" },
   leagueOnText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+
+  liveBetCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  liveBetIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  liveBetTitle: { fontSize: 13, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.2 },
+  liveBetSub: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  liveBetPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  liveBetPillText: { color: "#FFFFFF", fontSize: 11.5, fontFamily: "Inter_800ExtraBold" },
 
   position: { flexDirection: "row", alignItems: "center", gap: 7, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   positionText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },

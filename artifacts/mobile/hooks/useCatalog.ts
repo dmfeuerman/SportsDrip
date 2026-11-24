@@ -1,9 +1,8 @@
-import { subscribeBundle } from "@/lib/bundles";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useBundle, type BundleItem } from "@/lib/bundleStore";
 import type { CatalogItem } from "@/types/catalog";
-import { getDb, getFirebaseAuth } from "@/lib/firebase";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { CONTROL, EXPERIMENTS, useExperiment } from "@/lib/experiments";
-import { firstAnswer } from "@/lib/devtrace";
 import { DEMO, demoCatalog } from "@/lib/demo";
 import { isLeavingSoon, windowState } from "@/lib/storeWindow";
 import { useNow } from "@/hooks/useNow";
@@ -27,43 +26,25 @@ export function storeOrder(a: { price: number; levelReward?: number | null }, b:
   return a.price - b.price;
 }
 
+const EMPTY: CatalogItem[] = [];
+const maps = new WeakMap<CatalogItem[], Map<string, CatalogItem>>();
+function byIdOf(all: CatalogItem[]) {
+  let map = maps.get(all);
+  if (!map) {
+    map = new Map();
+    for (const i of all) map.set(i.id, i);
+    maps.set(all, map);
+  }
+  return map;
+}
+
 export function useCatalog() {
-  const [all, setAll] = useState<CatalogItem[]>(DEMO ? demoCatalog : []);
-  const [loading, setLoading] = useState(!DEMO);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const db = getDb();
-    if (!db) {
-      setLoading(false);
-      return;
-    }
-
-    const answer = firstAnswer("catalog", () => {
-      setError("Can't reach the server. Check your connection.");
-      setLoading(false);
-    });
-    const unsub = subscribeBundle(
-      db,
-      "catalog",
-      (items) => {
-        answer.hit();
-        setAll(items as unknown as CatalogItem[]);
-        setError(null);
-        setLoading(false);
-      },
-      (err) => {
-        answer.hit();
-        setError(err.message);
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      answer.cancel();
-      unsub();
-    };
-  }, []);
+  // One shared listener and the phone's last copy (lib/bundleStore.ts): every
+  // screen has the catalog the moment it opens.
+  const bundle = useBundle("catalog", DEMO ? (demoCatalog as unknown as BundleItem[]) : null);
+  const all = (bundle.items as unknown as CatalogItem[] | null) ?? EMPTY;
+  const loading = bundle.loading;
+  const error = bundle.error;
 
   // Re-evaluated each minute so a window opening or closing updates the grid.
   const minute = Math.floor(useNow(60_000) / 60_000);
@@ -90,11 +71,8 @@ export function useCatalog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, minute, staticShop]);
 
-  const byId = useMemo(() => {
-    const map = new Map<string, CatalogItem>();
-    all.forEach((i) => map.set(i.id, i));
-    return map;
-  }, [all]);
+  // Shared per catalog copy, so every screen hands the avatar the same map.
+  const byId = useMemo(() => byIdOf(all), [all]);
 
   return { items, featured, leavingSoon, byId, loading, error };
 }

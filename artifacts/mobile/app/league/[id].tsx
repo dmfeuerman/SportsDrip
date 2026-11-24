@@ -24,6 +24,8 @@ import { LeagueLoanChatCard, LoanNegotiateModal } from "@/components/chat/Friend
 import BracketFill from "@/components/BracketFill";
 import CoopGoalCard from "@/components/CoopGoalCard";
 import TauntCard from "@/components/chat/TauntCard";
+import TauntPicker from "@/components/chat/TauntPicker";
+import { useSendTaunt } from "@/hooks/useSendTaunt";
 import GameQuickView, { type FollowIntent } from "@/components/GameQuickView";
 import TeamChips from "@/components/TeamChips";
 import { useChat } from "@/context/ChatContext";
@@ -446,10 +448,20 @@ function StandingsTab({
   const { profile: myProfile } = useApp();
   const fetched = usePublicProfiles(standings.map((s) => s.uid));
   const [subView, setSubView] = useState<"table" | "matchups" | "locks">("table");
+  // Your own row draws from the phone's copy (latest look, outfit changes still on their way up), not a fetched snapshot.
   const profiles = useMemo(() => {
-    if (!myProfile || !fetched[myProfile.uid]) return fetched;
-    return { ...fetched, [myProfile.uid]: { ...fetched[myProfile.uid]!, favoriteTeams: myProfile.favoriteTeams ?? [] } };
-  }, [fetched, myProfile]);
+    if (!myProfile || !standings.some((s) => s.uid === myProfile.uid)) return fetched;
+    const base = fetched[myProfile.uid];
+    return {
+      ...fetched,
+      [myProfile.uid]: {
+        ...(base ?? { uid: myProfile.uid, username: myProfile.username ?? "", displayName: myProfile.displayName ?? "" }),
+        avatar: myProfile.avatar,
+        equipped: myProfile.equipped ?? {},
+        favoriteTeams: myProfile.favoriteTeams ?? [],
+      },
+    };
+  }, [fetched, myProfile, standings]);
   const prizes = prizeSplit(league.pot, league.prizeDistribution, standings.length);
   const ended = league.status === "ended";
   const mine = league.results?.find((r) => r.memberId === uid);
@@ -736,18 +748,14 @@ function StandingsTab({
 
 function MatchupsSection({ league, matchups, uid }: { league: League; matchups: LeagueMatchupDoc[]; uid: string | null }) {
   const c = useColors();
-  const { profile } = useApp();
   const { show } = useToast();
-  const [sentTaunt, setSentTaunt] = useState<Record<string, boolean>>({});
-  const danceMove = profile?.moves?.[0] ?? "cheer";
-  const sendDance = async (matchupId: string, receiverUid: string) => {
-    buzz.tick();
-    try {
-      await api.sendTaunt({ scope: "league", leagueId: league.id, matchupId, receiverUid, moveId: danceMove });
-      setSentTaunt((m) => ({ ...m, [`${matchupId}_${receiverUid}`]: true }));
-    } catch (e) {
-      show({ kind: "warning", title: "Couldn't send", body: api.friendlyError(e) });
-    }
+  const sendTaunt = useSendTaunt();
+  /** The matchup opponent being taunted: pick the dance, and it's in league chat at once. */
+  const [tauntFor, setTauntFor] = useState<{ matchupId: string; uid: string; name: string } | null>(null);
+  const sendDance = (moveId: string) => {
+    if (!tauntFor) return;
+    const why = sendTaunt({ scope: "league", leagueId: league.id, matchupId: tauntFor.matchupId, receiverUid: tauntFor.uid, receiverName: tauntFor.name }, moveId);
+    if (why) show({ kind: "warning", title: "Couldn't send", body: why });
   };
   const nameOf = (id: string | null, fallback?: string) => {
     if (!id) return "BYE";
@@ -798,18 +806,22 @@ function MatchupsSection({ league, matchups, uid }: { league: League; matchups: 
               </View>
               {uid && p.winnerUid === uid && p.bUid ? (
                 <ActionChip
-                  label={sentTaunt[`${w.week}_${p.aUid === uid ? p.bUid : p.aUid}`] ? "Sent" : "Send a dance"}
+                  label="Send a dance"
                   icon="human-handsup"
                   chevron={false}
                   tone="league"
-                  disabled={!!sentTaunt[`${w.week}_${p.aUid === uid ? p.bUid : p.aUid}`]}
-                  onPress={() => void sendDance(w.week, p.aUid === uid ? p.bUid! : p.aUid)}
+                  onPress={() => {
+                    buzz.tick();
+                    const other = p.aUid === uid ? p.bUid! : p.aUid;
+                    setTauntFor({ matchupId: w.week, uid: other, name: nameOf(other) });
+                  }}
                 />
               ) : null}
             </View>
           ))}
         </Card>
       ))}
+      <TauntPicker visible={!!tauntFor} targetName={tauntFor?.name ?? ""} onClose={() => setTauntFor(null)} onPick={sendDance} />
     </View>
   );
 }
@@ -1495,7 +1507,7 @@ function ReactionBar({
 
 function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: League; loans: LeagueLoan[]; uid: string | null; me: Standing | null; tokens: number; now: number; closed: boolean }) {
   const c = useColors();
-  const { takeBankLoan, repayLoan, updateBankSettings } = useLeague();
+  const { takeBankLoan, repayLoan, updateBankSettings, requestReset } = useLeague();
   const isCreator = league.creatorId === uid;
   const [opening, setOpening] = useState(false);
   const ended = league.status === "ended";
@@ -1556,17 +1568,10 @@ function BankTab({ league, loans, uid, me, tokens, now, closed }: { league: Leag
             icon="restart"
             chevron={false}
             tone="league"
-            disabled={busy}
-            onPress={async () => {
-              setBusy(true);
+            onPress={() => {
+              buzz.success();
               setErr(null);
-              try {
-                await api.requestReset({ leagueId: league.id });
-              } catch (e) {
-                setErr(api.friendlyError(e));
-              } finally {
-                setBusy(false);
-              }
+              void requestReset(league.id);
             }}
           />
         ) : null}
@@ -1708,9 +1713,24 @@ function StimulusCard({ league, uid, now }: { league: League; uid: string | null
   const { stimulus } = useLeague();
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const open = league.stimulus && league.stimulus.expiresAt > now ? league.stimulus : null;
+  // Votes and withdrawals show the moment they're tapped; the server's copy takes over when it lands
+  // (or, if it refuses, the toast explains and this lapses back).
+  const [optVote, setOptVote] = useState<{ id: string; yes: boolean } | null>(null);
+  const [optCancel, setOptCancel] = useState<string | null>(null);
+  useEffect(() => {
+    if (!optVote && !optCancel) return;
+    const t = setTimeout(() => {
+      setOptVote(null);
+      setOptCancel(null);
+    }, 10_000);
+    return () => clearTimeout(t);
+  }, [optVote, optCancel]);
+  const serverOpen = league.stimulus && league.stimulus.expiresAt > now ? league.stimulus : null;
+  const open = serverOpen && serverOpen.id !== optCancel ? serverOpen : null;
   const needed = Math.floor(league.memberIds.length / 2) + 1;
-  const iVoted = !!(open && uid && open.votes.includes(uid));
+  const serverVoted = !!(open && uid && open.votes.includes(uid));
+  const iVoted = optVote && open && optVote.id === open.id ? optVote.yes : serverVoted;
+  const voteCount = open ? open.votes.length + (iVoted === serverVoted ? 0 : iVoted ? 1 : -1) : 0;
   const cooldownLeft = league.lastStimulusAt ? league.lastStimulusAt + 7 * 86_400_000 - now : 0;
   const act = async (key: string, fn: () => Promise<string | null>) => {
     setBusy(key);
@@ -1725,7 +1745,7 @@ function StimulusCard({ league, uid, now }: { league: League; uid: string | null
       <View style={styles.inline}>
         <MaterialCommunityIcons name="cash-plus" size={18} color={c.positive} />
         <Text style={[styles.cardTitle, { color: c.foreground, flex: 1 }]}>Stimulus Vote</Text>
-        {open ? <Pill label={`${open.votes.length}/${needed} yes`} tone="positive" /> : null}
+        {open ? <Pill label={`${voteCount}/${needed} yes`} tone="positive" /> : null}
       </View>
       {open ? (
         <>
@@ -1740,16 +1760,20 @@ function StimulusCard({ league, uid, now }: { league: League; uid: string | null
               variant={iVoted ? "secondary" : "primary"}
               icon={iVoted ? "undo" : "thumb-up-outline"}
               size="sm"
-              loading={busy === "vote"}
-              onPress={() => act("vote", () => stimulus({ leagueId: league.id, action: "vote", requestId: open.id, approve: !iVoted }))}
+              onPress={() => {
+                setOptVote({ id: open.id, yes: !iVoted });
+                void act("vote", () => stimulus({ leagueId: league.id, action: "vote", requestId: open.id, approve: !iVoted }));
+              }}
             />
             {open.uid === uid || league.creatorId === uid ? (
               <Button
                 label="Withdraw"
                 variant="ghost"
                 size="sm"
-                loading={busy === "cancel"}
-                onPress={() => act("cancel", () => stimulus({ leagueId: league.id, action: "cancel", requestId: open.id }))}
+                onPress={() => {
+                  setOptCancel(open.id);
+                  void act("cancel", () => stimulus({ leagueId: league.id, action: "cancel", requestId: open.id }));
+                }}
               />
             ) : null}
           </View>
@@ -2397,7 +2421,8 @@ function FeedTab({
                                 league.id,
                                 m.kind === "loan" && m.loanId ? "loan" : "message",
                                 m.kind === "loan" && m.loanId ? m.loanId : m.id,
-                                emoji
+                                emoji,
+                                myReaction
                               );
                               setActiveMenuMsgId(null);
                             }}

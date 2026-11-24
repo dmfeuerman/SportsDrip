@@ -7,12 +7,12 @@ import { resolveOutfit } from "@/lib/avatar3d/outfit";
 import { useAvatarDrawn } from "@/lib/bootSignal";
 import { bootTimeLeft } from "@/lib/bootGate";
 
-export const AVATAR_LOAD_TIMEOUT_MS = 30_000;
+export const AVATAR_LOAD_TIMEOUT_MS = 20_000;
 
 /**
  * Holds the splash until the signed-in player's avatar (base body, hair and
  * every equipped garment) is downloaded and the live character has drawn with
- * that look, or until 30 seconds have passed.
+ * that look, or until 20 seconds have passed.
  */
 export function useAvatarGate(
   avatar: unknown,

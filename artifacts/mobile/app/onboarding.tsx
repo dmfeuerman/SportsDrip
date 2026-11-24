@@ -39,6 +39,7 @@ import { clearPendingReferral, normalizeReferralCode, peekPendingReferral } from
 import { REFERRAL } from "@/constants/progression";
 import type { AvatarConfig } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
+import AvatarDisplay from "@/components/AvatarDisplay";
 
 type Step = "identity" | "appearance" | "teams" | "crew" | "welcome";
 const STEP_ORDER: Step[] = ["identity", "appearance", "teams", "crew", "welcome"];
@@ -240,6 +241,12 @@ export default function OnboardingScreen() {
     <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]}>
       <ObsidianBackdrop />
       <ProgressDots step={step} colors={colors} />
+      {/* Renders the unclothed still now, so the BRRRRR card on Home has it ready. */}
+      {step !== "identity" && step !== "appearance" ? (
+        <View pointerEvents="none" style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}>
+          <AvatarDisplay avatar={avatar} equipped={{}} catalog={catalog} size="sm" />
+        </View>
+      ) : null}
 
       {step === "identity" && (
         <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -446,7 +453,7 @@ export default function OnboardingScreen() {
             setPrimer(false);
             void enablePush().then((st) => {
               markPromptResult("push", st === "granted");
-              if (st === "granted") api.setAlertPrefs({ sweat: true }).catch(() => {});
+              api.setAlertPrefs({ sweat: true }).catch(() => {});
             });
             setStep("welcome");
           }}

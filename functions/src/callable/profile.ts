@@ -120,6 +120,8 @@ export const createProfile = onCall({ region: "us-central1" }, async (req) => {
       equipped: {},
       stats: { betsPlaced: 0, betsWon: 0, betsLost: 0, betsPush: 0, creditsWon: 0, creditsStaked: 0 },
       onboarded: true,
+      // Live sweat alerts are on by default; Settings turns them off.
+      sweatAlerts: true,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });

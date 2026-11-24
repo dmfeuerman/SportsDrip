@@ -35,17 +35,17 @@ const SLIDES: Slide[] = [
       {
         icon: "gift-outline",
         title: "Free Daily Bet",
-        desc: "Every day you open the app you get a free 100-credit bet on any upcoming game. Find it on Home, pick a side and press Lock In Bet. You keep the winnings; it costs you nothing.",
+        desc: "Every day you open the app you get a free 100-credit bet on any upcoming game. On Home, tap Use Now on the Daily Free Bet strip (or open the Prize Vault → Free Bet), pick a side and press Lock In Free Bet. You keep the winnings; it costs you nothing.",
       },
       {
         icon: "scoreboard-outline",
         title: "Moneylines, Spreads, Totals & Parlays",
-        desc: "Back NFL, NBA, MLB, NHL, NCAAF, NCAAB and Soccer. Every team shows its record, streak and last five. Tap + Parlay on a pick to stack 2 to 10 legs into one ticket.",
+        desc: "Back NFL, NBA, MLB, NHL, NCAAF, NCAAB and Soccer. Every team shows its record, streak and last five. Tap any price to open the bet slip, then Add to Parlay Instead to start a parlay; stack 2 to 10 legs into one ticket.",
       },
       {
         icon: "ticket-confirmation-outline",
         title: "Result Breakdowns",
-        desc: "Tap any bet on Home, Activity or a Player Profile for the full ticket. Open bets can be canceled there until kickoff.",
+        desc: "Tap My Bets on Home (or any bet in Activity or a Player Profile) for the full ticket. Open bets can be canceled there until kickoff.",
       },
     ],
   },
@@ -160,7 +160,7 @@ const SLIDES: Slide[] = [
       {
         icon: "treasure-chest",
         title: "Prize Boxes",
-        desc: "On Home, press Start timer on a Bronze, Silver or Gold box, open it when the timer's up, and spin for credits. Your streak adds a bonus.",
+        desc: "Tap the Prize Vault on Home, press Start Timer on a Bronze, Silver or Gold box, press Open Box when the timer's up, and spin for credits. Your streak adds a bonus.",
       },
       {
         icon: "star-four-points",

@@ -58,10 +58,22 @@ const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDispla
   { avatar, equipped, catalog, size = "lg", interactive = true, controls, onGesture, autoRotate = false, focus, cheerSignal, reaction, move, active, backdropCam, insets, onTap, loadingSpinner },
   ref
 ) {
-  const look = useMemo(() => normalizeAvatar(avatar), [avatar]);
+  // By content: the server's copy of the same look arriving after a local change isn't a new look.
+  const lookSig = avatar ? JSON.stringify(Object.entries(avatar).sort(([a], [b]) => (a < b ? -1 : 1))) : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const look = useMemo(() => normalizeAvatar(avatar), [lookSig]);
   const outfit = useResolvedOutfit(equipped ?? {}, catalog);
+  // Nothing to draw yet: no profile, or clothes on but the catalog that describes them hasn't
+  // arrived. Drawing now would show a bare default body that then dresses itself.
+  const waiting = !avatar || (catalog.size === 0 && Object.values(equipped ?? {}).some(Boolean));
 
   if (size !== "lg") {
+    if (waiting)
+      return (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <AvatarSilhouette skin={look.skinTone} framing={size === "xs" ? "bust" : "full"} />
+        </View>
+      );
     return <AvatarPortrait avatar={look} outfit={outfit} framing={size === "xs" ? "bust" : size === "hero" ? "hero" : "full"} />;
   }
 
@@ -86,6 +98,7 @@ const AvatarDisplay = forwardRef<AvatarStageHandle, Props>(function AvatarDispla
           insets={insets}
           onTap={onTap}
           loadingSpinner={loadingSpinner}
+          waiting={waiting}
         />
       </View>
     </GLBoundary>

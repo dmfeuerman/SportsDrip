@@ -209,9 +209,11 @@ export function NotificationProvider({
   const [boot] = useState(() => (DEMO ? coldStart(EMPTY_QUEUE, demoNotifications.filter((n) => !isSocial(n)), Date.now()) : null));
   const [queue, setQueue] = useState<QueueState>(boot?.state ?? EMPTY_QUEUE);
   const [recapIds, setRecapIds] = useState<string[]>(boot?.recap ?? []);
-  // The first snapshot after opening the app catches up on everything missed (coldStart);
-  // later ones only queue what's new.
-  const opened = useRef(!!boot);
+  // The first *server* snapshot after opening the app catches up on everything missed
+  // (coldStart, 7-day window); later ones only queue what's new. Stale AsyncStorage cache
+  // emits run coldStart too (for offline / already-cached unread popups) without consuming
+  // serverOpened, so won bets that settled >6h ago while away are never dropped by enqueue().
+  const serverOpened = useRef(!!boot);
   const [toastQueue, setToastQueue] = useState<QueueState>(EMPTY_QUEUE);
   // Bumped to re-attach the listener after it errors. Firestore never retries a
   // listener that has failed, so before this one permission blip at sign-in
@@ -221,21 +223,22 @@ export function NotificationProvider({
 
   const enabled = firebaseConfigured && !!uid && !DEMO;
 
-  const apply = useCallback((list: AppNotification[]) => {
+  const apply = useCallback((list: AppNotification[], fromCache = false) => {
     setLoaded(true);
-    // Polls return the same data most of the time; don't re-render for nothing.
     const sig = list.map((n) => `${n.id}:${n.read ? 1 : 0}:${n.createdAtMs}`).join("|");
-    if (sig === signature.current) return;
+    // Polls return the same data most of the time; don't re-render for nothing —
+    // unless this is the first live server confirmation after a cached read.
+    if (sig === signature.current && (fromCache || serverOpened.current)) return;
     signature.current = sig;
     const now = Date.now();
     const results = list.filter((n) => !isSocial(n));
     const social = list.filter(isSocial).map((n) => ({ ...n, popup: true }));
     setNotifications(list);
-    if (!opened.current) {
-      opened.current = true;
+    if (!serverOpened.current) {
+      if (!fromCache) serverOpened.current = true;
       setQueue((q) => {
         const r = coldStart(prune(q, results), results, now);
-        if (r.recap.length) setRecapIds(r.recap);
+        if (r.recap.length) setRecapIds((prev) => (prev.length ? prev : r.recap));
         return r.state;
       });
     } else {
@@ -256,7 +259,7 @@ export function NotificationProvider({
     if (lastUid.current === uid) return;
     lastUid.current = uid;
     signature.current = "";
-    opened.current = false;
+    serverOpened.current = false;
     setNotifications(NONE);
     setQueue(EMPTY_QUEUE);
     setToastQueue(EMPTY_QUEUE);
@@ -286,7 +289,7 @@ export function NotificationProvider({
         keep: (list) => list.sort((x, y) => (y.createdAtMs ?? 0) - (x.createdAtMs ?? 0)).slice(0, 60),
         fullEveryMs: 7 * 24 * 3_600_000,
       },
-      (list) => apply(list),
+      (list, meta) => apply(list, meta.fromCache),
       (err) => {
         const e = err as Error & { code?: string };
         if (__DEV__) console.warn(`[notifications] listener: ${e.code} — ${e.message}`);
@@ -299,7 +302,21 @@ export function NotificationProvider({
       }
     );
     cache.current = handle;
+    // Startup safety net: if the Firestore long-poll listener hasn't delivered a live
+    // server snapshot within 6s of mount, do a one-shot read so won bets still pop up
+    // well within 30s of app load.
+    const startupFallback = setTimeout(() => {
+      if (serverOpened.current) return;
+      void getDocs(query(col, orderBy("createdAtMs", "desc"), limit(30)))
+        .then((snap) => {
+          if (serverOpened.current) return;
+          const docs = snap.docs.map((d) => ({ ...(d.data() as Omit<AppNotification, "id">), id: d.id }));
+          apply(docs, false);
+        })
+        .catch(() => {});
+    }, 6_000);
     return () => {
+      clearTimeout(startupFallback);
       if (retry) clearTimeout(retry);
       handle.stop();
       if (cache.current === handle) cache.current = null;
@@ -316,20 +333,28 @@ export function NotificationProvider({
 
   /**
    * Safety net under the listener, for a channel that stalled silently: read
-   * the newest one, and re-attach only if the listener missed something.
+   * the newest one, and apply + re-attach if the listener missed something.
    */
   const probe = useCallback(async () => {
     if (!enabled) return;
     const db = getDb();
     if (!db || !uid) return;
     try {
-      const top = await getDocs(query(collection(db, "users", uid, "notifications"), orderBy("createdAtMs", "desc"), limit(1)));
+      const col = collection(db, "users", uid, "notifications");
+      const top = await getDocs(query(col, orderBy("createdAtMs", "desc"), limit(1)));
       const id = top.docs[0]?.id ?? null;
-      if (id !== newest.current) await refresh();
+      if (id !== newest.current) {
+        const recent = await getDocs(query(col, orderBy("createdAtMs", "desc"), limit(30)));
+        apply(
+          recent.docs.map((d) => ({ ...(d.data() as Omit<AppNotification, "id">), id: d.id })),
+          false
+        );
+        await refresh();
+      }
     } catch (err) {
       if (__DEV__) console.warn(`[notifications] probe: ${(err as { code?: string }).code ?? err}`);
     }
-  }, [enabled, uid, refresh]);
+  }, [enabled, uid, apply, refresh]);
 
   usePolling(probe, NOTIFICATION_POLL_MS, enabled);
 

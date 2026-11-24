@@ -230,7 +230,7 @@ export default function ParlayScreen() {
                 {howOpen ? (
                   <View style={{ gap: 8, marginTop: 8 }}>
                     {[
-                      ["numeric-1-circle", "Pick from different games", "Tap a price on a game, then “+ Parlay”. One pick per game, 2 to 10 legs."],
+                      ["numeric-1-circle", "Pick from different games", "Tap a price, then Add to Parlay on the slip. After that, each tap adds a leg. One pick per game, 2 to 10 legs."],
                       ["numeric-2-circle", "The prices multiply", "Two 2.00x legs make a 4.00x ticket. More legs, bigger payout — and harder to hit."],
                       ["numeric-3-circle", "Every leg has to win", "One losing leg loses the whole parlay. A push or a canceled game drops that leg and the price shrinks."],
                     ].map(([icon, t, d]) => (

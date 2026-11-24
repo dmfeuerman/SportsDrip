@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import ItemIcon from "@/components/avatar/ItemIcon";
+import { TourTarget } from "@/components/tour/TourTarget";
 import { Button } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type { CatalogItem } from "@/types/catalog";
@@ -31,6 +32,7 @@ export default function StarterKitCard({ items, inCart, onAdd }: { items: Catalo
           </View>
         ))}
       </View>
+      <TourTarget id="shop.starterKit">
       <Button
         label={inCart ? "In your cart" : "Add starter kit to cart"}
         icon={inCart ? "cart-check" : "cart-plus"}
@@ -38,6 +40,7 @@ export default function StarterKitCard({ items, inCart, onAdd }: { items: Catalo
         disabled={inCart}
         onPress={onAdd}
       />
+      </TourTarget>
     </View>
   );
 }

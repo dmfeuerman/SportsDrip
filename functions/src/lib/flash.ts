@@ -1,13 +1,16 @@
 /**
- * Flash picks: free "who scores next?" calls on a live game.
+ * Flash picks: "who scores next?" calls on a live game.
  *
- * No stake, a small fixed reward, hard caps per game and per day. In-play
- * betting is the feature most tied to harm in the gambling research, so this
- * stays free, small and rate-limited by design, and honours play limits.
+ * The first 3 live picks each day are free (0 stake, +200 credits reward).
+ * After those 3 free daily picks are used, players can place unlimited paid
+ * live picks using quick-action credit stakes at flat 1.91x (stake deducted
+ * up front and refunded on a push; 1 active pick per game at a time).
  */
+export const FLASH_FREE_PER_DAY = 3;
 export const FLASH_REWARD = 200;
-export const FLASH_PER_GAME = 3;
-export const FLASH_PER_DAY = 12;
+export const FLASH_PAID_ODDS = 1.91;
+export const FLASH_MIN_STAKE = 10;
+export const FLASH_MAX_STAKE = 5_000;
 
 export type FlashSide = "home" | "away";
 export type FlashOutcome = "won" | "lost" | "push";

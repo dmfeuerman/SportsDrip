@@ -7,18 +7,19 @@ import { firstAnswer } from "@/lib/devtrace";
 import { DEMO, demoGames } from "@/lib/demo";
 import { useNow } from "@/hooks/useNow";
 
+const MINUTE = 60_000;
 const HOUR = 3_600_000;
 
 /**
  * Whether a game still belongs on the board. The server cache only changes
  * when the provider reports a game, so one it stops reporting (postponed, or
- * a sync that wasn't running) can sit at "upcoming" or "live" for weeks.
- * An upcoming game more than 3 hours past its start, or a live one more than
- * 8 hours in, is stale.
+ * a sync that wasn't running) can sit at "upcoming" or "live" for hours.
+ * An upcoming game more than 15 minutes past its scheduled start, or a live
+ * one more than 8 hours in, is stale.
  */
 export function isCurrent(g: Pick<Game, "status" | "startsAt" | "expired">, now = Date.now()) {
   if (g.expired) return false;
-  if (g.status === "upcoming") return g.startsAt > now - 3 * HOUR;
+  if (g.status === "upcoming") return g.startsAt > now - 15 * MINUTE;
   if (g.status === "live") return g.startsAt > now - 8 * HOUR;
   return true;
 }

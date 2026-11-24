@@ -72,7 +72,7 @@ export default function BetLockedOverlay({ bet, onDone }: { bet: BetLockedInput;
         <Animated.View pointerEvents="none" style={[styles.ticket, { backgroundColor: c.elevated, borderColor: tint, shadowColor: tint }, cardStyle]}>
           <View style={[styles.stripe, { backgroundColor: bet.teamColor }]} />
           <View style={styles.head}>
-            <TeamCrest abbr={bet.teamAbbr} color={bet.teamColor} size={46} />
+            <TeamCrest abbr={bet.teamAbbr} name={bet.teamName} color={bet.teamColor} size={46} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.k, { color: c.mutedForeground }]}>YOUR PICK</Text>
               <Text style={[styles.team, { color: c.foreground }]} numberOfLines={1}>

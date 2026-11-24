@@ -160,7 +160,7 @@ function Side({ team, sport, abbr, name, color, alt, odds, pct }: { team: TeamSi
   const c = useColors();
   return (
     <View style={styles.side}>
-      <TeamCrest abbr={abbr} color={color} altColor={alt} size={54} sport={sport} />
+      <TeamCrest abbr={abbr} name={name} color={color} altColor={alt} size={54} sport={sport} />
       <Text style={[styles.name, { color: c.foreground }]} numberOfLines={1}>
         {name}
       </Text>

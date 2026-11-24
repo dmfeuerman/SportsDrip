@@ -219,6 +219,8 @@ function Body({
           onGesture={setAvatarGesture}
           background={isSelf ? myProfile?.background : p?.background}
           loadingSpinner
+          // Shorter card, same-size character (only floor is trimmed), so the bankroll shows without scrolling.
+          cropBottom={100}
           header={
             <>
               <View style={{ flex: 1, gap: 2 }}>

@@ -29,7 +29,9 @@ export type DanceId =
   | "disco_point"
   | "the_robot"
   | "the_floss"
-  | "champion_spin";
+  | "champion_spin"
+  /** Not sold: the cold, unclothed character in the first-run tutorial. */
+  | "shiver";
 
 /** How the face plays the move: a big open grin, a closed-mouth smile, or deadpan. */
 export type DanceFace = "grin" | "smile" | "cool";
@@ -608,6 +610,43 @@ const CHAMPION_SPIN: MoveSpec = {
   },
 };
 
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Shiver (tutorial only, not in the store): knees in, shoulders up, arms
+ * wrapped round the chest, the whole body trembling fast. Long, so the
+ * tutorial can loop it without the idle showing through.
+ * ────────────────────────────────────────────────────────────────────── */
+const SHIVER: MoveSpec = {
+  duration: 12.0,
+  face: "cool",
+  build(k, t) {
+    const p = k.pose();
+    const on = envelope(t, this.duration);
+    // Two shakes layered so it never reads as a clean oscillation.
+    const fast = Math.sin(TAU * 9 * t) * 0.7 + Math.sin(TAU * 13.3 * t + 1.1) * 0.3;
+    // A bigger shudder every ~1.6s.
+    const burst = Math.pow(Math.max(0, Math.sin(TAU * (t / 1.6))), 6);
+    const shake = fast * (0.55 + 0.45 * burst) * on;
+    // Knees together, weight low, a little bounce from the cold.
+    k.foot(p, "Left", V(-0.03 * on, 0, 0.01 * on), { yaw: -0.18 * on });
+    k.foot(p, "Right", V(0.03 * on, 0, 0.01 * on), { yaw: 0.18 * on });
+    p.hips.y -= (0.03 + 0.006 * Math.abs(shake)) * on;
+    p.hips.x += 0.004 * shake;
+    k.rot(p, "Hips", 0.06 * on, 0.02 * shake, 0.015 * shake);
+    // Hunched forward, chin tucked.
+    k.spineChain(p, (lag) => [0.16 * on, 0.03 * Math.sin(TAU * 9 * (t - lag)) * on, 0.02 * shake]);
+    k.rot(p, "Head", 0.14 * on, 0.04 * shake, 0.02 * shake);
+    for (const { s, g } of SIDE) {
+      // Shoulders up round the ears, chattering.
+      k.rot(p, `${s}Shoulder`, -0.12 * on, 0, g * (0.28 + 0.05 * shake) * on);
+      // Hands cross to the opposite upper arm: a tight self-hug.
+      const tremble = V(0.006 * shake * g, 0.008 * shake, 0);
+      k.hand(p, s, V(-0.3, -0.16, 0.2).add(tremble), V(0.9, -0.6, -0.2), on, V(-0.8, 0, -0.4));
+    }
+    return p;
+  },
+};
+
 export const DANCES: Record<DanceId, MoveSpec> = {
   two_step: TWO_STEP,
   hype_clap: HYPE_CLAP,
@@ -619,6 +658,7 @@ export const DANCES: Record<DanceId, MoveSpec> = {
   the_robot: THE_ROBOT,
   the_floss: THE_FLOSS,
   champion_spin: CHAMPION_SPIN,
+  shiver: SHIVER,
 };
 
 export const isDanceId = (id: string): id is DanceId => id in DANCES;
